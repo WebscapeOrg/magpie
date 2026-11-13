@@ -14,9 +14,9 @@ set -eu
 
 name=${1:-}
 case "$name" in
-  credentials.json|accounts.json|window.json|calendars.json|compose.json) ;;
+  credentials.json|accounts.json|window.json|calendars.json|compose.json|settings.json) ;;
   *)
-    printf '%s\n' 'usage: config-store.sh credentials.json|accounts.json|window.json|calendars.json|compose.json' >&2
+    printf '%s\n' 'usage: config-store.sh credentials.json|accounts.json|window.json|calendars.json|compose.json|settings.json' >&2
     exit 2
     ;;
 esac
@@ -26,10 +26,69 @@ umask 077
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 target_dir="$config_home/omamail"
 target="$target_dir/$name"
+[ ! -L "$target_dir" ] || {
+  printf '%s\n' 'refusing a symbolic link for the private config directory' >&2
+  exit 5
+}
 
 IFS= read -r payload
 if [ -z "$payload" ]; then
   exit 3
+fi
+
+if [ "$name" = credentials.json ]; then
+  printf '%s\n' "$payload" | python3 -c '
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+def validate_provider(value):
+    if not isinstance(value, dict):
+        return
+    provider = value.get("provider")
+    if provider is not None and (
+        not isinstance(provider, str) or provider.strip().lower() not in ("", "gmail")
+    ):
+        raise ValueError()
+
+def validate_record(value):
+    validate_provider(value)
+    if isinstance(value, dict):
+        for key in ("installed", "web"):
+            validate_provider(value.get(key))
+
+def validate(value):
+    if not isinstance(value, dict):
+        raise ValueError()
+    validate_record(value)
+    if isinstance(value.get("accounts"), list):
+        for account in value["accounts"]:
+            validate_record(account)
+
+def invalid_constant(value):
+    raise ValueError()
+
+def read_clients(source):
+    limit = 1024 * 1024
+    data = source.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError()
+    validate(json.loads(data.decode("utf-8"), parse_constant=invalid_constant))
+
+try:
+    read_clients(sys.stdin.buffer)
+    target = Path(sys.argv[1])
+    if os.path.lexists(target):
+        if not stat.S_ISREG(target.lstat().st_mode):
+            raise ValueError()
+        with target.open("rb") as source:
+            read_clients(source)
+except (OSError, ValueError, RecursionError):
+    print("refusing to replace unsupported or unreadable Google client settings", file=sys.stderr)
+    sys.exit(6)
+' "$target"
 fi
 
 # A plugin reload can briefly leave the retiring service with only its setup
@@ -58,7 +117,9 @@ fi
 mkdir -p "$target_dir"
 chmod 700 "$target_dir" 2>/dev/null || true
 
-tmp="$target.tmp.$$"
+tmp=$(mktemp "$target.tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
 printf '%s\n' "$payload" > "$tmp"
 chmod 600 "$tmp"
 mv -f "$tmp" "$target"

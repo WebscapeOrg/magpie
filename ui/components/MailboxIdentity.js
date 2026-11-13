@@ -1,4 +1,6 @@
 .pragma library
+
+.import "../message/Html.js" as Html
 function icon(label) {
   var name = String(label || "").toLowerCase()
   if (name === "personal") return "home"
@@ -12,5 +14,5 @@ function initial(sender) {
 }
 function image(value) {
   var text = String(value || "")
-  return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(text) ? text : ""
+  return Html.isRasterDataImage(text) ? text : ""
 }

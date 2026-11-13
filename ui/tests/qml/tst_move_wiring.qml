@@ -1,12 +1,12 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
+import "../../providers" as Providers
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
-// The move route through the real objects. Unit tests own each rule; this one
-// catches a forwarding argument or property dropped between App, Service and
-// MailAccount before the rule can see it.
+// Invariant: real App, Service and MailAccount objects preserve the move context
+// across forwarding boundaries that isolated model tests cannot exercise.
 Item {
   width: 900
   height: 600
@@ -28,29 +28,41 @@ Item {
     shell: fakeShell
   }
 
+  Component {
+    id: refusingClient
+    Providers.GmailApiClient {
+      auth: null
+      property var refusals: ({move:"Moving messages is unavailable for this account"})
+    }
+  }
+
   TestCase {
     name: "MoveWiring"
     when: windowShown
+    property var backendFixture: null
 
-    function initTestCase() { BackendFixture.markReady(mailService); NativeIntentFixture.install(mailService) }
+    function initTestCase() {
+      backendFixture = BackendFixture.markReady(mailService)
+      NativeIntentFixture.install(mailService)
+    }
 
     function named(item, objectName) {
       if (!item) return null
       if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = named(children[childIndex], objectName)
         if (found) return found
       }
       return null
     }
 
-    function installAccount(provider, id, email) {
+    function installAccount(email) {
       mailService.accountsLoaded = true
       mailService.accountList = ({
         version: 1,
-        accounts: [{ id: id, email: email, provider: provider }],
-        activeId: id
+        accounts: [{ id: email, email: email, provider: "gmail", clientId: "" }],
+        activeId: email
       })
       tryCompare(mailService, "accountCount", 1)
       tryVerify(function() { return mailService.current !== null }, 1000,
@@ -61,16 +73,16 @@ Item {
 
     function labelSlot(labelId) {
       var slots = app.sidebarSlots
-      for (var i = 0; i < slots.length; i++) {
-        if (slots[i].kind === "label" && slots[i].id === labelId) return i
+      for (var slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+        if (slots[slotIndex].kind === "label" && slots[slotIndex].id === labelId) return slotIndex
       }
       return -1
     }
 
-    function ids(labels) {
+    function labelIds(labels) {
       var result = []
-      for (var i = 0; i < labels.length; i++) result.push(labels[i].id)
-      return result.join(",")
+      for (var labelIndex = 0; labelIndex < labels.length; labelIndex++) result.push(labels[labelIndex].id)
+      return result
     }
 
     function init() {
@@ -86,7 +98,7 @@ Item {
     }
 
     function test_gmail_label_identity_reaches_the_picker_and_move_model() {
-      var account = installAccount("gmail", "me@example.com", "me@example.com")
+      var account = installAccount("me@example.com")
       account.mailboxKey = "starred"
       account.labels = [
         { id: "Label_3", name: "Bills", rawName: "Bills", system: false, unread: 0 },
@@ -100,7 +112,7 @@ Item {
       tryCompare(account, "rawLabelId", "Label_3")
       compare(mailService.rawLabelId, "Label_3")
       compare(mailService.rawQuery, "label:Bills")
-      compare(ids(named(app, "label-picker").matchingLabels), "Label_7",
+      compare(labelIds(named(app, "label-picker").matchingLabels), ["Label_7"],
         "the current label cannot trigger an optimistic removal that leaves it attached")
 
       account.auth.credentials = ({
@@ -111,8 +123,7 @@ Item {
       account.auth.toolsChecked = true
       account.auth.missingTools = []
       account.auth.loggedIn = true
-      // Hold the transport below the real action pipeline: the test needs the
-      // optimistic result, not a request to Google.
+      // Invariant: the optimistic action runs while provider transport stays pending.
       account.auth.refreshBusy = true
       tryCompare(account, "ready", true)
       account.messages = [
@@ -129,8 +140,7 @@ Item {
       verify(app.actOnCursor("label:Label_7"))
 
       tryCompare(account, "actionPreparations", 0)
-      tryCompare(mailService, "selectedId", "two")
-      compare(mailService.selectedId, "two",
+      tryCompare(mailService, "selectedId", "two", 5000,
         "the reader follows the action to the same next message as the cursor")
       compare(app.cursorId, "two",
         "App uses the raw query even though the old mailbox key is Starred")
@@ -139,32 +149,41 @@ Item {
       compare(account.messages[0].id, "two")
     }
 
-    function test_hey_refusal_crosses_the_real_service_before_the_picker() {
-      installAccount("hey", "hey:me@hey.com", "me@hey.com")
+    function test_gmail_account_refusal_crosses_the_real_service_before_the_picker() {
+      var account = installAccount("me@example.com")
+      account.clientOverride = refusingClient
+      tryCompare(account, "canMove", false)
+      account.messages = [{id:"message-1",labelIds:["INBOX"],subject:"One"}]
       app.cursorId = "message-1"
+      var before = JSON.stringify(account.messages)
+      var requestCount = backendFixture.requests.length
 
       compare(app.openLabelPicker(), false)
 
       compare(named(app, "label-picker").opened, false)
-      compare(mailService.actionStatus, "HEY has no destination you can name")
+      compare(mailService.actionStatus, "Moving messages is unavailable for this account")
+      compare(JSON.stringify(account.messages), before)
+      compare(account.actionPreparations, 0)
+      compare(account.pendingAction, "")
+      compare(backendFixture.requests.length, requestCount,
+        "a refused picker must not prepare an optimistic action or send a request")
     }
 
-    function test_imap_current_folder_is_not_a_uid_move_destination() {
-      var account = installAccount("imap", "imap:me@example.com", "me@example.com")
+    function test_current_gmail_label_is_not_its_own_move_destination() {
+      var account = installAccount("me@example.com")
       account.labels = [
-        { id: "Archive", name: "Archive", rawName: "Archive", system: false, unread: 0 },
-        { id: "Receipts", name: "Receipts", rawName: "Receipts", system: false, unread: 0 }
+        { id: "Label_Archive", name: "Archive", rawName: "Archive", system: false, unread: 0 },
+        { id: "Label_Receipts", name: "Receipts", rawName: "Receipts", system: false, unread: 0 }
       ]
 
-      // The ninth row on the rail: eight mailboxes come first, and the rail
-      // stops at nine because `Ctrl+0` is reset zoom.
-      var slot = labelSlot("Archive")
+      var slot = labelSlot("Label_Archive")
       verify(slot >= 0)
       app.goSlot(slot)
 
-      tryCompare(account, "rawLabelId", "Archive")
-      compare(ids(named(app, "label-picker").matchingLabels), "Receipts",
-        "the current folder cannot become a same-folder UID MOVE")
+      tryCompare(account, "rawLabelId", "Label_Archive")
+      compare(mailService.rawQuery, "label:Archive")
+      compare(labelIds(named(app, "label-picker").matchingLabels), ["Label_Receipts"],
+        "moving to the current Gmail label must not remove its message from the view")
     }
   }
 }

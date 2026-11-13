@@ -19,8 +19,11 @@ test "$output" = "Built $PWD/target/debug/omamail"
 output=$(cd "$root" && PATH="$root/bin:$PATH" DEV_TEST_LOG="$log" "$dev" run)
 test "$(cat "$log")" = "build --locked --manifest-path $PWD/Cargo.toml --target-dir $PWD/target --bin omamail"
 printf '%s\n' "$output" | grep -F "OMAMAIL_BIN=$PWD/target/debug/omamail"
-printf '%s\n' "$output" | grep -F "restart the existing Omarchy shell"
-printf '%s\n' "$output" | grep -F "omarchy shell shell toggle omamail '{}'"
+printf '%s\n' "$output" | grep -F "make app-run"
+if printf '%s\n' "$output" | grep -F "omarchy shell shell toggle"; then
+  echo "development instructions must open the native app, not a shell panel" >&2
+  exit 1
+fi
 
 if PATH="$root/bin:$PATH" DEV_TEST_LOG="$log" ./dev unknown >"$root/out" 2>"$root/err"; then
   echo "unknown command unexpectedly succeeded" >&2

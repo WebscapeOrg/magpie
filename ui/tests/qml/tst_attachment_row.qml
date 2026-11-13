@@ -35,21 +35,11 @@ Item {
     name: "AttachmentCard"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function test_filename_opens_the_listed_attachment() {
       tryCompare(attachmentLoader, "status", Loader.Ready)
-      var link = named(attachmentLoader.item, "attachment-open-button")
-      verify(link, "the attachment filename must be an identifiable control")
+      var link = attachmentLoader.item
+      compare(link.objectName, "attachment-open-button",
+        "the attachment filename must be an identifiable control")
 
       openSpy.clear()
       mouseClick(link, link.width / 2, link.height / 2)

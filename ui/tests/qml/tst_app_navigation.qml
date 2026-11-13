@@ -1,13 +1,11 @@
+import "../../settings/Display.js" as Display
+import "../../inbox/Readiness.js" as Readiness
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import qs.Commons
 import "../.." as Omamail
 
-// Where the window is, is a history. Every page is an entry on it, every Back
-// — the bar on a page, Escape, a draft closing — pops one, and the root is
-// what the window closes on. These are the rules `App.qml` applies on top of
-// `account/Navigation.js`, run against the real views with a fake service.
 Item {
   width: 1700
   height: 1300
@@ -37,11 +35,7 @@ Item {
     property string clientDescription: ""
     property string credentialsPath: ""
     property var credentials: null
-    property var settings: ({
-      imapHost: "imap.example.org", imapPort: 993,
-      smtpHost: "smtp.example.org", smtpPort: 465,
-      username: "", aliases: [], insecure: false
-    })
+
 
     function recheck() {}
     function saveCredentials() {}
@@ -53,7 +47,7 @@ Item {
     property int diagnosisCalls: 0
     function diagnoseError() { diagnosisCalls++; diagnosing = true }
 
-    property var displayPreferences: ({layout: "Split view"})
+    property var displayPreferences: Display.normalize({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool hasSavedAccounts: true
@@ -63,6 +57,7 @@ Item {
     property bool sidebarCollapsed: false
     property bool alwaysShowImages: false
     property bool unifiedCalendarView: false
+    property bool unified: false
     property bool selectedReaderEmpty: false
     property bool selectedReaderTooHeavy: false
     property bool selectedTooHeavy: false
@@ -84,13 +79,20 @@ Item {
     property int inboxUnread: 0
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property string pluginDir: ""
     property string accountEmail: "me@example.com"
     property string accountAddress: "me@example.com"
     property string activeAccountId: "me@example.com"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
+    property string contentDirection: "auto"
+    property bool searchAssistanceAvailable: false
+    property bool listLoading: false
+    property bool serverSearchLoading: false
+    property var searchOperators: [{operator:"from",values:["me"],example:"from:alex@example.com",description:"Sender"}]
+    property var searchLabels: []
+    property var searchStatus: ({})
     property string rawQuery: ""
     property string selectedId: ""
     property string lastError: ""
@@ -98,10 +100,11 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "imap", email: "me@example.com" }]
+    property var accountSummaries: [{ provider: "gmail", email: "me@example.com", active: true }]
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]
+    property var inboxTools: null
     property var selectedAttachments: []
     property var selectedInvite: null
     property var selectedResponse: ""
@@ -126,13 +129,14 @@ Item {
       log = next
     }
     function count(text) {
-      var n = 0
-      for (var i = 0; i < log.length; i++) if (log[i] === text) n++
-      return n
+      var matches = 0
+      for (var itemIndex = 0; itemIndex < log.length; itemIndex++) if (log[itemIndex] === text) matches++
+      return matches
     }
+    function accountEmailFor(_accountId) { return accountEmail }
     function editingIndex() { return 0 }
     function addAccount(provider) {
-      record("add:" + String(provider || ""))
+      record("add:gmail")
       accountCount += 1
       accountAdded()
     }
@@ -153,6 +157,8 @@ Item {
       searchQuery = String(query || "")
       record("search:" + searchQuery)
     }
+    function stopSearch() { record("stop-search") }
+    function retrySearch() { record("retry-search") }
     function preferredSendAs(_recipients) { return null }
     function refreshRecipientContacts() {}
     function cursorOffset(_id, _delta) { return "" }
@@ -168,7 +174,7 @@ Item {
       detailPainted = false
       detailLoading = true
     }
-    // What the fetch would deliver, delivered by the test when it wants it.
+
     function land() {
       detailLoading = false
       detailPainted = true
@@ -193,6 +199,7 @@ Item {
       callback("draft-1", "")
     }
     function refresh() {}
+    function openMagpieCalendar() { record("calendar"); return true }
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
     function act(id, action) {
@@ -202,9 +209,26 @@ Item {
     function refuseUnavailableAction(action) {
       record("guard:" + String(action || ""))
       if (!refuseMove) return false
-      note("HEY has no destination you can name")
+      note("Choose an account before moving this message")
       return true
     }
+  }
+
+  QtObject {
+    id: stackTools
+    property bool selecting: false
+    property bool paused: false
+    property var snoozes: []
+    property string holdText: ""
+    property bool descriptionsEnabled: true
+    property var visibleRows: []
+    property string hold: ""
+    property int writingCount: 2
+    property var rows: [{id:"one",subject:"One"},{id:"two",subject:"Two"}]
+    property var stack: Readiness.stack(rows, overviewFor, function() { return false }, Date.now(), !selecting)
+    function overviewFor(row) { return {state:"running"} }
+    function status(row) { return "writing" }
+    function avatarFor(row) { return "" }
   }
 
   Omamail.App {
@@ -221,29 +245,22 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
     }
 
-    // The first descendant the predicate accepts, wherever it sits.
     function having(item, accept) {
       if (!item) return null
       if (accept(item)) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = having(values[i], accept)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = having(values[itemIndex], accept)
         if (found) return found
       }
       return null
-    }
-
-    function backBar(item) {
-      return having(item, function(it) {
-        return it.label === "Back" && typeof it.activated === "function"
-      })
     }
 
     function page() {
@@ -254,19 +271,33 @@ Item {
 
     function kinds() { return app.navKinds.join(",") }
 
+    // Invariant: a test that stopped with a confirmation open must not leave it over the next one.
+    property var tip: null
+    function cleanup() {
+      var dialog = findChild(app, "delete-confirmation")
+      if (dialog && dialog.opened) dialog.close()
+      if (tip) { tip.destroy(); tip = null }
+      if (app.composing) app.back()
+    }
+
     function init() {
-      // A test that failed part way through its scales must not leave the next
+      // Invariant: A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
       Style.spacingScale = 1
-      mailService.displayPreferences = ({layout: "Split view"})
+      mailService.displayPreferences = Display.normalize({layout: "Split view"})
       mailService.log = []
       mailService.lastSavedDraft = null
       mailService.refuseMove = false
       mailService.accountCount = 1
-      mailService.providerId = "imap"
+      mailService.unified = false
+      mailService.providerId = "gmail"
       mailService.hasSavedAccounts = true
       mailService.anyAccountReady = true
       mailService.searchQuery = ""
+      mailService.searchAssistanceAvailable = false
+      mailService.searchStatus = ({})
+      mailService.listLoading = false
+      mailService.serverSearchLoading = false
       mailService.mailboxKey = "inbox"
       mailService.selectedId = ""
       mailService.selectedMessage = null
@@ -276,12 +307,37 @@ Item {
       fakeShell.hidden = []
       app.opened = true
       app.cursorId = ""
-      // The root a reset rebuilds is the one the window is on, so a test that
+      // Invariant: The root a reset rebuilds is the one the window is on, so a test that
       // ended on the calendar has to leave it first.
       app.backToList()
       app.resetNavigation()
       waitForRendering(app)
       compare(kinds(), "list", "every test starts on the list")
+    }
+
+    function test_reader_keeps_every_checked_waiting_message_without_binding_loop() {
+      failOnWarning(/Binding loop/)
+      var oldMessages=mailService.messages
+      try {
+        mailService.displayPreferences=Display.normalize({layout:"Single pane"})
+        mailService.inboxTools=stackTools
+        mailService.messages=Qt.binding(function() { return stackTools.stack.messages })
+        app.checkedAccountId=mailService.activeAccountId
+        app.checkedIds=["one","two"]
+        wait(20)
+        compare(mailService.messages.length,2)
+        app.openMessage("one")
+        wait(20)
+        compare(app.listOnScreen,false)
+        compare(app.checkedIds.join(","),"one,two")
+        compare(stackTools.selecting,true)
+        app.backToList()
+        compare(app.checkedIds.join(","),"one,two")
+      } finally {
+        app.checkedIds=[]
+        mailService.inboxTools=null
+        mailService.messages=oldMessages
+      }
     }
 
     function test_control_comma_opens_settings_data() {
@@ -333,36 +389,23 @@ Item {
       verify(settingsBack && settingsBack.visible, "Settings always has a Back: it is never a root")
 
       app.addMailbox()
-      compare(kinds(), "list,settings,picker")
-      waitForRendering(app)
-      verify(typeof page().chosen === "function", "the chooser is on the page")
-      // `visible` reads effective visibility: a chooser that exists inside a
-      // hidden page is a blank window, which is what Add a mailbox once was.
-      verify(page().visible, "and is drawn")
-
-      page().chosen("gmail")
-      compare(kinds(), "list,settings,picker,setup")
+      compare(kinds(), "list,settings,setup")
       compare(mailService.count("add:gmail"), 1, "a saved account exists, so Add makes a row")
-      compare(app.editingProvider, "gmail")
       verify(app.accountDraftOpen, "the row is a draft until it is saved")
       waitForRendering(app)
+      verify(page().visible, "the Gmail setup page is drawn")
+      verify(typeof page().signInNamed === "function")
       var back = named(app, "page-back")
-      verify(back && back.visible, "the form has a Back, because there is a chooser under it")
+      verify(back && back.visible)
 
       back.activated()
-      compare(kinds(), "list,settings,picker")
-      compare(mailService.count("discard"), 1, "backing out of a draft discards its row")
-
-      app.back()
       compare(kinds(), "list,settings")
+      compare(mailService.count("discard"), 1, "backing out of a draft discards its row")
       app.back()
       compare(kinds(), "list")
       compare(mailService.count("discard"), 1, "and only that once")
     }
 
-    // Settings opens over Drafts, whether a draft is being previewed or the
-    // list is showing, and stays open: nothing in the draft path resets the
-    // stack under it.
     function test_settings_opens_over_the_drafts_folder() {
       mailService.mailboxKey = "drafts"
       app.cursorId = "draft-7"
@@ -383,7 +426,7 @@ Item {
       mailService.mailboxKey = "inbox"
     }
 
-    // The menu's Settings row goes where the key goes. The row is activated
+    // Invariant: The menu's Settings row goes where the key goes. The row is activated
     // rather than clicked: the runner delivers no press into a popup's
     // overlay, so a click here would prove nothing either way.
     function test_the_menu_settings_row_opens_settings() {
@@ -394,8 +437,8 @@ Item {
       wait(60)
       verify(menu.opened)
       var row = null
-      for (var i = 0; i < menu.menuRows.length; i++)
-        if (menu.menuRows[i].objectName === "app-menu-settings") row = menu.menuRows[i]
+      for (var itemIndex = 0; itemIndex < menu.menuRows.length; itemIndex++)
+        if (menu.menuRows[itemIndex].objectName === "app-menu-settings") row = menu.menuRows[itemIndex]
       verify(row && row.visible, "the Settings row is drawn")
       row.activated()
       wait(60)
@@ -406,14 +449,93 @@ Item {
       mailService.mailboxKey = "inbox"
     }
 
+    function test_help_menu_opens_search_help_and_preserves_the_query_data() {
+      return [{tag:"return",key:Qt.Key_Return}, {tag:"enter",key:Qt.Key_Enter},
+        {tag:"space",key:Qt.Key_Space}]
+    }
+    function test_help_menu_opens_search_help_and_preserves_the_query(data) {
+      mailService.searchAssistanceAvailable = true
+      var search = findChild(app,"search-bar")
+      search.setQuery("from:sender@example.test")
+      var menu = findChild(app,"app-menu")
+      var trigger = findChild(app,"app-menu-button")
+      trigger.forceActiveFocus()
+      keyClick(Qt.Key_Space)
+      tryCompare(menu,"opened",true)
+      var help = findChild(menu,"app-menu-help")
+      verify(help.visible)
+      for (var step = 0; step < menu.menuRows.length && menu.menuRows[menu.cursorIndex] !== help; step++)
+        keyClick(Qt.Key_Down)
+      compare(menu.menuRows[menu.cursorIndex],help)
+      keyClick(Qt.Key_Right)
+      compare(menu.helpPage,true)
+      var searchHelp = findChild(menu,"app-menu-search-help")
+      verify(searchHelp.visible)
+      compare(menu.menuRows[menu.cursorIndex],searchHelp)
+      keyClick(data.key)
+      tryCompare(menu,"opened",false)
+      tryCompare(search,"helpOpened",true)
+      compare(search.queryText,"from:sender@example.test")
+      keyClick(Qt.Key_Escape)
+      tryCompare(search,"helpOpened",false)
+      compare(search.queryText,"from:sender@example.test")
+      tryCompare(findChild(app,"search-query-field"),"activeFocus",true)
+    }
+    function test_help_menu_keeps_keyboard_help_and_can_go_back() {
+      var menu = findChild(app,"app-menu")
+      menu.openAt(40,40)
+      tryCompare(menu,"opened",true)
+      findChild(menu,"app-menu-help").activated()
+      keyClick(Qt.Key_Left)
+      compare(menu.helpPage,false)
+      compare(menu.menuRows[menu.cursorIndex].objectName,"app-menu-help")
+      keyClick(Qt.Key_Right)
+      compare(menu.helpPage,true)
+      keyClick(Qt.Key_Escape)
+      compare(menu.helpPage,false)
+      verify(menu.opened)
+      findChild(menu,"app-menu-help").activated()
+      findChild(menu,"app-menu-keyboard-help").activated()
+      tryCompare(menu,"opened",false)
+      compare(app.shortcutHelpVisible,true)
+      app.back()
+    }
+    function test_search_help_outside_mail_keeps_the_current_screen_data() {
+      return [{tag:"settings",page:"settings"},
+        {tag:"compose",page:"compose"}]
+    }
+    function test_search_help_outside_mail_keeps_the_current_screen(data) {
+      if (data.page === "settings") app.openSettings()
+      else app.startCompose("new")
+      wait(20)
+      var before = kinds()
+      var search = findChild(app,"search-bar")
+      verify(!search.visible)
+      var menu = findChild(app,"app-menu")
+      menu.openAt(40,40)
+      tryCompare(menu,"opened",true)
+      findChild(menu,"app-menu-help").activated()
+      findChild(menu,"app-menu-search-help").activated()
+      tryCompare(search,"helpOpened",true)
+      keyClick(Qt.Key_Escape)
+      tryCompare(search,"helpOpened",false)
+      wait(20)
+      compare(kinds(),before)
+      compare(findChild(app,"search-query-field").activeFocus,false)
+      if (data.page === "compose") {
+        verify(app.composing)
+        app.back()
+      } else if (data.page === "settings") app.back()
+    }
+
     function test_plugin_menu_does_not_offer_quit() {
       var menu = named(app, "app-menu")
       verify(menu)
       menu.openAt(40, 40)
       wait(20)
       var row = null
-      for (var i = 0; i < menu.menuRows.length; i++)
-        if (menu.menuRows[i].objectName === "app-menu-quit") row = menu.menuRows[i]
+      for (var itemIndex = 0; itemIndex < menu.menuRows.length; itemIndex++)
+        if (menu.menuRows[itemIndex].objectName === "app-menu-quit") row = menu.menuRows[itemIndex]
       verify(row, "the shared menu keeps one tested row")
       compare(app.standaloneWindowChrome, false)
       compare(menu.canQuit, false)
@@ -439,8 +561,7 @@ Item {
       app.cursorId = "message-1"
       app.composeFromCursor("reply")
       compare(kinds(), "list,reader", "the message opens first, on the reply's behalf")
-      // The draft waits for the fetch; the entry it makes must still remember
-      // that the user was on the list.
+
       mailService.land()
       tryCompare(app, "composing", true)
       compare(kinds(), "list,reader,compose")
@@ -455,7 +576,7 @@ Item {
     function test_a_reply_raised_from_the_list_waits_for_the_body() {
       app.cursorId = "message-1"
       app.composeFromCursor("reply")
-      // What selecting a listed row does: the summary at once, the body later.
+
       mailService.selectedMessage = ({
         id: "message-1", subject: "One",
         from: ({ email: "sender@example.com", display: "Sender" }), to: [], cc: []
@@ -484,23 +605,21 @@ Item {
       compare(kinds(), "list,reader", "the key toggles")
     }
 
-    function test_the_calendar_is_the_other_root_and_back_on_a_root_closes() {
+    function test_calendar_shortcut_keeps_the_mail_navigation() {
+      app.openMessage("m1")
+      var before = kinds()
       app.runShortcut("calendarView", "")
-      compare(kinds(), "calendar")
-      verify(app.calendarVisible)
-
-      app.goBack()
-      compare(fakeShell.hidden.length, 1, "Back on a root hides the window")
-      compare(kinds(), "calendar", "and leaves the stack alone")
-
-      app.runShortcut("mailView", "")
-      compare(kinds(), "list", "the list is not a step back from the calendar")
+      compare(mailService.count("calendar"), 1)
+      compare(kinds(), before)
+      app.runShortcut("calendar", "")
+      compare(mailService.count("calendar"), 2)
+      compare(kinds(), before)
     }
 
     function test_the_header_account_button_opens_the_switcher() {
       var trigger = named(app, "header-account-button")
       verify(trigger && trigger.visible)
-      var switcher = having(app, function(it) { return typeof it.openCentered === "function" && typeof it.accountChosen === "function" })
+      var switcher = having(app, function(item) { return typeof item.openCentered === "function" && typeof item.accountChosen === "function" })
       mouseClick(trigger)
       tryCompare(switcher,"opened",true)
       compare(trigger.selected,true)
@@ -525,25 +644,121 @@ Item {
       tryCompare(banner,"height",0)
     }
 
-    function test_header_shows_compose_for_mail_and_view_selector_for_calendar() {
+    function test_notices_wrap_without_layout_cycles() {
+      mailService.lastError = ""
+      mailService.actionStatus = ""
+      var banner = named(app, "mail-notice")
+      var text = having(banner, function(item) { return typeof item.text === "string" })
+      var host = having(app, function(item) { return item.title === "✉️ Magpie Mail" })
+      var oldWidth = host.width
+      var oldPreferences = MailStyle.preferences
+      failOnWarning(/Binding loop detected for property "height"/)
+      try {
+        for (var size of [12, 18]) {
+          MailStyle.preferences = Display.normalize({interfaceSize: size})
+          for (var width of [720, 360]) {
+            host.width = width
+            app.notice = ""
+            wait(10)
+            app.notice = "Magpie Mail could not confirm this change. Check the message’s current state before trying again."
+            waitForRendering(banner)
+            verify(banner.height > 0)
+            verify(text.paintedWidth <= text.width + 1)
+            verify(text.paintedHeight <= text.height + 1)
+            app.notice = ""
+            tryCompare(banner, "height", 0)
+          }
+        }
+      } finally {
+        host.width = oldWidth
+        MailStyle.preferences = oldPreferences
+        app.notice = ""
+      }
+    }
+
+    function test_compose_notices_leave_send_visible() {
+      app.startCompose("new")
+      var send = named(app, "compose-send-button")
+      var banner = named(app, "mail-notice")
+      app.notice = "Archived"
+      tryVerify(function() { return send.visible && banner.visible })
+      waitForRendering(banner)
+      var noticeBottom = banner.mapToItem(send, 0, banner.height).y
+      verify(noticeBottom <= 0, "Notices must remain above the compose actions")
+      send.forceActiveFocus()
+      verify(send.activeFocus)
+      app.notice = ""
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
+    function test_a_calendar_view_request_opens_magpie_calendar() {
+      var before = mailService.count("calendar")
+      app.open(JSON.stringify({ view: "calendar" }))
+      compare(mailService.count("calendar"), before + 1)
+    }
+
+    function test_search_stays_between_the_buttons_at_one_third_screen_width() {
+      var host = null
+      for (var index = 0; index < app.data.length; index++) {
+        var candidate = app.data[index]
+        if (candidate.title === "✉️ Magpie Mail" && candidate.minimumSize !== undefined) host = candidate
+      }
+      verify(host, "the real Magpie window is in the fixture")
+      var oldWidth = host.width
+      var oldHeight = host.height
+      var oldMinimumWidth = host.minimumSize.width
+      var oldMinimumHeight = host.minimumSize.height
+      try {
+        var header = named(app, "app-title-bar")
+        var search = named(app, "search-bar")
+        var folder = named(app, "folder-button")
+        var headerLeft = named(app, "header-account-button").parent
+        mailService.unified = true
+        Style.spacingScale = 2
+        Style.spacingScale = 1
+        waitForRendering(app)
+        host.width = 640
+        host.height = 800
+        waitForRendering(app)
+        compare(header.searchStacked, false, "search stays on the top row at 640 points with the unified All button")
+        var searchRight = search.mapToItem(header, search.width, 0).x
+        var folderLeft = folder.mapToItem(header, 0, 0).x
+        verify(searchRight <= folderLeft, "the inline field does not touch the folder button")
+        var searchLeft = search.mapToItem(header, 0, 0).x
+        var leftRight = headerLeft.mapToItem(header, headerLeft.width, 0).x
+        verify(searchLeft >= leftRight, "the inline field does not touch the left controls")
+        host.minimumSize = Qt.size(240, 480)
+        host.width = 300
+        waitForRendering(app)
+        compare(host.width, 300, "the fixture resized the real window")
+        verify(header.width > 0 && header.width <= 300, "the header follows the real window")
+        compare(header.searchStacked, true, "search moves below only when the controls leave too little room")
+      } finally {
+        host.minimumSize = Qt.binding(function() { return Qt.size(Style.space(640), Style.space(480)) })
+        Style.spacingScale = 2
+        compare(host.minimumSize.width, oldMinimumWidth * 2, "the minimum-width binding follows the shell scale")
+        compare(host.minimumSize.height, oldMinimumHeight * 2, "the minimum-height binding follows the shell scale")
+        Style.spacingScale = 1
+        compare(host.minimumSize.width, oldMinimumWidth, "the original minimum width is restored")
+        compare(host.minimumSize.height, oldMinimumHeight, "the original minimum height is restored")
+        host.width = oldWidth
+        host.height = oldHeight
+        mailService.unified = false
+        waitForRendering(app)
+      }
+    }
+
+    function test_calendar_handoff_keeps_the_mail_header() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)
       compare(compose.text, "Compose")
-      compare(typeof compose.iconName, "undefined")
-
       app.showCalendar()
-      waitForRendering(app)
-      verify(!compose.visible)
-      compare(named(app, "create-event-button"), null)
-      var selector = named(app, "calendar-view-selector")
-      verify(selector && selector.visible)
-      app.runShortcut("calendarWeek")
-      compare(selector.currentText, "Week (w)")
-      app.runShortcut("calendarDay")
-      compare(selector.currentText, "Day (d)")
+      verify(compose.visible)
+      compare(named(app,"calendar-view-selector"), null)
     }
     function test_reader_toolbar_back_returns_to_list() {
-      mailService.displayPreferences = ({layout: "Single pane"})
+      mailService.displayPreferences = Display.normalize({layout: "Single pane"})
       var back = named(app, "reader-back-button")
       verify(back && !back.visible)
       app.openMessage("m1")
@@ -558,13 +773,19 @@ Item {
       back.clicked()
       compare(kinds(), "list")
       verify(!back.visible)
-      mailService.displayPreferences = ({layout: "Split view"})
+      mailService.displayPreferences = Display.normalize({layout: "Split view"})
       app.openMessage("m1")
       waitForRendering(app)
       verify(!back.visible)
     }
 
-    function test_status_error_opens_external_diagnosis_once() {
+    function test_status_error_opens_external_diagnosis_once_data() {
+      return [{tag: "mouse"}, {tag: "return", key: Qt.Key_Return},
+              {tag: "keypad-enter", key: Qt.Key_Enter, modifiers: Qt.KeypadModifier},
+              {tag: "space", key: Qt.Key_Space}]
+    }
+
+    function test_status_error_opens_external_diagnosis_once(data) {
       mailService.lastError = "Could not confirm AI started. Check the conversation before retrying."
       mailService.actionStatus = ""
       mailService.diagnosing = false
@@ -574,7 +795,13 @@ Item {
       verify(waitForRendering(app))
       verify(button.visible)
       verify(button.width > 0 && button.height > 0)
-      mouseClick(button, button.width / 2, button.height / 2)
+      if (data.key !== undefined) {
+        button.forceActiveFocus()
+        verify(button.activeFocus)
+        keyClick(data.key, data.modifiers || Qt.NoModifier)
+      } else {
+        mouseClick(button, button.width / 2, button.height / 2)
+      }
       compare(mailService.diagnosisCalls, 1)
       compare(button.enabled, false)
       mailService.diagnosing = false
@@ -582,18 +809,6 @@ Item {
       compare(button.visible, false)
     }
 
-    function test_an_event_opened_for_reading_is_a_place() {
-      app.runShortcut("calendarView", "")
-      var calendar = having(app, function(it) { return typeof it.closeDetail === "function" })
-      verify(calendar, "the calendar view is on the page")
-      calendar.activateEvent({ uid: "e1", summary: "Standup",
-        start: { ms: Date.now(), allDay: false }, end: { ms: Date.now() + 3600000 } })
-      compare(kinds(), "calendar,calendarDetail")
-
-      app.goBack()
-      compare(kinds(), "calendar", "Escape closes the event, not the calendar")
-      verify(!calendar.detailOpen)
-    }
 
     function test_changing_the_list_drops_the_history_over_it() {
       app.openMessage("message-1")
@@ -607,17 +822,16 @@ Item {
       compare(kinds(), "list,reader", "reading the next message does not lengthen history")
     }
 
-    // A click in the search field, then a row: the field kept the focus — a
+    // Invariant: A click in the search field, then a row: the field kept the focus — a
     // MouseArea moves none — so the context stayed "search" with a message
     // open, and `e` typed itself into the query instead of archiving.
     function test_opening_a_message_takes_the_keyboard_back_from_search() {
-      var field = having(app, function(it) {
-        return it.placeholderText !== undefined
-          && String(it.placeholderText).indexOf("Search...") === 0
+      var field = having(app, function(item) {
+        return item.objectName === "search-query-field"
       })
       verify(field, "the search field is on the page")
-      var scope = having(app, function(it) {
-        return typeof it.keyContext === "string" && typeof it.parkKeyboard === "function"
+      var scope = having(app, function(item) {
+        return typeof item.keyContext === "string" && typeof item.parkKeyboard === "function"
       })
       verify(scope, "the focus scope is on the page")
       var spot = field.mapToItem(app, field.width / 2, field.height / 2)
@@ -631,6 +845,183 @@ Item {
       compare(field.text, "", "the letter is a shortcut again, not text")
       compare(mailService.count("act:archive:message-1"), 1,
         "and the list's keys work with the reader open")
+    }
+
+    // Invariant: Down and Up stay on in the list and the reader while an overlay is open, but with a
+    // confirmation open they scroll its words and run no shortcut behind it, and Escape closes only it.
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list_data() {
+      return [{ tag: "list", context: "list", kinds: "list" },
+              { tag: "reader", context: "reader", kinds: "list,reader" }]
+    }
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list(data) {
+      if (data.context === "reader") app.openMessage("message-1")
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      verify(scope)
+      tryCompare(scope, "keyContext", data.context)
+      scope.applyContextFocus()
+      var router = findChild(app, "key-router")
+      var shortcuts = []
+      var heard = function(id) { shortcuts.push(id) }
+      router.triggered.connect(heard)
+      var cursor = app.cursorId
+      var dialog = findChild(app, "delete-confirmation")
+      var longMessage = ""
+      for (var sentence = 0; sentence < 80; sentence++) longMessage += "Every label beneath it is removed from the server. "
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: longMessage })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      // A focus call from navigation or a change of context, as when a send finishes behind it.
+      scope.applyContextFocus()
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard")
+      var words = findChild(dialog, "confirm-words")
+      verify(words.contentHeight > words.height + 1, "the words do not fit: " + words.contentHeight + " in " + words.height)
+      compare(words.contentY, 0)
+      keyClick(Qt.Key_Down)
+      verify(words.contentY > 0, "Down scrolls the confirmation's words")
+      keyClick(Qt.Key_Up)
+      compare(words.contentY, 0, "Up scrolls them back")
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      router.triggered.disconnect(heard)
+      compare(shortcuts, [], "no shortcut ran behind the confirmation")
+      compare(app.cursorId, cursor, "the list's cursor stayed where it was")
+      compare(kinds(), data.kinds, "Escape closed only the confirmation")
+    }
+
+    // Invariant: a message started from outside while a confirmation is open gets the keyboard once the
+    // confirmation closes, not before, even if another window had the keyboard in between.
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes_data() {
+      return [{ tag: "window stays in front", away: false }, { tag: "another window has the keyboard meanwhile", away: true }]
+    }
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes(data) {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      var dialog = findChild(app, "delete-confirmation")
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: "" })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      wait(30)
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard while open")
+      if (data.away) {
+        // As the window does when another window takes the keyboard, and when it gets it back.
+        var content = app.Window.window.contentItem
+        content.focus = false
+        wait(30)
+        content.focus = true
+        wait(30)
+        verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation gets the keyboard back")
+      }
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      verify(to)
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard once the confirmation closes")
+      compare(scope.contextFocusWaiting, false, "nothing is left waiting to move the keyboard later")
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
+    // Invariant: a tooltip on show does not hold the keyboard, so it never keeps a new message from getting it.
+    function test_a_tooltip_on_show_does_not_keep_the_keyboard_from_a_new_message() {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      tip = Qt.createQmlObject('import QtQuick.Controls; ToolTip { text: "Archive" }', app)
+      tip.parent = app
+      tip.open()
+      tryCompare(tip, "opened", true)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard while the tooltip shows")
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
+    function test_search_context_changes_preserve_typing_and_caret() {
+      mailService.searchAssistanceAvailable = true
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      wait(0)
+      keyClick("f")
+      wait(0)
+      keyClick("r")
+      wait(0)
+      compare(field.text,"fr")
+      compare(field.selectedText,"")
+      keyClick(Qt.Key_Down)
+      keyClick(Qt.Key_Return)
+      wait(0)
+      compare(field.text,"from:")
+      compare(field.selectedText,"")
+      compare(mailService.searchQuery,"")
+      mailService.searchAssistanceAvailable = false
+    }
+    function test_search_preparation_does_not_replace_a_new_query_being_typed() {
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      wait(0)
+      keyClick("n")
+      keyClick("e")
+      keyClick("w")
+      mailService.searchQuery = "earlier submission"
+      compare(field.text,"new")
+      compare(field.selectedText,"")
+    }
+    function test_search_progress_is_inside_the_field_and_success_leaves_no_banner() {
+      var viewport = findChild(app,"mail-status-viewport")
+      var search = findChild(app,"search-bar")
+      verify(viewport)
+      tryCompare(viewport,"height",0)
+      var phases = ["preparing", "local", "checking"]
+      for (var index = 0; index < phases.length; index++) {
+        mailService.searchStatus = {phase:phases[index],text:"Searching Gmail...",scope:"Gmail accounts",canStop:true}
+        compare(search.searching,true)
+        compare(viewport.height,0)
+      }
+      mailService.searchStatus = {phase:"complete",text:"Search complete.",scope:"All accounts",pendingCount:2}
+      compare(search.searching,false)
+      compare(viewport.height,0)
+      mailService.searchStatus = {phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true}
+      compare(search.searching,false)
+      tryVerify(function() { return viewport.height > 0 })
+      verify(findChild(app,"search-retry").visible)
+    }
+    function test_old_backend_search_progress_does_not_include_ordinary_mailbox_loads() {
+      var search = findChild(app,"search-bar")
+      mailService.listLoading = true
+      mailService.serverSearchLoading = true
+      compare(search.searching,false)
+      mailService.searchQuery = "invoice"
+      compare(search.searching,true)
+      mailService.listLoading = false
+      compare(search.searching,true)
+      mailService.serverSearchLoading = false
+      compare(search.searching,false)
+    }
+    function test_search_status_actions_keep_focus_after_leaving_query_data() {
+      return [
+        {tag:"retry",status:{phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true},button:"search-retry",action:"retry-search"}
+      ]
+    }
+    function test_search_status_actions_keep_focus_after_leaving_query(data) {
+      mailService.searchStatus = data.status
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      tryCompare(field,"activeFocus",true)
+      keyClick("x")
+      var button = findChild(app,data.button)
+      verify(button.visible)
+      button.forceActiveFocus()
+      wait(60)
+      verify(button.activeFocus,"deferred context routing keeps the chosen search action focused")
+      keyClick(Qt.Key_Return)
+      compare(mailService.count(data.action),1)
+      compare(field.text,"x")
+      compare(mailService.count("search:x"),0)
     }
 
     function test_back_on_the_root_clears_a_search_before_closing() {
@@ -647,35 +1038,24 @@ Item {
       mailService.anyAccountReady = false
       mailService.hasSavedAccounts = false
       waitForRendering(app)
-      compare(kinds(), "picker", "nothing saved: the question is the whole window")
-      var picker = page()
-      verify(!named(app, "page-back").visible, "and there is nothing to go back to")
+      compare(kinds(), "setup", "first run opens Gmail setup directly")
+      verify(page() && page().visible)
+      verify(!named(app, "page-back").visible, "the initial setup is the root")
 
-      // A row saved with a valid server but never signed in — the Gmail
-      // address on the IMAP form — opens on its form, with the chooser under.
       mailService.hasSavedAccounts = true
       fakeAuth.credentialsPresent = true
       waitForRendering(app)
-      compare(kinds(), "picker,setup")
-      compare(app.editingProvider, "imap")
-      var back = named(app, "page-back")
-      verify(back && back.visible, "the form has a way back")
-
-      back.activated()
-      compare(kinds(), "picker")
+      compare(kinds(), "setup", "an unsigned saved account stays on setup")
+      app.goBack()
+      compare(fakeShell.hidden.length, 1, "Escape closes the root")
       compare(mailService.count("discard"), 0, "a saved row is not a draft")
-
-      // Backed out, the user is left alone even as the service learns more.
-      mailService.providerId = "gmail"
-      waitForRendering(app)
-      compare(kinds(), "picker", "a root the user moved off is not rebuilt under them")
 
       mailService.anyAccountReady = true
       waitForRendering(app)
       compare(kinds(), "list", "a mailbox becoming usable starts over on it")
     }
 
-    // "Manage accounts..." on the switcher is an entry into Settings, from
+    // Invariant: "Manage accounts..." on the switcher is an entry into Settings, from
     // whichever root the switcher was opened over, and the page is entered at
     // its top. The page keeps its scroll while it is in history — Back from a
     // mailbox's form returns to the Mailboxes row it left — but a page that
@@ -689,50 +1069,47 @@ Item {
       var view = page
       while (view && String(view.toString()).indexOf("QQuickFlickable") < 0) view = view.parent
       verify(view, "the settings page scrolls inside a Flickable")
-      var calendars = -1
-      for (var i = 0; i < page.sections.length; i++)
-        if (page.sections[i].key === "calendars") calendars = page.sections[i].y
-      verify(calendars > 0, "the Calendars section is some way down the page")
-      view.contentY = calendars
-      compare(view.contentY, calendars, "the previous visit ended on Calendars")
+      var writing = -1
+      for (var itemIndex = 0; itemIndex < page.sections.length; itemIndex++)
+        if (page.sections[itemIndex].key === "writing") writing = page.sections[itemIndex].y
+      verify(writing > 0, "the Writing section is some way down the page")
+      view.contentY = writing
+      compare(view.contentY, writing, "the previous visit ended on Writing")
       app.back()
       compare(kinds(), "list")
 
-      // The switcher opens over the calendar root as readily as over the list.
-      app.showCalendar()
-      compare(kinds(), "calendar")
-      var switcher = having(app, function(it) {
-        return typeof it.openCentered === "function" && typeof it.manageRequested === "function"
+      app.backToList()
+      compare(kinds(), "list")
+      var switcher = having(app, function(item) {
+        return typeof item.openCentered === "function" && typeof item.manageRequested === "function"
       })
       switcher.openCentered()
       tryCompare(switcher, "opened", true)
-      var manage = having(switcher.menuRows, function(it) {
-        return it.text === "Manage accounts..." && typeof it.activated === "function"
+      var manage = having(switcher.menuRows, function(item) {
+        return item.text === "Manage accounts..." && typeof item.activated === "function"
       })
       verify(manage && manage.visible, "the switcher offers Manage accounts...")
-      mouseClick(manage)
+      verify(waitForRendering(manage))
+      mouseClick(manage, manage.width / 2, manage.height / 2)
       tryCompare(switcher, "opened", false)
       compare(app.page, "settings", "which opens Settings")
-      compare(kinds(), "calendar,settings", "over the root it was opened on")
-      compare(app.calendarVisible, false, "and the calendar stands down for it")
+      compare(kinds(), "list,settings", "over the root it was opened on")
       verify(named(app, "settings-sidebar").visible, "the settings rail is up")
       compare(view.contentY, 0, "at the top of the page, not where the last visit ended")
       compare(named(app, "settings-sidebar").activeKey, page.sections[0].key)
 
-      // Back from a page pushed over Settings returns to where Settings was.
-      view.contentY = calendars
+      view.contentY = writing
       app.editAccount(0)
-      compare(kinds(), "calendar,settings,setup")
+      compare(kinds(), "list,settings,setup")
       app.back()
-      compare(kinds(), "calendar,settings")
-      compare(view.contentY, calendars, "a return keeps the scroll")
+      compare(kinds(), "list,settings")
+      compare(view.contentY, writing, "a return keeps the scroll")
     }
 
     function test_editing_an_account_from_settings_returns_to_settings() {
       app.openSettings()
       app.editAccount(0)
       compare(kinds(), "list,settings,setup")
-      compare(app.editingProvider, "imap")
       verify(!app.accountDraftOpen)
       app.back()
       compare(kinds(), "list,settings")
@@ -746,9 +1123,9 @@ Item {
       app.runShortcut("moveToLabel", "v")
 
       compare(mailService.count("guard:label:destination"), 1,
-        "the provider guard answers the key before a destination is requested")
+        "the account guard answers the key before a destination is requested")
       compare(named(app, "label-picker").opened, false)
-      compare(mailService.actionStatus, "HEY has no destination you can name")
+      compare(mailService.actionStatus, "Choose an account before moving this message")
     }
   }
 }

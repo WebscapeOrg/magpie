@@ -17,7 +17,7 @@ host=${OMAMAIL_APP_HOST:-"$repo_root/app/build/omamail-app"}
 backend=${OMAMAIL_BACKEND:-"$repo_root/target/release/omamail"}
 qml=${OMAMAIL_STANDALONE_QML:-"$repo_root/app/qml"}
 ui=${OMAMAIL_SHARED_UI:-"$repo_root/ui"}
-manifest=${OMAMAIL_MANIFEST:-"$repo_root/manifest.json"}
+manifest=${OMAMAIL_MANIFEST:-}
 dist=${OMAMAIL_DIST:-"$repo_root/dist"}
 qt_bin=${OMAMAIL_QT_BIN:-}
 platform_plugin=${OMAMAIL_PLATFORM_PLUGIN:-}
@@ -46,13 +46,15 @@ fi
 
 version=$(sed -n '/^\[package\]/,/^\[/s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/Cargo.toml" | head -n 1)
 [ -n "$version" ] || { printf 'Cargo.toml has no package version\n' >&2; exit 1; }
-manifest_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$manifest")
-[ "$manifest_version" = "$version" ] || { printf 'manifest version %s does not match Cargo version %s\n' "$manifest_version" "$version" >&2; exit 1; }
+if [ -n "$manifest" ]; then
+  manifest_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$manifest")
+  [ "$manifest_version" = "$version" ] || { printf 'manifest version %s does not match Cargo version %s\n' "$manifest_version" "$version" >&2; exit 1; }
+fi
 [ -x "$host" ] || { printf 'standalone host is missing or not executable: %s\n' "$host" >&2; exit 1; }
 [ -x "$backend" ] || { printf 'backend is missing or not executable: %s\n' "$backend" >&2; exit 1; }
 [ -f "$qml/Main.qml" ] || { printf 'standalone QML is missing: %s/Main.qml\n' "$qml" >&2; exit 1; }
 [ -f "$ui/Service.qml" ] || { printf 'shared UI is missing: %s/Service.qml\n' "$ui" >&2; exit 1; }
-[ -f "$manifest" ] || { printf 'manifest is missing: %s\n' "$manifest" >&2; exit 1; }
+[ -z "$manifest" ] || [ -f "$manifest" ] || { printf 'manifest is missing: %s\n' "$manifest" >&2; exit 1; }
 if find "$qml" "$ui" -type l -print | grep -q .; then
   printf 'QML inputs must not contain symbolic links\n' >&2
   exit 1
@@ -76,11 +78,24 @@ copy_product_files() {
   mkdir -p "$destination/qml" "$destination/ui" "$destination/licenses"
   cp -R "$qml/." "$destination/qml/"
   cp -R "$ui/." "$destination/ui/"
-  cp "$manifest" "$destination/manifest.json"
+  mkdir -p "$destination/scripts"
+  for helper in attachment.sh default-mail.sh register-mailto.sh mailto.sh diagnostics.py \
+      open-link-window.py link-window.html open-magpie-calendar.py; do
+    cp "$repo_root/scripts/$helper" "$destination/scripts/$helper"
+  done
+  chmod 755 "$destination/scripts/"*
+  cp "$repo_root/backend-api.json" "$destination/backend-api.json"
+  cp "$repo_root/backend-version" "$destination/backend-version"
+  if [ -n "$manifest" ]; then
+    cp "$manifest" "$destination/manifest.json"
+  else
+    python3 "$repo_root/scripts/package-backend.py" standalone-manifest --output "$destination/manifest.json"
+  fi
   cp "$repo_root/app/assets/fonts/NerdFonts-LICENSE" "$destination/licenses/NerdFonts-LICENSE"
   cp "$repo_root/app/assets/fonts/NerdFonts-README.md" "$destination/licenses/NerdFonts-README.md"
   cp "$repo_root/app/assets/fonts/NerdFonts-PROVENANCE.md" "$destination/licenses/NerdFonts-PROVENANCE.md"
   cp -R "$repo_root/app/assets/fonts/licenses/." "$destination/licenses/"
+  cp "$repo_root/data/unicode/LICENSE.txt" "$destination/licenses/Unicode-LICENSE.txt"
   cat > "$destination/release.json" <<EOF
 {"schemaVersion":1,"name":"omamail","version":"$version","target":"$target","topLevel":"$top_level"}
 EOF
@@ -114,21 +129,21 @@ if [ "$target" = macos-aarch64 ]; then
     else deploy=$(command -v macdeployqt || true)
     fi
     [ -n "$deploy" ] || { printf 'macdeployqt is required\n' >&2; exit 1; }
-    qt_libs=$(qt_query QT_INSTALL_LIBS)
-    [ -d "$qt_libs" ] || { printf 'Qt library directory is missing: %s\n' "$qt_libs" >&2; exit 1; }
-    svg_framework="$qt_libs/QtSvg.framework/Versions/A/QtSvg"
+    qt_libraries=$(qt_query QT_INSTALL_LIBS)
+    [ -d "$qt_libraries" ] || { printf 'Qt library directory is missing: %s\n' "$qt_libraries" >&2; exit 1; }
+    svg_framework="$qt_libraries/QtSvg.framework/Versions/A/QtSvg"
     if [ -f "$svg_framework" ]; then
       svg_framework=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$svg_framework")
-      svg_libs=$(dirname "$(dirname "$(dirname "$(dirname "$svg_framework")")")")
+      svg_libraries=$(dirname "$(dirname "$(dirname "$(dirname "$svg_framework")")")")
       "$deploy" "$app" -qmldir="$app/Contents/Resources" \
-        -libpath="$qt_libs" -libpath="$svg_libs" -always-overwrite
+        -libpath="$qt_libraries" -libpath="$svg_libraries" -always-overwrite
     else
       "$deploy" "$app" -qmldir="$app/Contents/Resources" \
-        -libpath="$qt_libs" -always-overwrite
+        -libpath="$qt_libraries" -always-overwrite
     fi
     [ -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib" ] || { printf 'macdeployqt omitted the Cocoa platform plugin\n' >&2; exit 1; }
     command -v codesign >/dev/null 2>&1 || { printf 'codesign is required\n' >&2; exit 1; }
-    # macdeployqt rewrites Mach-O load commands, invalidating Homebrew's
+    # Invariant: macdeployqt rewrites Mach-O load commands, invalidating Homebrew's
     # ad-hoc signatures. Re-seal the self-contained bundle without an identity
     # so macOS can load it; this is not Developer ID signing or notarization.
     # No signing option is passed to macdeployqt: Qt 6.8 signs only when asked
@@ -142,12 +157,12 @@ else
   top_level=omamail.app
   app="$stage/$top_level"
   mkdir -p "$app/bin" "$app/lib" "$app/plugins/platforms" "$app/share/applications" \
-    "$app/share/icons/hicolor/scalable/apps"
+    "$app/share/icons/hicolor/256x256/apps"
   cp "$host" "$app/bin/omamail-app"
   cp "$backend" "$app/bin/omamail"
   copy_product_files "$app"
   cp "$repo_root/app/resources/linux/omamail.desktop" "$app/share/applications/omamail.desktop"
-  cp "$repo_root/app/resources/icons/omamail.svg" "$app/share/icons/hicolor/scalable/apps/omamail.svg"
+  cp "$repo_root/ui/assets/magpie-mail.png" "$app/share/icons/hicolor/256x256/apps/omamail.png"
   cat > "$app/bin/qt.conf" <<'EOF'
 [Paths]
 Prefix=..
@@ -162,13 +177,13 @@ EOF
     command -v patchelf >/dev/null 2>&1 || { printf 'patchelf is required\n' >&2; exit 1; }
     qt_plugins=$(qt_query QT_INSTALL_PLUGINS)
     qt_qml=$(qt_query QT_INSTALL_QML)
-    qt_libs=$(qt_query QT_INSTALL_LIBS)
-    qt_libexecs=$(qt_query QT_INSTALL_LIBEXECS)
+    qt_libraries=$(qt_query QT_INSTALL_LIBS)
+    qt_library_executables=$(qt_query QT_INSTALL_LIBEXECS)
     [ -f "$qt_plugins/platforms/libqxcb.so" ] || { printf 'Qt xcb platform plugin is missing\n' >&2; exit 1; }
     for plugin_dir in platforms platforminputcontexts xcbglintegrations imageformats iconengines networkinformation tls; do
       [ ! -d "$qt_plugins/$plugin_dir" ] || cp -R "$qt_plugins/$plugin_dir" "$app/plugins/"
     done
-    scanner="$qt_libexecs/qmlimportscanner"
+    scanner="$qt_library_executables/qmlimportscanner"
     [ -x "$scanner" ] || scanner=$(command -v qmlimportscanner || true)
     [ -n "$scanner" ] || { printf 'qmlimportscanner is required\n' >&2; exit 1; }
     "$scanner" -rootPath "$qml" -importPath "$qt_qml" > "$stage/qml-app.json"
@@ -195,11 +210,11 @@ for inventory in sys.argv[3:]:
             raise SystemExit(f"QML import is missing: {source}")
         shutil.copytree(source, destination / relative, dirs_exist_ok=True, symlinks=False)
 PY
-    python3 - "$app" "$qt_libs" <<'PY'
+    python3 - "$app" "$qt_libraries" <<'PY'
 import os, pathlib, shutil, subprocess, sys
 app = pathlib.Path(sys.argv[1]).resolve()
-qt_libs = pathlib.Path(sys.argv[2]).resolve()
-libdir = app / "lib"
+qt_libraries = pathlib.Path(sys.argv[2]).resolve()
+library_directory = app / "lib"
 allowed = {
     "linux-vdso.so.1", "libc.so.6", "libm.so.6", "libdl.so.2", "librt.so.1",
     "libpthread.so.0", "libgcc_s.so.1", "libstdc++.so.6", "ld-linux-x86-64.so.2",
@@ -215,7 +230,7 @@ def binaries():
         except OSError:
             pass
 def dependencies(path):
-    environment = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join((str(libdir), str(qt_libs))))
+    environment = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join((str(library_directory), str(qt_libraries))))
     result = subprocess.run(["ldd", str(path)], text=True, capture_output=True, env=environment)
     if result.returncode:
         raise SystemExit(f"ldd failed for {path}: {result.stderr.strip()}")
@@ -230,17 +245,17 @@ while True:
     changed = False
     for binary in list(binaries()):
         for dependency in dependencies(binary):
-            if dependency.name in allowed or (libdir / dependency.name).exists():
+            if dependency.name in allowed or (library_directory / dependency.name).exists():
                 continue
-            target = libdir / dependency.name
+            target = library_directory / dependency.name
             shutil.copy2(dependency.resolve(), target)
             changed = True
     if not changed:
         break
 for binary in binaries():
-    relative = os.path.relpath(libdir, binary.parent)
+    relative = os.path.relpath(library_directory, binary.parent)
     subprocess.run(["patchelf", "--set-rpath", "$ORIGIN/" + relative, str(binary)], check=True)
-environment = dict(os.environ, LD_LIBRARY_PATH=str(libdir))
+environment = dict(os.environ, LD_LIBRARY_PATH=str(library_directory))
 for binary in binaries():
     result = subprocess.run(["ldd", str(binary)], text=True, capture_output=True, env=environment)
     if result.returncode or "not found" in result.stdout:
@@ -280,7 +295,7 @@ if [ "$test_layout" -eq 0 ]; then
   HOME="$isolated" XDG_CONFIG_HOME="$isolated/config" XDG_CACHE_HOME="$isolated/cache" XDG_STATE_HOME="$isolated/state" \
     QT_QPA_PLATFORM="$smoke_platform" "$packaged_host" --smoke-test "$ready"
   [ -s "$ready" ] || { printf 'standalone smoke test did not write readiness metadata\n' >&2; exit 1; }
-  backend_version=$($packaged_backend --version)
+  backend_version=$("$packaged_backend" --version)
   [ "$backend_version" = "omamail $version" ] || { printf 'bundled backend version mismatch: %s\n' "$backend_version" >&2; exit 1; }
   HOME="$isolated" XDG_CONFIG_HOME="$isolated/config" XDG_CACHE_HOME="$isolated/cache" XDG_STATE_HOME="$isolated/state" \
     python3 "$repo_root/tests/test_backend_api.py" --standalone \

@@ -1,11 +1,10 @@
 import QtQuick
 
-// Registration belongs to the account lifetime, not the window lifetime.
-// Rust owns the timer, networking, coalescing and the latest snapshot.
+// Invariant: Sync registration follows the account lifetime; Rust owns polling and coalescing.
 Item {
   id: root
   property var backend: null
-  property bool enabled: false
+  property bool watchEnabled: false
   property string accountId: ""
   property string query: ""
   property int intervalSec: 120
@@ -20,7 +19,6 @@ Item {
 
   function scheduleReconcile() { reconcileTimer.restart() }
   Timer { id: reconcileTimer; interval: 0; onTriggered: root.reconcile() }
-  // This retries registration only; mailbox polling itself belongs to Rust.
   Timer { id: retryTimer; interval: 5000; onTriggered: root.reconcile() }
 
   function stop() {
@@ -44,12 +42,11 @@ Item {
 
   function reconcile() {
     if (unregistering) return
-    if (!enabled || !backend || !backend.ready || !accountId) { stop(); return }
+    if (!watchEnabled || !backend || !backend.ready || !accountId) { stop(); return }
     var key = JSON.stringify([accountId, query, intervalSec, pageSize])
     if (registeredBackend === backend && registrationKey === key) return
     retryTimer.stop()
-    // Updating an existing watch is atomic in Rust; an unwatch racing a new
-    // watch would otherwise remove the replacement.
+    // Invariant: Updating a watch is atomic; unwatching first could remove its concurrently registered replacement.
     if (registeredBackend !== backend || registeredAccount !== accountId) stop()
     if (unregistering) return
     registeredBackend = backend
@@ -60,7 +57,7 @@ Item {
       if (mine !== root.epoch) return
       if (error) {
         root.registrationKey = ""
-        if (root.enabled && root.backend && root.backend.ready) retryTimer.restart()
+        if (root.watchEnabled && root.backend && root.backend.ready) retryTimer.restart()
         return
       }
       root.accept(result)
@@ -68,7 +65,7 @@ Item {
   }
 
   function accept(snapshot) {
-    if (!enabled || !snapshot || snapshot.accountId !== accountId
+    if (!watchEnabled || !snapshot || snapshot.accountId !== accountId
         || typeof snapshot.sequence !== "number" || snapshot.sequence <= sequence) return
     sequence = snapshot.sequence
     updated(snapshot)
@@ -80,7 +77,7 @@ Item {
     registeredBackend.call("mail.check", { accountId: registeredAccount }, function() {})
   }
 
-  onEnabledChanged: scheduleReconcile()
+  onWatchEnabledChanged: scheduleReconcile()
   onBackendChanged: scheduleReconcile()
   onAccountIdChanged: scheduleReconcile()
   onQueryChanged: scheduleReconcile()
@@ -92,8 +89,8 @@ Item {
     target: root.backend
     ignoreUnknownSignals: true
     function onReadyChanged() { root.reconcile() }
-    function onNotification(method, params) {
-      if (method === "mail.updated") root.accept(params)
+    function onNotification(method, parameters) {
+      if (method === "mail.updated") root.accept(parameters)
     }
   }
 }

@@ -5,10 +5,6 @@ import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account/Accounts.js" as Accounts
 
-// Moving a message to a label — archived under it on Gmail, into the folder
-// on IMAP — is reached three ways that all open the same picker: `v`, the
-// reader's button, and the row menu. The picker draws the labels as the
-// rail does, a child under its parent, and narrows to typed letters.
 Item {
   width: 900
   height: 600
@@ -32,7 +28,7 @@ Item {
       property var auth: null
       property string email: ""
       function handle() { return ({ aborted: false }) }
-      function later(fn) { Qt.callLater(fn); return handle() }
+      function later(callback) { Qt.callLater(callback); return handle() }
       function listMessages() { return handle() }
       function getMessages() { return handle() }
       function getMessage() { return handle() }
@@ -40,7 +36,11 @@ Item {
       function untrashMessage(id, callback) { return later(function() { callback(null, "") }) }
       function modifyMessage(id, add, remove, callback) { return batchModify([id], add, remove, callback) }
       function batchModify(ids, add, remove, callback) {
-        record.modified = record.modified.concat([ids.join(",") + " +" + (add || []).join(",") + " -" + (remove || []).join(",")])
+        record.modified = record.modified.concat([{
+          ids: ids.slice(),
+          addedLabels: (add || []).slice(),
+          removedLabels: (remove || []).slice()
+        }])
         return later(function() { callback(null, "") })
       }
       function getLabels(callback) { return later(function() { callback(record.labels, "") }) }
@@ -54,12 +54,17 @@ Item {
       function createLabel() { return handle() }
       function renameLabel() { return handle() }
       function deleteLabel() { return handle() }
-      function abortRequest(h) { if (h) h.aborted = true }
+      function abortRequest(request) { if (request) request.aborted = true }
     }
   }
 
   Omamail.Service {
     id: mailService
+    onRawMessagesChanged: {
+      var prepared = Object.assign({},inboxTools.overviews)
+      eachHost(function(host) { for (var i=0;i<host.messages.length;i++) prepared[host.accountId+"\n"+host.messages[i].id] = {state:"ready",version:2,text:"Prepared fixture",expiresAt:0} })
+      inboxTools.overviews = prepared
+    }
     shell: shellStore
     manifest: ({ id: "omamail", __sourceDir: "/tmp/omamail-test" })
   }
@@ -74,9 +79,7 @@ Item {
 
     function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail", clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic",
         label: "", signature: ""
       }
     }
@@ -85,17 +88,10 @@ Item {
         snippet: "", time: "", date: "", unread: false, starred: false, inInbox: true, labelIds: ["INBOX"] })
     }
     function folder(id) { return ({ id: id, name: id, rawName: id, delimiter: "/", unread: 0, system: false }) }
-    function named(item, name) {
-      if (item.objectName === name) return item
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) { var f = named(kids[i], name); if (f) return f }
-      return null
-    }
-
     function seed() {
       var list = Accounts.emptyList()
       list = Accounts.add(list, entry("ada@example.com"))
-      list = Accounts.setActive(list, "imap:ada@example.com")
+      list = Accounts.setActive(list, "ada@example.com")
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
@@ -105,8 +101,9 @@ Item {
       account.clientOverride = controlledClient
       account.auth.toolsChecked = true
       account.auth.missingTools = []
-      account.auth.passwordChecked = true
-      account.auth.password = "test-password"
+      account.auth.credentials = ({ clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic", projectId: "test" })
+      account.auth.loggedIn = true
+      account.auth.refreshBusy = true
       tryCompare(account, "ready", true)
       account.listLoaded = true
       account.labels = [folder("Work/2026"), folder("Receipts"), folder("Work")]
@@ -119,29 +116,26 @@ Item {
 
     function test_v_opens_the_tree_and_typing_narrows_it() {
       seed()
-      var picker = named(app, "label-picker")
+      var picker = findChild(app, "label-picker")
       verify(picker !== null)
       app.cursorId = "1:INBOX"
       app.runShortcut("moveToLabel", "v")
       tryCompare(picker, "opened", true)
-      compare(picker.matchingLabels.map(function(l) { return l.id + "@" + l.depth }), ["Receipts@0", "Work@0", "Work/2026@1"],
+      compare(picker.matchingLabels.map(function(label) { return label.id + "@" + label.depth }), ["Receipts@0", "Work@0", "Work/2026@1"],
         "the tree, a child stepped in under its parent")
       keyClick(Qt.Key_2); keyClick(Qt.Key_0); keyClick(Qt.Key_2); keyClick(Qt.Key_6)
       compare(picker.matchingLabels.length, 1)
       keyClick(Qt.Key_Return)
       tryCompare(picker, "opened", false)
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      verify(record.modified[0].indexOf("1:INBOX") === 0, record.modified[0])
-      verify(record.modified[0].indexOf("+Work/2026") > 0, "moved under the label chosen: " + record.modified[0])
+      compare(record.modified[0].ids, ["1:INBOX"])
+      compare(record.modified[0].addedLabels, ["Work/2026"])
     }
 
-    // Opened from a row menu on a message outside the ticks, the move is
-    // that message's alone, the way Archive there is; from the keyboard,
-    // the ticks win.
     function test_a_menu_on_an_unticked_row_moves_that_row_alone() {
       seed()
-      var picker = named(app, "label-picker")
-      var menu = named(app, "rowMenu")
+      var picker = findChild(app, "label-picker")
+      var menu = findChild(app, "rowMenu")
       app.cursorId = "1:INBOX"
       verify(app.toggleCheck("1:INBOX"))
       menu.actionRequested("moveToLabel", "2:INBOX")
@@ -151,8 +145,9 @@ Item {
       picker.cursorIndex = 0
       picker.chooseCursor()
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      compare(record.modified[0].indexOf("2:INBOX +Receipts"), 0, record.modified[0])
-      verify(record.modified[0].indexOf("1:INBOX") < 0, "the ticked row stays")
+      compare(record.modified[0].ids, ["2:INBOX"])
+      compare(record.modified[0].addedLabels, ["Receipts"])
+      verify(record.modified[0].ids.indexOf("1:INBOX") < 0, "the ticked row stays")
       record.reset()
       app.cursorId = "2:INBOX"
       app.runShortcut("moveToLabel", "v")
@@ -162,13 +157,14 @@ Item {
       picker.cursorIndex = 0
       picker.chooseCursor()
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      compare(record.modified[0].indexOf("1:INBOX +Receipts"), 0, "from the keyboard the ticks win: " + record.modified[0])
+      compare(record.modified[0].ids, ["1:INBOX"], "from the keyboard the ticks win")
+      compare(record.modified[0].addedLabels, ["Receipts"])
     }
 
     function test_the_row_menu_opens_the_picker_for_its_row() {
       seed()
-      var picker = named(app, "label-picker")
-      var menu = named(app, "rowMenu")
+      var picker = findChild(app, "label-picker")
+      var menu = findChild(app, "rowMenu")
       verify(menu !== null)
       menu.actionRequested("moveToLabel", "2:INBOX")
       tryCompare(picker, "opened", true)
@@ -181,8 +177,8 @@ Item {
       var account = seed()
       account.selectedId = "2:INBOX"
       account.selectedMessage = row("2:INBOX")
-      var picker = named(app, "label-picker")
-      var button = named(app, "reader-move-button")
+      var picker = findChild(app, "label-picker")
+      var button = findChild(app, "reader-move-button")
       verify(button !== null, "the reader has a move button")
       button.clicked()
       tryCompare(picker, "opened", true)

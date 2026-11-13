@@ -40,9 +40,9 @@ fn configuration() -> Result<String> {
     let exe = std::env::current_exe().map_err(|_| "agent_worker_unavailable")?;
     let mut configuration = super::config::opencode()?;
     let restricted = json!({"agents":{
-        "omamail":{"mode":"primary","system":super::worker::MAIL_ROLE,
+        "omamail":{"mode":"primary","system":super::prompt::MAIL_ROLE,
             "permissions":[{"action":"*","resource":"*","effect":"deny"},{"action":"omamail_propose_draft","resource":"*","effect":"allow"}]},
-        "omamail-events":{"mode":"primary","system":super::worker::MAIL_ROLE,
+        "omamail-events":{"mode":"primary","system":super::prompt::MAIL_ROLE,
             "permissions":[{"action":"*","resource":"*","effect":"deny"}]}},
         "snapshots":false,"warming":false,"mcp":{"servers":{"omamail":{"type":"local","command":[exe,"agent-mcp","workspace"],"codemode":false}}}});
     for (key, value) in restricted.as_object().unwrap() {
@@ -84,8 +84,8 @@ fn secret() -> Result<String> {
 
 pub struct Lease {
     _stream: UnixStream,
-    pub url: String,
-    pub password: String,
+    url: String,
+    password: String,
 }
 impl Lease {
     pub async fn release(&mut self) -> Result<()> {
@@ -223,21 +223,7 @@ impl Lease {
             if let Ok(stream) = UnixStream::connect(&socket).await {
                 return Ok::<_, &'static str>(stream);
             }
-            let mut launch =
-                Command::new(std::env::current_exe().map_err(|_| "agent_worker_unavailable")?);
-            launch
-                .arg("agent-opencode-server")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            unsafe {
-                launch.pre_exec(|| {
-                    if libc::setsid() < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
+            let mut launch = super::launch::command("agent-opencode-server", None, None)?;
             let mut child = launch.spawn().map_err(|_| "agent_server_unavailable")?;
             std::thread::spawn(move || {
                 let _ = child.wait();
@@ -383,7 +369,7 @@ async fn serve_lease(
     if released {
         return Ok(());
     }
-    // EOF after a crashed worker revokes its immutable native-session binding.
+    // Invariant: EOF after a crashed worker revokes its immutable native-session binding.
     // Never interrupt a completed turn or one that already has a successor.
     let needs_stop = (|| {
         let store = Store::open()?;
@@ -519,7 +505,7 @@ pub async fn serve() -> Result<()> {
     group.0.stdin.take();
     group.signal(libc::SIGTERM);
     tokio::time::sleep(Duration::from_millis(200)).await;
-    // Group's destructor kills and reaps while its PID identity is reserved.
+    // Invariant: Group's destructor kills and reaps while its PID identity is reserved.
     drop(group);
     Ok(())
 }

@@ -3,36 +3,14 @@ import "." as Widgets
 import qs.Ui
 import "../settings"
 import qs.Commons
+import qs.Commons as Commons
 
-// Small (22×22 by default) icon button used at the right edge of panel rows
-// for inline actions — forget network, confirm passphrase, unpair device,
-// etc. Two visual modes are supported via `hoverColor`:
-//   - default: hoverColor === foreground → subtle foreground-tint hover
-//   - urgent:  hoverColor === bar.urgent → red-tint hover for destructive
-//              actions like forget/unpair
-//
-// `enabled` gates clicks and dims the icon. The component owns its own
-// hover state visuals; mouse hover does NOT update any panel cursor state
-// here because action buttons are not cursor targets — the row they live
-// in is.
-//
-// Set `focusable: true` to make the button keyboard-tabbable with the
-// shared hover-cursor/focus tokens. Use this
-// in form contexts where Tab walks a list
-// of controls; leave it false for the right-edge actions on panel rows
-// where the row's CursorSurface owns the keyboard cursor.
-//
-// Set `hasCursor: true` to have the button render the same hover state as
-// mouse hover — so a panel's keyboard cursor lands on it identically.
-// Use this when a PanelActionButton is itself the cursor target (rather
-// than living inside a CursorSurface row). Emits `hovered(bool)` on
-// pointer enter/leave so the panel can update its cursor state to match.
 BorderSurface {
   id: root
 
   property string iconText: ""
   property string tooltipText: ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color hoverColor: foreground
   property string fontFamily: MailStyle.family
   property real fontSize: Style.font.icon
@@ -46,9 +24,22 @@ BorderSurface {
   signal hovered(bool isHovered)
 
   activeFocusOnTab: focusable
-  Keys.onReturnPressed: if (focusable) root.clicked()
-  Keys.onEnterPressed: if (focusable) root.clicked()
-  Keys.onSpacePressed: if (focusable) root.clicked()
+  Accessible.role: Accessible.Button
+  Accessible.name: tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus && root.focusable
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
 
   implicitWidth: size
   implicitHeight: size
@@ -60,7 +51,7 @@ BorderSurface {
     ? Border.controlSpec("focus", hoverColor, hoverColor)
     : (_hot && bordered
       ? Border.controlSpec("hover-cursor", hoverColor, hoverColor)
-      : (bordered ? Border.controlSpec("normal", foreground, Color.accent) : Border.none()))
+      : (bordered ? Border.controlSpec("normal", foreground, Commons.Color.accent) : Border.none()))
 
   color: _showFocusRing
     ? Style.focusFillFor(hoverColor, hoverColor)
@@ -78,7 +69,7 @@ BorderSurface {
     text: root.iconText
     color: root.enabled
       ? (root._hot ? root.hoverColor : root.foreground)
-      : MailStyle.muted(root.foreground, Color.background)
+      : MailStyle.muted(root.foreground, Commons.Color.background)
     font.family: root.fontFamily
     font.pixelSize: root.fontSize
   }
@@ -97,7 +88,7 @@ BorderSurface {
   }
 
   Widgets.PanelToolTip {
-    visible: root.tooltipText !== "" && mouse.containsMouse
+    visible: root.tooltipText !== "" && (mouse.containsMouse || root.activeFocus)
     text: root.tooltipText
     fontFamily: root.fontFamily
   }

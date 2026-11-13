@@ -1,12 +1,12 @@
-//! Validate a semantic message once; previews own no mutable service or storage.
-use super::{Account, Provider, SendRequest};
+//! Invariant: Validate a semantic message once; previews own no mutable service or storage.
+use super::{Account, SendRequest};
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs::File, future::Future, io::Read, path::Path, pin::Pin};
+use std::{collections::HashSet, future::Future, io::Read, pin::Pin};
 
 pub(crate) const MAX_BODY: usize = 16 * 1024 * 1024;
 const MAX_HEADER: usize = 8192;
@@ -15,7 +15,7 @@ const MAX_BYTES: usize = crate::attachment::MAX_BYTES;
 type Result<T> = std::result::Result<T, &'static str>;
 
 pub(crate) trait IdentityLookup: Send + Sync {
-    /// Read-only provider aliases, already scoped to this registered account.
+    /// Invariant: Read-only provider aliases, already scoped to this registered account.
     fn identities<'a>(
         &'a self,
         account: &'a Account,
@@ -29,7 +29,7 @@ pub(crate) struct Prepared {
 }
 
 fn header(value: &str) -> Result<()> {
-    // Inputs are decoded text. The composer owns encoded words; accepting one
+    // Invariant: Inputs are decoded text. The composer owns encoded words; accepting one
     // here lets a downstream MIME decoder change a previewed name or envelope.
     if value.len() > MAX_HEADER || value.chars().any(char::is_control) || value.contains("=?") {
         Err("mail_send_invalid_header")
@@ -117,12 +117,6 @@ fn recipients(values: &[String], seen: &mut HashSet<String>) -> Result<Vec<Strin
     Ok(out)
 }
 
-/// Walk descriptors so neither the last component nor an ancestor can be a
-/// symlink. NONBLOCK prevents a named pipe from hanging before fstat rejects it.
-fn open_file(path: &Path) -> Result<File> {
-    crate::platform::private_fs::open_external(path)
-}
-
 fn attachment(input: &super::AttachmentInput, total: &mut usize) -> Result<Value> {
     header(&input.name)?;
     if input.name.is_empty()
@@ -132,7 +126,7 @@ fn attachment(input: &super::AttachmentInput, total: &mut usize) -> Result<Value
     {
         return Err("mail_send_attachment_name");
     }
-    let file = open_file(&input.path)?;
+    let file = crate::platform::private_fs::open_external(&input.path)?;
     let before = file
         .metadata()
         .map_err(|_| "mail_send_attachment_unreadable")?;
@@ -211,7 +205,6 @@ pub(crate) fn prepare(request: &SendRequest, aliases: &Value) -> Result<Prepared
             .or_else(|| aliases.first())
     }
     .ok_or("mail_send_sender_unavailable")?;
-    // The account-qualified merger is the same identity path the composer uses.
     let merged = crate::account::senders::request(
         &json!({"mailboxes":[{"id":request.account.id,"ready":true,"aliases":[chosen]}]}),
     )?;
@@ -225,7 +218,7 @@ pub(crate) fn prepare(request: &SendRequest, aliases: &Value) -> Result<Prepared
     header(email)?;
     header(name)?;
     address(email)?;
-    // Do not silently trim provider-controlled header bytes before validation.
+    // Invariant: Do not silently trim provider-controlled header bytes before validation.
     header(
         chosen["email"]
             .as_str()
@@ -249,8 +242,8 @@ impl Prepared {
         self.preview.clone()
     }
 
-    /// Timestamp and seed are retained by the outbox for explicit send IDs, so
-    /// duplicate requests use its original digest even after payload removal.
+    /// Invariant: Timestamp and seed are retained by the outbox for explicit send IDs, so duplicate
+    /// requests use its original digest even after payload removal.
     pub(crate) fn payload(&self, stamp: u64, seed: &str) -> Result<Value> {
         let mut fields = self.fields.clone();
         let digest = format!(
@@ -274,7 +267,6 @@ impl Prepared {
         let bytes = URL_SAFE_NO_PAD
             .decode(encoded)
             .map_err(|_| "invalid_message")?;
-        validate_size(self.account.provider, bytes.len(), encoded.len())?;
         verify_envelope(&bytes, &self.fields)?;
         Ok(payload)
     }
@@ -298,21 +290,6 @@ pub(super) fn verify_envelope(bytes: &[u8], fields: &Value) -> Result<()> {
         if crate::message::envelope::addresses(&headers, name)? != expected {
             return Err("mail_send_envelope_mismatch");
         }
-    }
-    Ok(())
-}
-
-pub(super) fn validate_size(
-    provider: Provider,
-    decoded_len: usize,
-    encoded_len: usize,
-) -> Result<()> {
-    if (provider == Provider::Hey && encoded_len > 16 * 1024 * 1024 * 4 / 3)
-        || (provider == Provider::Jmap && encoded_len > 24 * 1024 * 1024)
-        || (matches!(provider, Provider::Imap | Provider::Outlook)
-            && decoded_len > crate::message::MAX_MESSAGE)
-    {
-        return Err("message_too_large");
     }
     Ok(())
 }

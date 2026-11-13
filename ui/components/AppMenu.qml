@@ -6,7 +6,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// Links out, plus the handful of actions that have no natural home on screen.
 Item {
   id: root
 
@@ -15,21 +14,16 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
   property bool signedIn: false
-  // Whether this mailbox has a web address for what is on screen. Off, the row
-  // goes rather than opening something else's inbox.
   property bool canOpenWebInbox: false
-  // The rail carries the switcher, and the rail is gone at a narrow window —
-  // so at that size this menu is the only way left to reach it.
+  // Invariant: the account switcher remains reachable through this menu when the sidebar is hidden.
   property int accountCount: 1
-  // The menu is opened from wherever the account lives — the sidebar's user
-  // bar, or the status bar when the sidebar is hidden — so it carries no
-  // trigger of its own by default.
   property bool showTrigger: false
-  // Only the standalone host owns the application process. A plugin menu
-  // must never offer to terminate the shell that loaded it.
+  // Invariant: only the standalone host may offer Quit; a plugin must not terminate its shell.
   property bool canQuit: false
   property bool singlePane: true
   property bool hasAgent: true
+  property bool descriptionsEnabled: true
+  signal descriptionsToggleRequested()
   property bool overviewsPaused: false
   signal overviewPauseRequested()
   signal refreshImagesRequested()
@@ -40,14 +34,13 @@ Item {
   signal overviewRetryRequested()
   readonly property bool opened: menu.opened
 
-  // Positioned against the window rather than a button, and flipped when it
-  // would run off the bottom, since it opens from a bar at the bottom.
-  // Where the menu was asked to appear, kept because it cannot be placed yet.
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [snoozedRow, refreshImagesRow, pauseOverviewRow, layoutRow, refreshRow, aiToolsRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
-    switchRow, settingsRow, shortcutsRow, projectRow, authorRow, quitRow]
+  property bool helpPage: false
+  readonly property var menuRows: helpPage ? [helpBackRow, searchHelpRow, shortcutsRow]
+    : [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, descriptionsRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
+      switchRow, settingsRow, helpRow, projectRow, authorRow, quitRow]
 
   function openAt(sceneX, sceneY) {
     var local = root.mapFromGlobal(sceneX, sceneY)
@@ -57,11 +50,7 @@ Item {
     place()
   }
 
-  // A Popup does not build its contents until it is first opened, so on the
-  // very first click its height is still zero: the "does it fit below?" test
-  // passed trivially and the menu was placed at the click and then grew off the
-  // bottom. That matters more now the trigger sits on the status line, where
-  // below is where there is no room at all.
+  // Invariant: popup content is created lazily; position again after its first height is known.
   function place() {
     if (!menu.visible) return
     var tall = menu.height > 0 ? menu.height : menu.implicitHeight
@@ -70,30 +59,37 @@ Item {
     menu.y = placed.y
   }
 
-  function selectableRows() {
-    var values = []
-    for (var i = 0; i < menuRows.length; i++) values.push({
-      selectable: true, visible: menuRows[i].visible, enabled: menuRows[i].enabled
-    })
-    return values
-  }
   function moveCursor(step) {
-    cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step)
+    cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step)
+    revealCursor()
+  }
+  function revealCursor() {
     if (cursorIndex < 0) return
     var row = menuRows[cursorIndex]
-    if (row.y < menuScroll.contentY) menuScroll.contentY = row.y
-    else if (row.y + row.height > menuScroll.contentY + menuScroll.height) menuScroll.contentY = row.y + row.height - menuScroll.height
+    var top = row.mapToItem(menuItems, 0, 0).y
+    if (top < menuScroll.contentY) menuScroll.contentY = top
+    else if (top + row.height > menuScroll.contentY + menuScroll.height) menuScroll.contentY = top + row.height - menuScroll.height
   }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
 
   function close() { menu.close() }
+  function showHelp() {
+    helpPage = true
+    cursorIndex = 1
+    menuScroll.contentY = 0
+    menuItems.forceActiveFocus()
+  }
+  function showMain() {
+    helpPage = false
+    cursorIndex = menuRows.indexOf(helpRow)
+    menuItems.forceActiveFocus()
+    Qt.callLater(revealCursor)
+  }
 
   signal markAllReadRequested()
   signal openWebRequested()
   signal shortcutsRequested()
-  // The two places the window is for, as a pair. The sidebar has both, but
-  // a narrow window has no sidebar, and then these rows are the only way
-  // from one to the other.
+  signal searchHelpRequested()
   signal inboxRequested()
   signal calendarRequested()
   signal setupRequested()
@@ -126,20 +122,25 @@ Item {
 
   QQC.Popup {
     id: menu
+    objectName: "app-menu-popup"
     width: Math.min(root.width, MailStyle.space(260))
-    implicitHeight: Math.min(menuItems.implicitHeight + MailStyle.space(8), root.height - MailStyle.space(16))
+    // Invariant: the frame holds the entries and exactly the padding the list loses, so a menu that fits
+    // never scrolls by a pixel lost to rounding.
+    implicitHeight: Math.min(menuItems.implicitHeight + topPadding + bottomPadding, root.height - MailStyle.space(16))
     padding: MailStyle.space(4)
+    // Invariant: while the menu scrolls, its right padding is at least as wide as its bar, so at small
+    // text sizes the bar keeps clear of the frame. A menu that fits keeps its usual padding.
+    rightPadding: menuScroll.scrolls ? Math.max(padding, menuBar.implicitWidth) : padding
     modal: false
     focus: true
-    closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
+    closePolicy: QQC.Popup.CloseOnPressOutside | (root.helpPage ? 0 : QQC.Popup.CloseOnEscape)
     onHeightChanged: root.place()
     onOpened: {
-      // No row lit until a key asks for one. Opening with the first row
-      // highlighted read as "this is where you are" once the first row
-      // became Inbox — on the calendar, a menu saying Inbox was selected.
-      // j/k from nowhere start at the first or last row, so the keyboard
-      // loses nothing.
+      // Invariant: opening the menu must not imply that Inbox is the current view.
+      root.helpPage = false
       root.cursorIndex = -1
+      // Invariant: a menu opens at its first entry, wherever the last one was scrolled to.
+      menuScroll.contentY = 0
       root.place()
     }
     background: Rectangle {
@@ -153,7 +154,21 @@ Item {
       contentHeight: menuItems.implicitHeight
       clip: true
       boundsBehavior: Flickable.StopAtBounds
-      QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
+      // Invariant: whether the menu scrolls is worked out from what it holds and the height it was given,
+      // not from the list's own laid-out height (as in Magpie Calendar's menu).
+      readonly property bool scrolls: menuItems.implicitHeight + menu.topPadding + menu.bottomPadding > menu.height + 1
+      // Invariant: while the menu scrolls, a thin bar stays on beside its entries, in the menu's right
+      // padding, so the menu shows there is more without the bar covering an entry (Magpie Calendar's menu).
+      QQC.ScrollIndicator.vertical: QQC.ScrollIndicator {
+        id: menuBar
+        objectName: "app-menu-scroll"
+        parent: menuScroll.parent
+        anchors.top: menuScroll.top
+        anchors.bottom: menuScroll.bottom
+        anchors.left: menuScroll.right
+        anchors.leftMargin: Math.max(0, (menu.rightPadding - width) / 2)
+        active: menuScroll.scrolls
+      }
       Column {
       id: menuItems
       width: menuScroll.width
@@ -168,12 +183,10 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           width: MailStyle.space(26)
           height: width
-          foreground: root.textColor
-          accent: root.textColor
         }
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          text: "Magpie"
+          text: root.helpPage ? "Help" : "Magpie Mail"
           textFormat: Text.PlainText
           color: root.textColor
           font.family: root.panelFontFamily
@@ -183,17 +196,35 @@ Item {
       MenuSeparatorLine { width: parent.width; lineColor: root.textColor }
 
       focus: true
+      Keys.onShortcutOverride: function(event) {
+        if (event.modifiers !== Qt.NoModifier) return
+        if ([Qt.Key_J, Qt.Key_Down, Qt.Key_K, Qt.Key_Up, Qt.Key_Return,
+            Qt.Key_Enter, Qt.Key_Space, Qt.Key_O].indexOf(event.key) >= 0
+            || (root.helpPage && (event.key === Qt.Key_Left || event.key === Qt.Key_Escape))
+            || (!root.helpPage && event.key === Qt.Key_Right
+              && root.menuRows[root.cursorIndex] === helpRow)) event.accepted = true
+      }
       Keys.onPressed: function(event) {
+        if (event.modifiers !== Qt.NoModifier) return
         if (event.key === Qt.Key_J || event.key === Qt.Key_Down) {
           root.moveCursor(1); event.accepted = true
         } else if (event.key === Qt.Key_K || event.key === Qt.Key_Up) {
           root.moveCursor(-1); event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-            || event.key === Qt.Key_O) {
+            || event.key === Qt.Key_Space || event.key === Qt.Key_O) {
           root.runCursor(); event.accepted = true
+        } else if (root.helpPage && (event.key === Qt.Key_Left || event.key === Qt.Key_Escape)) {
+          root.showMain(); event.accepted = true
+        } else if (!root.helpPage && event.key === Qt.Key_Right
+            && root.menuRows[root.cursorIndex] === helpRow) {
+          root.showHelp(); event.accepted = true
         }
       }
 
+      Column {
+      visible: !root.helpPage
+      width: parent.width
+      spacing: MailStyle.space(2)
       MenuRow {
         id: snoozedRow
         text: "Snoozed mail..."
@@ -226,14 +257,20 @@ Item {
         onActivated: { menu.close(); root.refreshImagesRequested() }
       }
       MenuRow {
+        id: descriptionsRow
+        text: root.descriptionsEnabled ? "Show original subjects" : "Show the Point"
+        visible: root.hasAgent
+        onActivated: { menu.close(); root.descriptionsToggleRequested() }
+      }
+      MenuRow {
         id: pauseOverviewRow
-        text: root.overviewsPaused ? "Resume AI overviews" : "Pause new AI overviews"
+        text: root.overviewsPaused ? "Resume new Points" : "Pause new Points"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewPauseRequested() }
       }
       MenuRow {
         id: overviewRow
-        text: "Retry AI overviews"
+        text: "Retry Points"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewRetryRequested() }
       }
@@ -244,7 +281,7 @@ Item {
       }
       MenuRow {
         id: calendarRow
-        text: "Calendar"
+        text: "Magpie Calendar..."
         onActivated: { menu.close(); root.calendarRequested() }
       }
       MenuSeparatorLine {
@@ -254,8 +291,6 @@ Item {
 
       MenuRow {
         id: markRow
-        // "These" and not "all": it marks the messages that are loaded, which
-        // is what you are looking at, not every message the mailbox holds.
         text: "Mark these read"
         enabled: root.signedIn
         onActivated: { menu.close(); root.markAllReadRequested() }
@@ -286,9 +321,10 @@ Item {
       }
 
       MenuRow {
-        id: shortcutsRow
-        text: "Keyboard..."
-        onActivated: { menu.close(); root.shortcutsRequested() }
+        id: helpRow
+        objectName: "app-menu-help"
+        text: "Help..."
+        onActivated: root.showHelp()
       }
       MenuRow {
         id: projectRow
@@ -313,16 +349,45 @@ Item {
         onActivated: { menu.close(); root.quitRequested() }
       }
       }
+      Column {
+        visible: root.helpPage
+        width: parent.width
+        spacing: MailStyle.space(2)
+        MenuRow {
+          id: helpBackRow
+          objectName: "app-menu-help-back"
+          text: "Back"
+          onActivated: root.showMain()
+        }
+        MenuSeparatorLine { width: parent.width; lineColor: root.textColor }
+        MenuRow {
+          id: searchHelpRow
+          objectName: "app-menu-search-help"
+          text: "Search..."
+          onActivated: { menu.close(); root.searchHelpRequested() }
+        }
+        MenuRow {
+          id: shortcutsRow
+          objectName: "app-menu-keyboard-help"
+          text: "Keyboard..."
+          onActivated: { menu.close(); root.shortcutsRequested() }
+        }
+      }
+      }
     }
   }
 
-  // `enabled` is Item's own, and it already stops the handlers below from
-  // firing, so a disabled row only has to look disabled.
   component MenuRow: MenuActionRow {
+    id: actionRow
     width: menu.width - menu.leftPadding - menu.rightPadding
     textColor: root.textColor
     panelFontFamily: root.panelFontFamily
     collection: root.menuRows
     cursorIndex: root.cursorIndex
+    Keys.onShortcutOverride: function(event) {
+      if (event.modifiers === Qt.NoModifier && (event.key === Qt.Key_Return
+          || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) event.accepted = true
+    }
+    Keys.onEnterPressed: if (enabled) actionRow.activated()
   }
 }

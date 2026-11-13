@@ -6,7 +6,7 @@ function selectable(entry) {
 
 function firstSelectable(entries) {
   var values = Array.isArray(entries) ? entries : []
-  for (var i = 0; i < values.length; i++) if (selectable(values[i])) return i
+  for (var rowIndex = 0; rowIndex < values.length; rowIndex++) if (selectable(values[rowIndex])) return rowIndex
   return -1
 }
 
@@ -14,19 +14,19 @@ function nextSelectable(entries, current, step) {
   var values = Array.isArray(entries) ? entries : []
   if (values.length === 0) return -1
   var direction = Number(step) < 0 ? -1 : 1
-  var at = Math.floor(Number(current))
-  if (!isFinite(at) || at < 0 || at >= values.length) at = direction > 0 ? -1 : 0
-  for (var i = 0; i < values.length; i++) {
-    at = (at + direction + values.length) % values.length
-    if (selectable(values[at])) return at
+  var selectedIndex = Math.floor(Number(current))
+  if (!isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= values.length) selectedIndex = direction > 0 ? -1 : 0
+  for (var attempt = 0; attempt < values.length; attempt++) {
+    selectedIndex = (selectedIndex + direction + values.length) % values.length
+    if (selectable(values[selectedIndex])) return selectedIndex
   }
   return -1
 }
 
 function position(anchorX, anchorY, width, height, containerWidth, containerHeight) {
-  var x = Math.max(0, Math.min(Number(anchorX), Number(containerWidth) - Number(width)))
-  var y = Number(anchorY)
-  if (y + height > containerHeight) y = y - height
-  if (y + height > containerHeight) y = containerHeight - height
-  return { x: Math.max(0, x), y: Math.max(0, y) }
+  var positionX = Math.max(0, Math.min(Number(anchorX), Number(containerWidth) - Number(width)))
+  var positionY = Number(anchorY)
+  if (positionY + height > containerHeight) positionY = positionY - height
+  if (positionY + height > containerHeight) positionY = containerHeight - height
+  return { x: Math.max(0, positionX), y: Math.max(0, positionY) }
 }

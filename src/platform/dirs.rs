@@ -1,9 +1,8 @@
 //! Platform data roots. Consumers append their existing `omamail` subdirectory,
 //! retaining Linux plugin layouts. Discovery never creates or writes directories.
-use std::{
-    ffi::OsString,
-    path::{Component, Path, PathBuf},
-};
+use std::path::{Component, PathBuf};
+#[cfg(any(not(target_os = "ios"), test))]
+use std::{ffi::OsString, path::Path};
 
 /// Shared backend/standalone-host contract: every application-owned directory
 /// is this single component below its platform-native root.
@@ -68,10 +67,16 @@ impl AppDirs {
         #[cfg(all(windows, feature = "integration-test-credentials"))]
         if let Some(root) = integration_root()? {
             return Self::from_roots(
-                root.join("config"), root.join("cache"), root.join("state"),
-                root.join("runtime"), root.join("downloads"),
+                root.join("config"),
+                root.join("cache"),
+                root.join("state"),
+                root.join("runtime"),
+                root.join("downloads"),
             );
         }
+        #[cfg(target_os = "ios")]
+        return mobile_dirs().map(|(dirs, _)| dirs.clone());
+        #[cfg(not(target_os = "ios"))]
         Self::discover_with(|name| std::env::var_os(name), &std::env::temp_dir())
     }
     pub fn home() -> Result<PathBuf, &'static str> {
@@ -91,13 +96,16 @@ impl AppDirs {
         {
             return known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Profile);
         }
-        #[cfg(unix)]
+        #[cfg(target_os = "ios")]
+        return mobile_dirs().map(|(_, home)| home.clone());
+        #[cfg(all(unix, not(target_os = "ios")))]
         absolute(
             std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .ok_or("home_missing")?,
         )
     }
+    #[cfg(not(target_os = "ios"))]
     fn discover_with(
         env: impl Fn(&str) -> Option<OsString>,
         temporary: &Path,
@@ -109,7 +117,7 @@ impl AppDirs {
                 FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_RoamingAppData,
             };
             let local = known_folder(&FOLDERID_LocalAppData)?;
-            // Program files install into LocalAppData/omamail. Keep all data
+            // Invariant: Program files install into LocalAppData/omamail. Keep all data
             // outside that replaceable installation directory.
             Self::from_roots(
                 known_folder(&FOLDERID_RoamingAppData)?,
@@ -130,7 +138,7 @@ impl AppDirs {
             #[cfg(target_os = "macos")]
             let (config, cache, state, runtime, downloads) = {
                 let support = home.join("Library/Application Support");
-                // Darwin's system temporary directory commonly uses /var, a
+                // Invariant: Darwin's system temporary directory commonly uses /var, a
                 // system alias of /private/var. Resolve this OS-selected root
                 // before entering the no-symlink storage boundary.
                 let runtime = temporary.canonicalize().map_err(|_| "home_invalid")?;
@@ -184,7 +192,7 @@ impl AppDirs {
         self.config.join(APP_DIRECTORY)
     }
 }
-// CLI integration children cannot use the unit-test in-memory override. This
+// Invariant: CLI integration children cannot use the unit-test in-memory override. This
 // is compiled only with the test credential feature, which is forbidden in
 // release builds by credentials/mod.rs. Production keeps native Known Folders.
 #[cfg(all(windows, feature = "integration-test-credentials"))]
@@ -210,7 +218,7 @@ fn linux_downloads(home: &Path, config: &Path) -> PathBuf {
     use std::{io::Read, os::unix::fs::OpenOptionsExt};
     const LIMIT: u64 = 64 * 1024;
     let read = || -> Option<String> {
-        // NONBLOCK avoids opening a FIFO/device before metadata can reject it.
+        // Invariant: NONBLOCK avoids opening a FIFO/device before metadata can reject it.
         // Both the metadata and the actual read are bounded against file growth.
         let file = std::fs::OpenOptions::new()
             .read(true)
@@ -362,7 +370,7 @@ fn known_folder(id: &windows_sys::core::GUID) -> Result<PathBuf, &'static str> {
         UI::Shell::{KF_FLAG_DONT_VERIFY, SHGetKnownFolderPath},
     };
     let mut raw = ptr::null_mut();
-    // The path, not proof that it exists: every root is resolved together,
+    // Invariant: The path, not proof that it exists: every root is resolved together,
     // and a Downloads folder the user removed would otherwise take the
     // registry and the caches down with it. Whoever writes there creates it
     // or reports that it could not.
@@ -409,4 +417,36 @@ mod windows_tests {
             assert!(!root.starts_with(local.join("omamail")));
         }
     }
+}
+
+#[cfg(target_os = "ios")]
+static MOBILE_DIRS: std::sync::OnceLock<(AppDirs, PathBuf)> = std::sync::OnceLock::new();
+#[cfg(target_os = "ios")]
+fn mobile_dirs() -> Result<&'static (AppDirs, PathBuf), &'static str> {
+    MOBILE_DIRS.get().ok_or("mobile_storage_uninitialized")
+}
+#[cfg(target_os = "ios")]
+pub fn initialize_mobile(root: PathBuf, home: PathBuf) -> Result<(), &'static str> {
+    let root = root.canonicalize().map_err(|_| "mobile_storage_invalid")?;
+    let home = home.canonicalize().map_err(|_| "mobile_storage_invalid")?;
+    if !root.starts_with(&home) || root == home {
+        return Err("mobile_storage_invalid");
+    }
+    let dirs = AppDirs::from_roots(
+        root.join("config"),
+        root.join("cache"),
+        root.join("state"),
+        root.join("runtime"),
+        root.join("exports"),
+    )?;
+    if let Some(current) = MOBILE_DIRS.get() {
+        return if current == &(dirs, home) {
+            Ok(())
+        } else {
+            Err("mobile_storage_already_initialized")
+        };
+    }
+    MOBILE_DIRS
+        .set((dirs, home))
+        .map_err(|_| "mobile_storage_already_initialized")
 }

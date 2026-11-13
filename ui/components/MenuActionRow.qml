@@ -41,14 +41,20 @@ Rectangle {
     color: root.tone
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.bodySmall
+    // Invariant: a label too wide for its menu, at a large text size in a narrow window, shrinks to fit,
+    // down to half its size, before it is cut short. Its height stays the full line's, so the rows and
+    // the menu keep their size (as in Magpie Calendar's menu), and the smaller text is centred in it,
+    // which Text does only for a height that is set.
+    fontSizeMode: Text.HorizontalFit
+    minimumPixelSize: Math.ceil(font.pixelSize / 2)
+    height: implicitHeight
+    verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
   }
 
   HoverHandler { id: hover }
-  // The exclusive grab on press, not a passive one: a menu can sit over a
-  // message row, whose MouseArea takes the exclusive grab if this does not,
-  // and the release then opens the message under the menu instead of
-  // running the row that was clicked.
+  // Invariant: take the exclusive pointer grab on press so an underlying message row cannot consume
+  // the release.
   TapHandler {
     gesturePolicy: TapHandler.ReleaseWithinBounds
     onTapped: root.activated()

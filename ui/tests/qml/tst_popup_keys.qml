@@ -2,21 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtTest 1.3
 
-// Why the account switcher answers its own keys, which is the opposite of what
-// every other component in this window does.
-//
-// The rule is that a window `Shortcut` beats a focused item's `Keys` handler,
-// so a local one looks live and never runs — that is the whole reason
-// `KeyRouter` exists. An open `QQC.Popup` inverts it: the popup takes the key
-// before the shortcut map sees it, with `focus` true or false, bare key or
-// modified. So inside a popup the `KeyRouter` binding is the one that would
-// look live and never run.
-//
-// Both halves are here because the inversion is the entire justification for
-// the exception, and a rule whose reason is untested is a rule somebody tidies
-// away. The switcher itself cannot be built in this runner — it imports
-// `qs.Ui`, which only exists inside the shell process — so what is asserted is
-// the Qt behaviour the switcher is shaped around.
+// Invariant: an open Qt Popup intercepts keys before window shortcuts, regardless of focus.
 Item {
   id: host
   width: 300; height: 200
@@ -41,8 +27,6 @@ Item {
     }
   }
 
-  // Not focused, and it makes no difference: this is the version somebody
-  // reaches for on the way to "then the router can drive it".
   QQC.Popup {
     id: unfocusedPopup
     width: 100; height: 80

@@ -14,9 +14,7 @@ Item {
     property var openedAttachment: null
     property string starredId: ""
     property string browsedId: ""
-    // What the service answers to. It is the summary's own id in a single
-    // mailbox and the mailbox plus that id in a list made of several, and the
-    // reader has to hand back this one rather than the one on the summary.
+    // Invariant: reader actions return selectedId, which includes mailbox ownership in a unified list.
     property string selectedId: "message-4"
     property var selectedMessage: ({
       id: "message-4",
@@ -69,9 +67,7 @@ Item {
     property string savedMessageId: ""
     property var savedAttachment: null
 
-    // Keyed by mailbox and attachment on the real service, because two
-    // mailboxes can be saving parts whose ids collide. Empty here, so a reader
-    // that looks up a bare attachment id finds nothing — which is what it did.
+    // Invariant: the empty legacy map exposes any lookup that omits mailbox ownership.
     property var savingAttachmentIds: ({})
     property string savingFor: ""
 
@@ -118,21 +114,11 @@ Item {
     name: "AttachmentFooter"
     when: windowShown
 
-    function named(item, name) {
-      if (item.objectName === name) return item
-      var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = named(children[i], name)
-        if (found) return found
-      }
-      return null
-    }
-
     function attachments(count) {
       var result = []
-      for (var i = 0; i < count; i++)
-        result.push({filename: "Report " + (i + 1) + ".pdf", mimeType: "application/pdf",
-          size: 1536, attachmentId: "att-" + i})
+      for (var index = 0; index < count; index++)
+        result.push({filename: "Report " + (index + 1) + ".pdf", mimeType: "application/pdf",
+          size: 1536, attachmentId: "att-" + index})
       return result
     }
 
@@ -142,10 +128,10 @@ Item {
     }
 
     function cards() {
-      var list = named(reader, "attachment-scroller")
+      var list = findChild(reader, "attachment-scroller")
       var children = list.contentItem.children[0].children
       var result = []
-      for (var i=0;i<children.length;i++) if(children[i].attachment) result.push(children[i])
+      for (var index=0;index<children.length;index++) if(children[index].attachment) result.push(children[index])
       return result
     }
 
@@ -167,14 +153,14 @@ Item {
 
     function test_files_are_individually_visible_without_a_disclosure() {
       show(0)
-      var body = named(reader, "messageBodyScroller")
+      var body = findChild(reader, "messageBodyScroller")
       var emptyHeight = body.height
-      var list = named(reader, "attachment-scroller")
+      var list = findChild(reader, "attachment-scroller")
       compare(list.visible, false)
       show(40)
       compare(list.visible, true)
       compare(cards().length, 40)
-      compare(named(reader,"attachment-toggle"), null)
+      compare(findChild(reader,"attachment-toggle"), null)
       verify(list.contentWidth > list.width)
       verify(list.height > 0 && list.height <= MailStyle.space(112))
       verify(body.height >= 100, "many attachments leave readable body space: " + body.height)
@@ -188,12 +174,12 @@ Item {
       show(40)
       reader.height = MailStyle.space(280)
       reader.width = MailStyle.space(300)
-      var body = named(reader, "messageBodyScroller")
-      var list = named(reader, "attachment-scroller")
+      var body = findChild(reader, "messageBodyScroller")
+      var list = findChild(reader, "attachment-scroller")
       tryVerify(function() {return body.height >= 60})
       verify(list.height > 0 && list.height < MailStyle.space(112))
       var card = cards()[0]
-      var save = named(card,"attachment-save-button")
+      var save = findChild(card,"attachment-save-button")
       var point = save.mapToItem(list,0,0)
       verify(point.y >= 0 && point.y+save.height <= list.height+1,
         "the save target stays inside even a short shelf")
@@ -202,12 +188,12 @@ Item {
     function test_scroll_to_last_file_and_route_both_actions() {
       show(40)
       mailService.selectedId = "mailbox-b message-4"
-      var list = named(reader, "attachment-scroller")
+      var list = findChild(reader, "attachment-scroller")
       waitForRendering(reader)
       mouseWheel(list, list.width/2, list.height/2, 0, -120000)
       tryVerify(function(){return list.atXEnd})
       var last = cards()[39]
-      var save = named(last,"attachment-save-button")
+      var save = findChild(last,"attachment-save-button")
       var point = save.mapToItem(list,0,0)
       verify(point.y >= 0 && point.y+save.height <= list.height+1)
       verify(point.x >= 0 && point.x+save.width <= list.width+1)
@@ -223,12 +209,12 @@ Item {
       show(40)
       var last = cards()[39]
       last.forceActiveFocus()
-      var list = named(reader,"attachment-scroller")
+      var list = findChild(reader,"attachment-scroller")
       tryVerify(function(){return list.atXEnd})
       keyClick(Qt.Key_Return)
       compare(mailService.openedAttachment.attachmentId,"att-39")
       compare(mailService.saveCalls,0)
-      var save = named(last,"attachment-save-button")
+      var save = findChild(last,"attachment-save-button")
       save.forceActiveFocus()
       keyClick(Qt.Key_Space)
       compare(mailService.saveCalls,1)
@@ -241,7 +227,7 @@ Item {
       show(40)
       tryVerify(function(){return mailService.previewCalls.length === 1})
       var old = mailService.previewCalls[0]
-      var list = named(reader,"attachment-scroller")
+      var list = findChild(reader,"attachment-scroller")
       list.contentX = list.contentWidth-list.width
       mailService.selectedId = "message-5"
       show(2)
@@ -272,7 +258,7 @@ Item {
       mailService.savingFor="mailbox-b message-4"
       waitForRendering(reader)
       var card=cards()[0]
-      var save=named(card,"attachment-save-button")
+      var save=findChild(card,"attachment-save-button")
       compare(save.busy,true)
       mouseClick(save,save.width/2,save.height/2)
       compare(mailService.saveCalls,0)
@@ -280,8 +266,8 @@ Item {
       compare(save.busy,false)
       mouseClick(save,save.width/2,save.height/2)
       compare(mailService.saveCalls,1)
-      compare(named(card,"attachment-filename").textFormat,Text.PlainText)
-      compare(String(named(card,"attachment-thumbnail").source),"")
+      compare(findChild(card,"attachment-filename").textFormat,Text.PlainText)
+      compare(String(findChild(card,"attachment-thumbnail").source),"")
     }
   }
 }

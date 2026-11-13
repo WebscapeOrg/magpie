@@ -1,4 +1,4 @@
-//! Data-only link projection. Never resolve, open or fetch sender destinations.
+//! Invariant: Data-only link projection. Never resolve, open or fetch sender destinations.
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -9,7 +9,7 @@ fn attribute_value(value: &str) -> String {
     ENTITIES
         .replace_all(value, |capture: &regex::Captures| {
             let entity = capture.get(0).unwrap();
-            // In attributes, an unterminated named reference before '=' or an
+            // Algorithm: In attributes, an unterminated named reference before '=' or an
             // alphanumeric is literal URL data (for example ?a=1&copy=2).
             if !entity.as_str().ends_with(';')
                 && !entity.as_str().starts_with("&#")
@@ -51,13 +51,13 @@ pub(super) fn destination(value: &str) -> Option<&str> {
 pub(super) fn link(node: &Value, children: &[Value]) -> Option<Value> {
     let attrs = node["attrs"].as_array()?;
     let href = attrs.iter().find(|attr| attr["name"] == "href")?["value"].as_str()?;
-    // Document attributes retain HTML entities for serialization. Decode once
-    // before checking and exporting the exact destination a caller will use.
+    // Algorithm: Document attributes retain HTML entities for serialization. Decode once before
+    // checking and exporting the exact destination a caller will use.
     let href = attribute_value(href);
     let href = destination(&href)?;
     fn text(node: &Value, out: &mut String) {
-        // Malformed nested anchors have their own entry. Do not duplicate
-        // their labels at every ancestor and amplify a bounded document.
+        // Invariant: Malformed nested anchors have their own entry. Do not duplicate their labels
+        // at every ancestor and amplify a bounded document.
         if node["name"] == "a" {
             return;
         }
@@ -85,8 +85,8 @@ pub(super) fn unsubscribe(headers: &Value) -> Value {
             let name = header["name"].as_str().unwrap_or("");
             let value = header["value"].as_str().unwrap_or("");
             if name.eq_ignore_ascii_case("list-unsubscribe") {
-                // RFC 2369 destinations are angle-bracket delimited. Do not
-                // infer URLs from comments or reinterpret HTML entities here.
+                // Invariant: RFC 2369 destinations are angle-bracket delimited. Do not infer URLs
+                // from comments or reinterpret HTML entities here.
                 for part in value.split('<').skip(1) {
                     if let Some((url, _)) = part.split_once('>')
                         && let Some(url) = destination(url)
@@ -102,8 +102,8 @@ pub(super) fn unsubscribe(headers: &Value) -> Value {
             }
         }
     }
-    // This reports the sender's declaration, not authentication or permission
-    // to POST. RFC 8058 applies only to HTTPS destinations.
+    // Invariant: This reports the sender's declaration, not authentication or permission to POST.
+    // RFC 8058 applies only to HTTPS destinations.
     let one_click = one_click
         && urls
             .iter()
@@ -177,7 +177,7 @@ mod tests {
         ] {
             assert_eq!(link(&node(href), &children), None, "{href}");
         }
-        // Headers are not HTML: an ampersand/entity spelling is URL data.
+        // Invariant: Headers are not HTML: an ampersand/entity spelling is URL data.
         assert_eq!(
             unsubscribe(
                 &json!([{"name":"List-Unsubscribe","value":"<https://example.org/?a=1&amp;b=2>"}])

@@ -3,7 +3,7 @@ import QtQuick.Templates as T
 import qs.Commons
 import qs.Commons as Commons
 
-// The shell's Dropdown, drawn here: a platform ComboBox brings its own
+// Invariant: The shell's Dropdown, drawn here: a platform ComboBox brings its own
 // up/down arrows and its own type size, which read as a foreign control in a
 // settings row whose other controls follow the shell's scale.
 T.ComboBox {
@@ -36,15 +36,15 @@ T.ComboBox {
     width: control.chevronSize
     height: Math.round(control.chevronSize / 2) + 2
     onPaint: {
-      var ctx = getContext("2d")
-      ctx.reset()
-      ctx.strokeStyle = control.semanticForeground
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.moveTo(1, 1)
-      ctx.lineTo(width / 2, height - 1)
-      ctx.lineTo(width - 1, 1)
-      ctx.stroke()
+      var context = getContext("2d")
+      context.reset()
+      context.strokeStyle = control.semanticForeground
+      context.lineWidth = 1.5
+      context.beginPath()
+      context.moveTo(1, 1)
+      context.lineTo(width / 2, height - 1)
+      context.lineTo(width - 1, 1)
+      context.stroke()
     }
     Connections {
       target: control
@@ -52,7 +52,7 @@ T.ComboBox {
     }
   }
 
-  // The trigger holds the selected fill while its list is open, so the list
+  // Invariant: The trigger holds the selected fill while its list is open, so the list
   // reads as attached to the control that opened it.
   background: Rectangle {
     objectName: "omamail-combobox-background"
@@ -71,8 +71,6 @@ T.ComboBox {
   popup: T.Popup {
     readonly property real below: control.mapToItem(null, 0, control.height).y
     readonly property real windowHeight: control.Window.window ? control.Window.window.height : below + implicitHeight
-    // Below the trigger when it fits, above it when it does not, then kept
-    // inside the window.
     y: below + implicitHeight <= windowHeight ? control.height + 2
       : Math.max(-control.mapToItem(null, 0, 0).y, -implicitHeight - 2)
     width: control.width

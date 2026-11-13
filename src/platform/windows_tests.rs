@@ -81,7 +81,7 @@ fn own_acl(extra: &str) -> String {
     )
 }
 
-// Mount-point reparses (junctions) do not require SeCreateSymbolicLinkPrivilege,
+// Invariant: Mount-point reparses (junctions) do not require SeCreateSymbolicLinkPrivilege,
 // unlike symlinks. Exercise the real filesystem without a privileged shell.
 fn junction(path: &Path, target: &Path) {
     fs::create_dir(path).unwrap();
@@ -100,7 +100,7 @@ fn junction(path: &Path, target: &Path) {
     data.extend(((name.len() * 2) as u16).to_le_bytes());
     data.extend((((name.len() + 1) * 2) as u16).to_le_bytes()); // Print name follows substitute NUL.
     data.extend(0u16.to_le_bytes());
-    // The path buffer carries separately terminated substitute and print
+    // Invariant: The path buffer carries separately terminated substitute and print
     // names, even though the latter is empty.
     for unit in name.into_iter().chain([0, 0]) {
         data.extend(unit.to_le_bytes());
@@ -180,7 +180,7 @@ fn windows_rejects_traversal_dos_aliases_streams_junctions_and_hardlinks() {
 #[test]
 fn windows_private_acl_is_protected_and_inherited_read_grants_are_refused() {
     let temp = Temp::new();
-    // This ancestor ACL is readable but cannot be mutated by other users. Its
+    // Invariant: This ancestor ACL is readable but cannot be mutated by other users. Its
     // inheritable read grant must not reach a newly created private directory.
     set_acl(&temp.0, &own_acl("(A;OICI;GR;;;WD)"), true);
     let dir = temp.private();
@@ -219,7 +219,6 @@ fn windows_atomic_writers_preserve_records_and_handles_survive_rename() {
         scope.spawn(move || {
             for _ in 0..100 {
                 let Some(mut file) = regular_readonly(dir, "record").unwrap() else {
-                    // A concurrently unlinked old inode is a cache miss.
                     continue;
                 };
                 let mut bytes = Vec::new();
@@ -290,7 +289,7 @@ async fn windows_pipe_authenticates_rejects_squatting_and_follows_renamed_direct
     assert_eq!(client.read_u32().await.unwrap(), 24);
     drop(server);
     drop(client);
-    // A lease intentionally denies delete sharing, so release it before the
+    // Invariant: A lease intentionally denies delete sharing, so release it before the
     // directory rename used to prove that the endpoint follows its pinned
     // directory handle rather than reopening the old path.
     drop(lease);
@@ -313,7 +312,7 @@ async fn windows_pipe_dacl_refuses_anonymous_token_before_any_request() {
     let sid = security::sid_text(&security::current_user().unwrap()).unwrap();
     let name = format!(r"\\.\pipe\omamail-{sid}-{volume:08x}-{id:016x}-outbox");
     assert_ne!(unsafe { ImpersonateAnonymousToken(GetCurrentThread()) }, 0);
-    // Synchronous open only: never yield an impersonated executor thread.
+    // Invariant: Synchronous open only: never yield an impersonated executor thread.
     let denied = ClientOptions::new().open(name);
     assert_ne!(unsafe { RevertToSelf() }, 0);
     assert!(denied.is_err());
@@ -379,7 +378,7 @@ async fn windows_pipe_refuses_default_acl_squatter_before_sending_bytes() {
         .unwrap();
     assert!(endpoint.listen().is_err());
     assert!(endpoint.connect().await.is_err());
-    // Even a same-user squatter with an unsafe DACL never receives a preamble or
+    // Invariant: Even a same-user squatter with an unsafe DACL never receives a preamble or
     // request. A closed client can report EOF or ERROR_BROKEN_PIPE; neither is data.
     let mut bytes = [0u8; 8];
     assert!(!matches!(squatter.try_read(&mut bytes), Ok(n) if n > 0));

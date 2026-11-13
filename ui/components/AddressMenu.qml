@@ -5,9 +5,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// The menu an address opens on a right-click in the reader's header: copy
-// it, or find the mail from it or to it. A line with several addresses asks
-// which one first, then offers the same three rows for it.
 Item {
   id: root
 
@@ -17,7 +14,6 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  // [{ name, email }] — what the line held. One means straight to the rows.
   property var addresses: []
   property string chosen: ""
   property bool canSearch: true
@@ -39,11 +35,11 @@ Item {
     var rows = []
     var seen = {}
     var given = Array.isArray(list) ? list : []
-    for (var i = 0; i < given.length; i++) {
-      var email = String(given[i] && given[i].email ? given[i].email : "").trim()
+    for (var entryIndex = 0; entryIndex < given.length; entryIndex++) {
+      var email = String(given[entryIndex] && given[entryIndex].email ? given[entryIndex].email : "").trim()
       if (email === "" || seen[email]) continue
       seen[email] = true
-      rows.push({ name: String(given[i].name || given[i].display || ""), email: email })
+      rows.push({ name: String(given[entryIndex].name || given[entryIndex].display || ""), email: email })
     }
     if (rows.length === 0) return
     addresses = rows
@@ -62,14 +58,7 @@ Item {
     menu.y = placed.y
   }
 
-  function selectableRows() {
-    var values = []
-    for (var i = 0; i < menuRows.length; i++) values.push({
-      selectable: true, visible: menuRows[i].visible, enabled: menuRows[i].enabled
-    })
-    return values
-  }
-  function moveCursor(step) { cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step) }
+  function moveCursor(step) { cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step) }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
   function close() { menu.close() }
 
@@ -89,7 +78,7 @@ Item {
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
     onHeightChanged: root.place()
     onOpened: {
-      root.cursorIndex = Menu.firstSelectable(root.selectableRows())
+      root.cursorIndex = Menu.firstSelectable(root.menuRows)
       root.place()
     }
     background: Rectangle {
@@ -115,7 +104,8 @@ Item {
         }
       }
 
-      // The address the rows are about. A stranger wrote it.
+      // Invariant: sender-controlled addresses must remain plain text to prevent Qt resource
+      // loading.
       Text {
         width: menu.width - menu.leftPadding - menu.rightPadding
         leftPadding: MailStyle.space(9)
@@ -129,7 +119,6 @@ Item {
         elide: Text.ElideMiddle
       }
 
-      // Choosing: one row per address on the line.
       Column {
         id: pickRows
         visible: root.choosing
@@ -144,7 +133,7 @@ Item {
           onItemRemoved: function(index, item) { pickRows.rows = collect() }
           function collect() {
             var out = []
-            for (var i = 0; i < pickRepeater.count; i++) out.push(pickRepeater.itemAt(i))
+            for (var entryIndex = 0; entryIndex < pickRepeater.count; entryIndex++) out.push(pickRepeater.itemAt(entryIndex))
             return out
           }
 

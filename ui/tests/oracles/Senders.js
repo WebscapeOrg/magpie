@@ -1,54 +1,46 @@
 .pragma library
 
-// Who a new message may be sent as. One mailbox can have several of its own
-// addresses; several mailboxes can be signed in at once. The compose form
-// needs one list of both, because a From that only names the current
-// mailbox's aliases leaves every other connected account unreachable.
-//
-// A reply or forward stays on the mailbox that holds the original: sending
-// that draft from a different account would hand another server a thread id
-// it has never seen.
+// Invariant: New mail may use any connected identity; replies and forwards retain the source account.
 
-// QML `var` arrays are sometimes length-bearing objects, not JS Array.
-// Array.isArray is then false and From would list nobody.
+// Invariant: QML lists can be length-bearing objects rather than JavaScript arrays.
 function asList(value) {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) return value
-  var n = value.length
-  if (typeof n !== "number" || n < 1) return []
-  var out = []
-  var i
-  for (i = 0; i < n; i++) {
-    if (value[i] !== undefined) out.push(value[i])
+  var length = value.length
+  if (typeof length !== "number" || !isFinite(length) || Math.floor(length) !== length || length < 1) return []
+  var output = []
+  for (var itemIndex = 0; itemIndex < length; itemIndex++) {
+    if (value[itemIndex] !== undefined) output.push(value[itemIndex])
   }
-  return out
+  return output
+}
+
+function aliasesOf(mailbox) {
+  var aliases = Array.isArray(mailbox.aliases) ? mailbox.aliases : []
+  if (aliases.length > 0) return aliases
+  var fallback = String(mailbox.email || "").trim()
+  if (fallback === "") return []
+  return [{ email: fallback, displayName: String(mailbox.displayName || "") }]
 }
 
 function identities(mailboxes) {
   var rows = asList(mailboxes)
-  var out = []
-  var seen = ({})
-  var i
-  for (i = 0; i < rows.length; i++) {
-    var box = rows[i] || ({})
+  var output = []
+  var seen = Object.create(null)
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var box = rows[itemIndex] || {}
     if (box.ready !== true || box.canSend === false) continue
     var accountId = String(box.id || "")
     if (accountId === "") continue
-    var aliases = Array.isArray(box.aliases) ? box.aliases : []
-    if (aliases.length === 0) {
-      var fallback = String(box.email || "").trim()
-      if (fallback === "") continue
-      aliases = [{ email: fallback, displayName: String(box.displayName || "") }]
-    }
-    var j
-    for (j = 0; j < aliases.length; j++) {
-      var alias = aliases[j] || ({})
+    var aliases = aliasesOf(box)
+    for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
+      var alias = aliases[aliasIndex] || {}
       var email = String(alias.email || "").trim()
       if (email === "") continue
-      var key = accountId + "\n" + email.toLowerCase()
+      var key = JSON.stringify([accountId, email.toLowerCase()])
       if (seen[key]) continue
       seen[key] = true
-      out.push({
+      output.push({
         accountId: accountId,
         email: email,
         displayName: String(alias.displayName || ""),
@@ -56,7 +48,7 @@ function identities(mailboxes) {
       })
     }
   }
-  return out
+  return output
 }
 
 function visible(rows, accountId, mode) {
@@ -65,15 +57,14 @@ function visible(rows, accountId, mode) {
   if (kind === "new" || kind === "") return list
   var wanted = String(accountId || "")
   var kept = []
-  var i
-  for (i = 0; i < list.length; i++) {
-    if (String(list[i].accountId || "") === wanted) kept.push(list[i])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (String(list[itemIndex].accountId || "") === wanted) kept.push(list[itemIndex])
   }
   return kept
 }
 
 function subtitle(identity) {
-  var row = identity || ({})
+  var row = identity || {}
   var name = String(row.displayName || "").trim()
   if (name !== "") return name
   var label = String(row.label || "").trim()

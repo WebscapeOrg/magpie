@@ -7,6 +7,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "../../../ui" as Omamail
 import "../../../ui/components" as Components
+import "../../../ui/controls" as MailControls
 
 TestCase {
   id: testCase
@@ -16,6 +17,7 @@ TestCase {
   height: 480
 
   HostFixture { id: host }
+  HostFixture { id: otherStore }
 
   Component {
     id: nativeProcessComponent
@@ -31,6 +33,31 @@ TestCase {
       signal stderrLine(string line)
       function write(value) { written += String(value) }
       function terminate() { running = false }
+    }
+  }
+
+  Component {
+    id: labeledButtonsComponent
+    Item {
+      width: 240
+      height: 120
+      property int activations: 0
+      property alias save: saveButton
+      property alias add: addButton
+      Button {
+        id: saveButton
+        text: "Save"
+        focusable: true
+        onClicked: parent.activations++
+      }
+      PanelActionButton {
+        id: addButton
+        y: 60
+        iconText: "+"
+        tooltipText: "Add account"
+        focusable: true
+        onClicked: parent.activations++
+      }
     }
   }
 
@@ -94,6 +121,7 @@ TestCase {
   Component { id: windowComponent; FloatingWindow { visible: false; minimumSize: Qt.size(320, 240) } }
   Component { id: sharedAppComponent; Omamail.App { opened: false } }
   Component { id: actionIconComponent; Components.ActionIcon { name: "archive" } }
+  Component { id: mailDropdownComponent; MailControls.Dropdown { fontFamily: "monospace" } }
 
   Item {
     id: controls
@@ -146,6 +174,51 @@ TestCase {
     verify(findChild(button, "omamail-tooltip-label"))
   }
 
+  function test_input_labels_reach_the_native_controls() {
+    toggle.Accessible.name = "Notify on new mail"
+    compare(findChild(toggle, "toggle-switch-input").Accessible.name, "Notify on new mail")
+    toggle.Accessible.name = ""
+    compare(findChild(numberField, "number-field-input").Accessible.name, "Count")
+    dropdown.label = "Mailbox"
+    compare(findChild(dropdown, "dropdown-input").Accessible.name, "Mailbox")
+    dropdown.label = ""
+  }
+
+  function test_buttons_keep_accessible_labels_and_mouse_keyboard_actions() {
+    var buttons = createTemporaryObject(labeledButtonsComponent, testCase.parent)
+    verify(buttons)
+    var saveInput = findChild(buttons.save, "button-input")
+    verify(saveInput)
+    compare(saveInput.Accessible.name, "Save")
+    var addInput = buttons.add.children[2]
+    compare(addInput.Accessible.name, "Add account")
+    buttons.save.text = "Save changes"
+    buttons.add.tooltipText = "Add mailbox"
+    compare(saveInput.Accessible.name, "Save changes")
+    compare(addInput.Accessible.name, "Add mailbox")
+    saveInput.forceActiveFocus()
+    verify(saveInput.activeFocus)
+    keyClick(Qt.Key_Space)
+    compare(buttons.activations, 1)
+    mouseClick(addInput)
+    compare(buttons.activations, 2)
+    addInput.forceActiveFocus()
+    keyClick(Qt.Key_Space)
+    compare(buttons.activations, 3)
+  }
+
+  function test_default_stderr_reuses_the_bounded_native_tail() {
+    var nativeProcess = createTemporaryObject(nativeProcessComponent, testCase)
+    var process = createTemporaryObject(processComponent, testCase, { nativeProcess: nativeProcess })
+    verify(process)
+    nativeProcess.stderrText = "retained diagnostic tail"
+    for (var lineIndex = 0; lineIndex < 4096; lineIndex++)
+      nativeProcess.stderrLine("discarded old diagnostic " + lineIndex)
+    compare(process.stderr.text, nativeProcess.stderrText)
+    nativeProcess.stderrText = ""
+    compare(process.stderr.text, "")
+  }
+
   function test_environment_and_detached_operations_use_native_host() {
     compare(Quickshell.env("HOME"), "/fixture/home")
     Quickshell.execDetached(["xdg-open", "https://example.test/path"])
@@ -159,8 +232,8 @@ TestCase {
 
   function test_clipboard_option_terminator_keeps_text_verbatim() {
     var subjects = ["--version", "--clear", "-p", "田中 \"quoted\" \\ body\nline two", ""]
-    for (var i = 0; i < subjects.length; i++)
-      verify(Quickshell.execDetached(["wl-copy", "--", subjects[i]]))
+    for (var subjectIndex = 0; subjectIndex < subjects.length; subjectIndex++)
+      verify(Quickshell.execDetached(["wl-copy", "--", subjects[subjectIndex]]))
     compare(host.copied, subjects)
     verify(!Quickshell.execDetached(["wl-copy", "--type", "text/html"]))
     verify(!Quickshell.execDetached(["wl-copy", "--", "text", "extra"]))
@@ -204,15 +277,27 @@ TestCase {
     compare(Style.spacing.controlGap, 8)
   }
 
-  function test_standalone_uses_native_text_and_bundles_the_nerd_icon_range() {
+  function test_standalone_fonts_load_and_action_icons_render_vectors() {
     tryCompare(Style.iconFont, "status", FontLoader.Ready)
     compare(Style.font.family, Style.metrics.font.family)
     verify(Style.font.family.length > 0)
-    compare(Style.font.iconFamily, "Symbols Nerd Font Mono")
+    compare(Style.font.iconFamily, "Magpie Symbols")
     var icon = createTemporaryObject(actionIconComponent, testCase)
     verify(icon)
-    compare(icon.fontFamily, Style.font.iconFamily)
-    compare(icon.glyphText.codePointAt(0), 0xF120E)
+    verify(icon.imageSource.indexOf("data:image/svg+xml") === 0)
+    tryCompare(icon.children[0], "status", Image.Ready)
+    compare(icon.children[0].sourceSize.width, Math.ceil(icon.iconSize * 2))
+  }
+
+  function test_dropdown_chevron_uses_bundled_icon_font() {
+    tryCompare(Style.iconFont, "status", FontLoader.Ready)
+    var control = createTemporaryObject(mailDropdownComponent, testCase)
+    verify(control)
+    var column = control.children[0]
+    var trigger = column.children[1]
+    var chevron = trigger.children[1]
+    compare(chevron.text, "󰅀")
+    compare(chevron.font.family, Style.font.iconFamily)
   }
 
   function test_current_omarchy_theme_wins_over_stale_legacy_theme() {
@@ -292,7 +377,7 @@ TestCase {
     Commons.Color.preferredAppearance = "light"
     compare(Commons.Color.dark, false)
     compare(String(Commons.Color.background), "#fffcf0")
-    // The desktop's scheme only decides when nothing is preferred.
+    // Invariant: The desktop's scheme only decides when nothing is preferred.
     verify(Commons.Color.applySystemAppearance("dark"))
     compare(Commons.Color.dark, true)
     compare(Commons.Color.fallbackAppearance(), "light")
@@ -412,6 +497,31 @@ TestCase {
     file.reload()
     compare(failures, 1)
     host.failed("/fixture/missing", "external")
+    compare(failures, 2)
+  }
+
+  function test_file_view_releases_the_original_store_when_replaced() {
+    otherStore.reset()
+    var file = createTemporaryObject(fileComponent, testCase, { store: host })
+    verify(file)
+    verify(host.watched[file.path])
+    file.store = otherStore
+    compare(host.watched[file.path], false)
+    compare(otherStore.watched[file.path], true)
+    file.store = null
+    compare(otherStore.watched[file.path], false)
+  }
+
+  function test_file_view_reports_a_failed_write_once() {
+    var file = createTemporaryObject(fileComponent, testCase, { store: host })
+    verify(file)
+    var failures = 0
+    file.loadFailed.connect(function() { failures++ })
+    host.rejectWrites = true
+    file.setText("unsaved")
+    compare(failures, 1)
+    compare(host.files[file.path], "saved")
+    host.failed(file.path, "external")
     compare(failures, 2)
   }
 

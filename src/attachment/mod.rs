@@ -3,7 +3,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 #[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs::{self, OpenOptions},
     io::{Read, Write},
@@ -12,6 +12,7 @@ use std::{
 use unicode_normalization::UnicodeNormalization;
 mod pdf;
 pub mod thumbnail;
+pub(crate) mod vault;
 pub const MAX_BYTES: usize = 20 * 1024 * 1024;
 const ACTIVE_TEXT_MARKERS: &[&str] = &[
     "<!doctype",
@@ -124,12 +125,12 @@ pub fn decode(data: &str) -> Result<Vec<u8>, &'static str> {
     Ok(bytes)
 }
 pub fn openable(name: &str, data: &[u8]) -> bool {
-    // The exception must follow the filename actually given to the desktop,
+    // Invariant: The exception must follow the filename actually given to the desktop,
     // not the lossy name used below only to reject disguised active suffixes.
     let pdf_name = Path::new(name)
         .extension()
         .is_some_and(|suffix| suffix.eq_ignore_ascii_case("pdf"));
-    // Ignore non-ASCII suffix disguises after compatibility normalization.
+    // Invariant: Ignore non-ASCII suffix disguises after compatibility normalization.
     // This deliberately errs toward refusing an open; saving remains available.
     let name: String = name
         .nfkc()
@@ -170,7 +171,7 @@ pub fn openable(name: &str, data: &[u8]) -> bool {
             for at in declarations {
                 sample[at..at + 5].fill(b' ');
             }
-            // An exception buys no other exception: scan the whole container,
+            // Performance: An exception buys no other exception: scan the whole container,
             // including bytes beyond the ordinary 64 KiB sniffing window.
             // PDF bytes are binary; ASCII-fold in place instead of expanding
             // invalid UTF-8 into multiple full-size replacement strings.
@@ -224,19 +225,7 @@ pub fn store(params: &Value, bytes: &[u8]) -> Result<Value, &'static str> {
     }
     let directory = if opening {
         let base = crate::platform::dirs::AppDirs::discover()?.runtime;
-        let mut found = None;
-        for n in 0..1000 {
-            let path = base.join(format!("omamail-attachment-{}-{n}", std::process::id()));
-            match fs::DirBuilder::new().mode(0o700).create(&path) {
-                Ok(()) => {
-                    found = Some(path);
-                    break;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
-                Err(_) => return Err("attachment_write_failed"),
-            }
-        }
-        found.ok_or("attachment_write_failed")?
+        staging_directory(&base)?
     } else {
         let p = downloads()?;
         fs::create_dir_all(&p).map_err(|_| "attachment_write_failed")?;
@@ -244,6 +233,22 @@ pub fn store(params: &Value, bytes: &[u8]) -> Result<Value, &'static str> {
     };
     let path = write_unique(&directory, &filename, bytes)?;
     Ok(json!({"ok":true,"path":path,"open":opening}))
+}
+#[cfg(unix)]
+fn staging_directory(base: &Path) -> Result<PathBuf, &'static str> {
+    use std::{
+        ffi::{CString, OsString},
+        os::unix::ffi::{OsStrExt, OsStringExt},
+    };
+    let template = base.join(format!("omamail-attachment-{}-XXXXXX", std::process::id()));
+    let mut template = CString::new(template.as_os_str().as_bytes())
+        .map_err(|_| "attachment_write_failed")?
+        .into_bytes_with_nul();
+    if unsafe { libc::mkdtemp(template.as_mut_ptr().cast()) }.is_null() {
+        return Err("attachment_write_failed");
+    }
+    template.pop();
+    Ok(PathBuf::from(OsString::from_vec(template)))
 }
 #[cfg(unix)]
 fn write_unique(directory: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf, &'static str> {
@@ -282,6 +287,28 @@ fn write_unique(directory: &Path, filename: &str, bytes: &[u8]) -> Result<PathBu
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[test]
+    fn round2_staging_accepts_more_than_a_thousand_opened_attachments() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("omamail-staging-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let result = (|| {
+            for _ in 0..1001 {
+                let directory = staging_directory(&root)?;
+                assert_eq!(
+                    fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+                    0o700
+                );
+                let saved = write_unique(&directory, "invoice.pdf", b"synthetic")?;
+                assert_eq!(fs::read(saved).unwrap(), b"synthetic");
+            }
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 1001);
+            Ok::<(), &'static str>(())
+        })();
+        fs::remove_dir_all(root).unwrap();
+        result.unwrap();
+    }
+
     #[test]
     fn refuses_special_files_and_never_overwrites_symlinks() {
         let root = std::env::temp_dir()

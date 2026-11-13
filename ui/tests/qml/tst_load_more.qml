@@ -1,13 +1,9 @@
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
-// The next page comes as the list is scrolled to its foot: once per foot,
-// never while a page is on its way, and not at all when there is no more.
-// The button stays for the page that did not come.
 Item {
   width: 400
   height: MailStyle.space(300)
@@ -23,28 +19,22 @@ Item {
     property bool canArchive: true
     property string contentDirection: "auto"
     property int loads: 0
+    property var agentJobs: ({})
+    property var agentAttentionByMessage: ({})
     function loadMore() { loads++; listLoading = true }
     function act(_id, _action) {}
     function toggleStar(_id) {}
   }
 
-  Flickable {
-    id: flick
-    anchors.fill: parent
-    contentWidth: width
-    contentHeight: list.implicitHeight + 16
-    clip: true
-    Mail.MessageList {
+  Mail.MessageList {
       id: list
-      scroller: flick
-      width: flick.width
+      anchors.fill: parent
       service: fakeService
       textColor: Commons.Color.foreground
       accentColor: Commons.Color.accent
       dimColor: Commons.Color.foreground
       urgentColor: Commons.Color.accent
       panelFontFamily: "monospace"
-    }
   }
 
   TestCase {
@@ -57,13 +47,14 @@ Item {
     }
 
     function init() {
-      // Settle every deferred ask from the last case before counting.
+      failOnWarning(/Unable to assign \[undefined\]/)
+      // Invariant: Settle deferred load requests before starting the next test's counters.
       fakeService.hasMore = false
       fakeService.listLoading = false
       var rows = []
-      for (var i = 1; i <= 12; i++) rows.push(row(i + ":INBOX"))
+      for (var rowIndex = 1; rowIndex <= 12; rowIndex++) rows.push(row(rowIndex + ":INBOX"))
       fakeService.messages = rows
-      flick.contentY = 0
+      list.contentY = 0
       wait(30)
       fakeService.hasMore = true
       fakeService.loads = 0
@@ -71,50 +62,39 @@ Item {
     }
 
     function test_the_foot_asks_for_the_next_page_once() {
-      verify(flick.contentHeight > flick.height, "the list is longer than the view")
+      verify(list.contentHeight > list.height, "the list is longer than the view")
       compare(fakeService.loads, 0)
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000, "reaching the foot asks for the page")
-      // Staying at the foot, or wobbling on it, does not ask again while
-      // the page is on its way.
-      flick.contentY = flick.contentY - 1
-      flick.contentY = flick.contentHeight - flick.height
+      list.contentY = list.contentY - 1
+      list.positionViewAtEnd()
       wait(20)
       compare(fakeService.loads, 1)
-      // The page lands: the list grows, the foot moves away, and reaching
-      // it again asks for the next.
       fakeService.listLoading = false
       var more = fakeService.messages.slice()
-      for (var i = 13; i <= 24; i++) more.push(row(i + ":INBOX"))
+      for (var rowIndex = 13; rowIndex <= 24; rowIndex++) more.push(row(rowIndex + ":INBOX"))
       fakeService.messages = more
       wait(20)
-      verify(flick.contentY < flick.contentHeight - flick.height, "the foot moved away")
-      flick.contentY = flick.contentHeight - flick.height
+      verify(list.contentY < list.contentHeight - list.height, "the foot moved away")
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 2, 1000)
     }
 
-    // A page that lands and still leaves the foot in view is followed by
-    // the next once the list settles, until there is no more.
     function test_a_short_page_is_followed_until_the_foot_is_out_of_view() {
-      // A first page shorter than the view: the foot is in view at rest,
-      // and the next page is asked for a moment after the list settles.
       fakeService.hasMore = false
       fakeService.messages = []
       fakeService.listLoading = true
       fakeService.hasMore = true
       fakeService.messages = [row("1:INBOX"), row("2:INBOX")]
       wait(30)
-      verify(flick.contentHeight <= flick.height, "shorter than the view")
+      verify(list.contentHeight <= list.height, "shorter than the view")
       fakeService.listLoading = false
       tryCompare(fakeService, "loads", 1, 1000, "the page that settled short is followed")
       compare(fakeService.listLoading, true, "and that ask is on its way")
-      // The next page lands, still short, with more: followed again.
       fakeService.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
       wait(30)
       fakeService.listLoading = false
       tryCompare(fakeService, "loads", 2, 1000, "and the next, until the foot leaves the view")
-      // The page after lands with no more: the foot is still in view, and
-      // nothing is asked for.
       fakeService.hasMore = false
       fakeService.listLoading = false
       wait(30)
@@ -123,18 +103,35 @@ Item {
 
     function test_no_more_means_no_ask() {
       fakeService.hasMore = false
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       wait(20)
       compare(fakeService.loads, 0)
       compare(list.loadMoreIfAtFoot(), false)
     }
 
+    function test_large_lists_keep_delegates_bounded_and_rebind_identity() {
+      fakeService.hasMore = false
+      var values=[]
+      for (var rowIndex=0;rowIndex<10000;rowIndex++) values.push(row("synthetic-"+rowIndex))
+      fakeService.messages=values
+      wait(100)
+      compare(list.count,10000)
+      verify(list.contentItem.children.length<100,"only the viewport and nearby rows are instantiated")
+      list.reveal("synthetic-9999")
+      tryVerify(function(){return list.itemAtIndex(9999)!==null},1000)
+      compare(list.itemAtIndex(9999).summary.id,"synthetic-9999")
+      verify(list.contentItem.children.length<100,"recycling keeps the delegate count bounded")
+      list.reveal("synthetic-0")
+      tryVerify(function(){return list.itemAtIndex(0)!==null},1000)
+      compare(list.itemAtIndex(0).summary.id,"synthetic-0")
+      compare(fakeService.loads,0)
+    }
+
     function test_a_failed_page_waits_for_manual_retry() {
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000)
 
-      // A failure ends the load without adding messages. Remaining at the
-      // foot must not turn that failure into an unbounded retry loop.
+      // Invariant: A failed page at the visible foot must not trigger an unbounded automatic retry loop.
       fakeService.listLoading = false
       wait(60)
       compare(fakeService.loads, 1)
@@ -156,8 +153,8 @@ Item {
     function findByName(item, name) {
       if (item.objectName === name) return item
       var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) {
-        var found = findByName(kids[i], name)
+      for (var childIndex = 0; childIndex < kids.length; childIndex++) {
+        var found = findByName(kids[childIndex], name)
         if (found) return found
       }
       return null

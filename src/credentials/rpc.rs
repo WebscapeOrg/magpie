@@ -13,19 +13,19 @@ enum Request {
     Delete(CredentialKey),
 }
 
-fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'static str> {
-    let kind = params
+fn key(parameters: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'static str> {
+    let kind = parameters
         .get("kind")
         .and_then(Value::as_str)
         .ok_or("invalid_params")?;
-    let account_id = params
+    let account_id = parameters
         .get("accountId")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or("invalid_params")?
         .to_owned();
     let client_id = || {
-        params
+        parameters
             .get("clientId")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
@@ -39,47 +39,30 @@ fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'stati
                 client_id: client_id()?,
             },
         ),
-        "outlook-refresh-token" => (
-            "outlook",
-            CredentialKind::OutlookRefreshToken {
-                client_id: client_id()?,
-            },
-        ),
-        "imap-password" => ("imap", CredentialKind::ImapPassword),
-        "jmap-secret" => ("jmap", CredentialKind::JmapSecret),
-        "calendar-password" => ("caldav", CredentialKind::CalendarPassword),
         _ => return Err("invalid_params"),
     };
-    let has_client = params.contains_key("clientId");
-    let needs_client = matches!(
-        kind,
-        CredentialKind::GoogleRefreshToken { .. } | CredentialKind::OutlookRefreshToken { .. }
-    );
-    if has_client != needs_client {
-        return Err("invalid_params");
-    }
     let key = CredentialKey {
         provider: provider.into(),
         account_id,
         kind,
     };
-    key.attributes().map_err(map_input_error)?;
+    key.attributes().map_err(map_error)?;
     Ok(key)
 }
 
-fn parse(method: &str, params: &Value) -> Result<Request, &'static str> {
-    let fields = params.as_object().ok_or("invalid_params")?;
+fn parse(method: &str, parameters: &Value) -> Result<Request, &'static str> {
+    let fields = parameters.as_object().ok_or("invalid_params")?;
     let expected = match method {
         "credentials.get" | "credentials.delete" => {
             2 + usize::from(matches!(
                 fields.get("kind").and_then(Value::as_str),
-                Some("google-refresh-token" | "outlook-refresh-token")
+                Some("google-refresh-token")
             ))
         }
         "credentials.put" => {
             3 + usize::from(matches!(
                 fields.get("kind").and_then(Value::as_str),
-                Some("google-refresh-token" | "outlook-refresh-token")
+                Some("google-refresh-token")
             ))
         }
         _ => return Err("unknown_method"),
@@ -96,22 +79,14 @@ fn parse(method: &str, params: &Value) -> Result<Request, &'static str> {
                 .get("secret")
                 .and_then(Value::as_str)
                 .ok_or("invalid_params")?;
-            let secret = Secret::new(text.as_bytes().to_vec()).map_err(map_input_error)?;
+            let secret = Secret::new(text.as_bytes().to_vec()).map_err(map_error)?;
             Ok(Request::Put(key, secret))
         }
         _ => Err("unknown_method"),
     }
 }
 
-fn map_input_error(error: Error) -> &'static str {
-    match error {
-        Error::InvalidKey | Error::InvalidSecret | Error::TooLarge => "invalid_params",
-        Error::Missing => "credential_missing",
-        Error::Unavailable | Error::Ambiguous => "credential_store_unavailable",
-    }
-}
-
-fn map_store_error(error: Error) -> &'static str {
+fn map_error(error: Error) -> &'static str {
     match error {
         Error::Missing => "credential_missing",
         Error::InvalidKey | Error::InvalidSecret | Error::TooLarge => "invalid_params",
@@ -122,27 +97,25 @@ fn map_store_error(error: Error) -> &'static str {
 async fn call_with_store(
     store: Arc<dyn super::CredentialStore>,
     method: &str,
-    params: &Value,
+    parameters: &Value,
 ) -> Result<Value, &'static str> {
-    // Parsing before the first await is deliberate: malformed metadata or a
+    // Invariant: Parsing before the first await is deliberate: malformed metadata or a
     // secret containing NUL cannot prompt, read, write, or delete in a native
     // credential store.
-    match parse(method, params)? {
+    match parse(method, parameters)? {
         Request::Get(key) => match tokio::task::spawn_blocking(move || store.get(&key))
             .await
             .map_err(|_| "credential_store_unavailable")?
         {
-            Ok(secret) => {
-                Ok(json!({"found":true,"secret":secret.text().map_err(map_store_error)?}))
-            }
+            Ok(secret) => Ok(json!({"found":true,"secret":secret.text().map_err(map_error)?})),
             Err(Error::Missing) => Ok(json!({"found":false})),
-            Err(error) => Err(map_store_error(error)),
+            Err(error) => Err(map_error(error)),
         },
         Request::Put(key, secret) => {
             tokio::task::spawn_blocking(move || store.put(&key, secret.as_slice()))
                 .await
                 .map_err(|_| "credential_store_unavailable")?
-                .map_err(map_store_error)?;
+                .map_err(map_error)?;
             Ok(json!({"stored":true}))
         }
         Request::Delete(key) => match tokio::task::spawn_blocking(move || store.delete(&key))
@@ -151,13 +124,13 @@ async fn call_with_store(
         {
             Ok(()) => Ok(json!({"deleted":true})),
             Err(Error::Missing) => Ok(json!({"deleted":false})),
-            Err(error) => Err(map_store_error(error)),
+            Err(error) => Err(map_error(error)),
         },
     }
 }
 
-pub async fn call(method: &str, params: &Value) -> Result<Value, &'static str> {
-    call_with_store(Arc::new(super::NativeStore), method, params).await
+pub async fn call(method: &str, parameters: &Value) -> Result<Value, &'static str> {
+    call_with_store(Arc::new(super::NativeStore), method, parameters).await
 }
 
 #[cfg(test)]
@@ -204,16 +177,16 @@ mod tests {
 
     #[test]
     fn typed_requests_reject_unknown_fields_kinds_and_control_characters() {
-        for params in [
+        for parameters in [
             json!({"kind":"shell-command","accountId":"imap:a@example.org"}),
-            json!({"kind":"imap-password","accountId":"imap:a@example.org","clientId":"forged"}),
-            json!({"kind":"imap-password","accountId":"imap:a@example.org\n"}),
-            json!({"kind":"calendar-password","accountId":"source\0id"}),
+            json!({"kind":"google-refresh-token","accountId":"imap:a@example.org","clientId":"client"}),
+            json!({"kind":"google-refresh-token","accountId":"a@example.org\n","clientId":"client"}),
+            json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"cli\0ent"}),
             json!({"kind":"google-refresh-token","accountId":"a@example.org"}),
             json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client","nativeAttributes":[]}),
         ] {
             assert!(matches!(
-                parse("credentials.get", &params),
+                parse("credentials.get", &parameters),
                 Err("invalid_params")
             ));
         }
@@ -226,8 +199,9 @@ mod tests {
                 parse(
                     "credentials.put",
                     &json!({
-                        "kind":"imap-password",
-                        "accountId":"imap:a@example.org",
+                        "kind":"google-refresh-token",
+                        "accountId":"a@example.org",
+                        "clientId":"client",
                         "secret":secret
                     })
                 ),
@@ -237,49 +211,29 @@ mod tests {
     }
 
     #[test]
-    fn typed_keys_preserve_each_product_scope() {
-        let cases = [
-            (
-                json!({"kind":"imap-password","accountId":"imap:a@example.org"}),
-                "imap",
-            ),
-            (
-                json!({"kind":"jmap-secret","accountId":"jmap:a@example.org"}),
-                "jmap",
-            ),
-            (
-                json!({"kind":"calendar-password","accountId":"source-id"}),
-                "caldav",
-            ),
-            (
-                json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client"}),
-                "gmail",
-            ),
-            (
-                json!({"kind":"outlook-refresh-token","accountId":"outlook:a@example.org","clientId":"client"}),
-                "outlook",
-            ),
-        ];
-        for (params, provider) in cases {
-            let Request::Get(key) = parse("credentials.get", &params).unwrap() else {
-                panic!()
-            };
-            assert_eq!(key.provider, provider);
-            assert!(key.attributes().is_ok());
-        }
+    fn google_key_preserves_account_and_client_scope() {
+        let parameters =
+            json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client"});
+        let Request::Get(key) = parse("credentials.get", &parameters).unwrap() else {
+            panic!()
+        };
+        assert_eq!(key.provider, "gmail");
+        assert_eq!(key.account_id, "a@example.org");
+        assert_eq!(key.attributes().unwrap()["client-id"], "client");
     }
 
     #[tokio::test]
     async fn public_responses_round_trip_opaque_text_through_a_controlled_store() {
         let store = Arc::new(RecordingStore::default());
-        let key = json!({"kind":"imap-password","accountId":"imap:a@example.org"});
+        let key =
+            json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client"});
         let secret = "quotes '\" backslash \\ Unicode 你好\r\nline";
         assert_eq!(
             call_with_store(
                 store.clone(),
                 "credentials.put",
                 &json!({
-                    "kind":"imap-password","accountId":"imap:a@example.org","secret":secret
+                    "kind":"google-refresh-token","accountId":"a@example.org","clientId":"client","secret":secret
                 })
             )
             .await
@@ -311,24 +265,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn removed_credential_kinds_never_reach_the_store() {
+        let store = Arc::new(RecordingStore::default());
+        for kind in [
+            "outlook-refresh-token",
+            "imap-password",
+            "jmap-secret",
+            "calendar-password",
+        ] {
+            for method in ["credentials.get", "credentials.put", "credentials.delete"] {
+                let mut parameters = json!({"kind":kind,"accountId":"one@example.org"});
+                if kind == "outlook-refresh-token" {
+                    parameters["clientId"] = json!("client");
+                }
+                if method == "credentials.put" {
+                    parameters["secret"] = json!("synthetic");
+                }
+                assert_eq!(
+                    call_with_store(store.clone(), method, &parameters).await,
+                    Err("invalid_params")
+                );
+            }
+        }
+        assert!(store.calls.lock().unwrap().is_empty());
+        assert!(store.value.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn rejected_public_requests_have_no_store_side_effect() {
         let store = Arc::new(RecordingStore::default());
-        for (method, params) in [
+        for (method, parameters) in [
             (
                 "credentials.get",
                 json!({"kind":"native-command","accountId":"imap:a@example.org"}),
             ),
             (
                 "credentials.put",
-                json!({"kind":"imap-password","accountId":"imap:a@example.org\n","secret":"x"}),
+                json!({"kind":"google-refresh-token","accountId":"a@example.org\n","clientId":"client","secret":"x"}),
             ),
             (
                 "credentials.delete",
-                json!({"kind":"calendar-password","accountId":"source","nativeAttributes":[]}),
+                json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client","nativeAttributes":[]}),
             ),
         ] {
             assert_eq!(
-                call_with_store(store.clone(), method, &params).await,
+                call_with_store(store.clone(), method, &parameters).await,
                 Err("invalid_params")
             );
         }

@@ -3,7 +3,6 @@ import "../controls" as Widgets
 import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
-import qs.Ui
 import "../compose/Recipients.js" as Recipients
 
 Item {
@@ -58,10 +57,8 @@ Item {
     menu.close()
   }
 
-  // The popup closes on a press outside itself, and the control that opens it
-  // is outside it — so the press that looks like "close this" has already done
-  // so, and a plain `opened ? close() : openAt()` would reopen it on the
-  // release every time. The moment it closed is what separates the two.
+  // Invariant: outside-press closes the popup before the trigger’s release; retain close time to
+  // avoid immediately reopening it.
   property double closedAt: 0
 
   function toggleAt(sceneX, sceneY) {
@@ -75,10 +72,10 @@ Item {
 
   function place() {
     if (!menu.visible) return
-    var x = Math.max(MailStyle.space(8), Math.min(anchorX, root.width - menu.width - MailStyle.space(8)))
-    var y = Math.max(MailStyle.space(8), Math.min(anchorY, root.height - menu.implicitHeight - MailStyle.space(8)))
-    menu.x = x
-    menu.y = y
+    var menuX = Math.max(MailStyle.space(8), Math.min(anchorX, root.width - menu.width - MailStyle.space(8)))
+    var menuY = Math.max(MailStyle.space(8), Math.min(anchorY, root.height - menu.implicitHeight - MailStyle.space(8)))
+    menu.x = menuX
+    menu.y = menuY
   }
 
   QQC.Popup {
@@ -173,8 +170,8 @@ Item {
               anchors.centerIn: parent
               textFormat: Text.PlainText
               text: {
-                var name = String(contactRow.modelData.name || contactRow.modelData.email || "")
-                return name.length > 0 ? name.charAt(0).toUpperCase() : "?"
+                var displayName = String(contactRow.modelData.name || contactRow.modelData.email || "")
+                return displayName.length > 0 ? displayName.charAt(0).toUpperCase() : "?"
               }
               color: root.textColor
               font.family: root.panelFontFamily
@@ -223,6 +220,9 @@ Item {
 
             Widgets.Button {
               text: "+ To"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to To"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.accentColor
@@ -234,6 +234,9 @@ Item {
 
             Widgets.Button {
               text: "+ Cc"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to Cc"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.dimColor
@@ -245,6 +248,9 @@ Item {
 
             Widgets.Button {
               text: "+ Bcc"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to Bcc"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.dimColor

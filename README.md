@@ -1,8 +1,8 @@
-> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). The upstream documentation below describes the shared backend and providers.
+> **This is ✉️ Magpie Mail, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes. Calendars run in the separate Magpie Calendar app. Upstream release installers below install Omamail; they do not install this development fork.
 
 # Omamail
 
-Omamail is a native email and calendar app with multiple accounts and keyboard navigation. It runs either as an Omarchy shell plugin or as a standalone Qt desktop application.
+Omamail is a native email app with multiple accounts and keyboard navigation. It runs either as an Omarchy shell plugin or as a standalone Qt desktop application.
 
 <img width="800" alt="Omamail — reading mail with AI assistance" src="docs/images/full-mail.webp" />
 
@@ -26,7 +26,7 @@ Click the envelope in the bar, install the pinned backend when prompted, and add
 
 ### Standalone desktop app
 
-The standalone app includes mail, calendar, and native desktop notifications. It has no system tray, AI assistance, or operating-system `mailto:` registration in this release.
+The standalone app includes mail and native desktop notifications. It has no system tray, AI assistance, or operating-system `mailto:` registration in this release.
 
 macOS & Linux:
 
@@ -50,24 +50,24 @@ Install Rust, CMake 3.21 or newer, and Qt 6.5 or newer, then use the repository 
 make app-run
 ```
 
-`make app-run` builds the standalone backend and Qt host, then launches from the source resources. Current source builds enable AI assistance on Linux and macOS with an installed Claude, Codex or OpenCode CLI; choose the agent in Settings. Windows AI support remains deferred. See [Contributing](CONTRIBUTING.md) for validation commands.
+`make app-run` builds the standalone backend and Qt host, then launches from the source resources. Current source builds enable AI assistance on Linux and macOS with an installed Claude, Codex or OpenCode CLI; choose the agent in Settings. Windows AI support remains deferred. See [MAGPIE.md](MAGPIE.md) and [AGENTS.md](AGENTS.md) for how Magpie is built, checked and installed.
 
 ## Features
 
-- **Multiple mailboxes:** Gmail, Outlook, HEY, JMAP and IMAP/SMTP, including Fastmail, iCloud and self-hosted servers.
-- **Mail and calendar:** read, search, compose, manage attachments and respond to meeting invitations. Available actions depend on your provider.
+- **Multiple Gmail mailboxes:** Gmail and Google Workspace, including custom domains, with separate identities and a unified inbox.
+- **Mail:** read, search, compose and manage attachments through Gmail. Open invitations and suggested events in Magpie Calendar.
 - **Keyboard navigation:** `j`/`k` to move, `r` to reply, `c` to compose, `/` to search and `?` for all shortcuts.
 - **AI assistance in Omarchy:** ask about selected messages and review suggested drafts with Claude, OpenCode V2 or Codex. Follow your Omarchy default, or select an agent and optional model in Settings. An unsupported system default disables the AI action with a setup explanation. Conversations retain follow-ups and draft proposals; `/clear`, `/history` and `/diagnose` manage the chat.
 - **Desktop integration:** native notifications and a compact layout for smaller windows; the Omarchy plugin also provides the bar widget and `mailto:` integration.
 - **Privacy controls:** credentials stored in the system keyring and remote images blocked until you choose to load them.
 
-<img width="265" alt="Omamail calendar" src="docs/images/full-calendar.webp" /> <img width="265" alt="Writing a message" src="docs/images/full-compose.webp" /> <img width="265" alt="Compact message list" src="docs/images/mini-list.webp" />
+<img width="265" alt="Writing a message" src="docs/images/full-compose.webp" /> <img width="265" alt="Compact message list" src="docs/images/mini-list.webp" />
 
 ## Add your mailbox
 
-Choose a provider in Settings. Gmail needs a Google OAuth client; Outlook needs a Microsoft app registration. HEY uses the official [HEY CLI](https://github.com/basecamp/hey-cli). JMAP and IMAP usually use an app password or API token.
+Choose **Add mailbox...** in Settings to open Google setup directly. Create a Google OAuth client once, then reuse it for your Gmail and Google Workspace accounts.
 
-See [mailbox setup](docs/MAILBOXES.md) for provider instructions and limitations, including Microsoft 365 and Proton Mail Bridge.
+See [mailbox setup](docs/MAILBOXES.md) for Google sign-in and offline behavior.
 
 ## Make Omamail the default mail client
 

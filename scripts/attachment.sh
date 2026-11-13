@@ -16,7 +16,7 @@
 set -eu
 umask 077
 
-MAX=20971520
+MAX_ATTACHMENT_BYTES=20971520
 
 fail_json() {
   printf '{"ok":false,"error":"%s"}\n' "$(json_escape "$1")"
@@ -24,7 +24,7 @@ fail_json() {
 }
 
 json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g'
+  python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.argv[1])[1:-1])' "$1"
 }
 
 basename_of() {
@@ -86,19 +86,10 @@ read_file() {
     fail_json "That file could not be read"
   fi
   size=$(size_of "$path")
-  if [ "$size" -gt "$MAX" ]; then
+  if [ "$size" -gt "$MAX_ATTACHMENT_BYTES" ]; then
     fail_json "That file is larger than the 20 MB send limit"
   fi
   emit_file "$path"
-}
-
-inside_dir() {
-  dir=$1
-  path=$2
-  case "$path" in
-    "$dir"|"$dir"/*) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 # $1 dir, $2 mime, $3 extension, $4 name prefix (screenshot, paste). Writes
@@ -125,7 +116,7 @@ save_clipboard() {
     return 1
   fi
   size=$(size_of "$dest")
-  if [ "$size" -gt "$MAX" ]; then
+  if [ "$size" -gt "$MAX_ATTACHMENT_BYTES" ]; then
     rm -f "$dest"
     fail_json "That file is larger than the 20 MB send limit"
   fi

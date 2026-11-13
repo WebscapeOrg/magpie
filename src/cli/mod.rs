@@ -9,7 +9,7 @@ mod output;
     name = "omamail",
     version,
     about = "Mail backend and command-line client",
-    after_help = "Examples:\n  omamail list --account me@example.org --json\n  omamail read MESSAGE_ID --json\n  omamail mark star MESSAGE_ID\n  omamail archive MESSAGE_ID\n  omamail archive MESSAGE_ID --execute\n  printf 'Hello\\n' | omamail send --to you@example.org --subject Hello --json\n\nMutations preview by default. Add --execute to apply them.\nOmitted --account uses the active account; message IDs and page tokens are opaque."
+    after_help = "Examples:\n  omamail list --account me@example.org --json\n  omamail read MESSAGE_ID --json\n  omamail mark star MESSAGE_ID\n  omamail archive MESSAGE_ID\n  omamail archive MESSAGE_ID --execute\n  printf 'Hello\\n' | omamail send --to you@example.org --subject Hello --json\n\nMail changes preview by default. Add --execute to apply them.\nOmitted --account uses the active account; message IDs and page tokens are opaque."
 )]
 struct Cli {
     /// Print machine-readable JSON instead of human-readable tables
@@ -35,21 +35,31 @@ enum Command {
     Spam(mail::Action),
     /// Preview a message with UTF-8 body on stdin (maximum 16 MiB); --execute sends
     Send(mail::Send),
+    /// Export the local mail stores for the machine backup job
+    #[cfg(target_os = "linux")]
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
     /// Serve JSON-RPC 2.0 on persistent stdin/stdout pipes
     Serve,
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(target_os = "linux")]
+    Daemon,
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[command(hide = true)]
     AgentWorker { id: String },
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[command(hide = true)]
     AgentMcp { id: String },
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[command(hide = true)]
     AgentOpencodeServer,
     /// Report backend version and implemented methods
     Info,
     /// Print the executable version
     Version,
+    /// Print the bundled Unicode data license notice
+    Licenses,
     /// Inspect desktop accounts without exposing credentials
     Accounts {
         #[command(subcommand)]
@@ -70,6 +80,13 @@ enum Command {
         long_about = "Call a backend method with JSON parameters on stdin (maximum 1 MiB).\nEmpty stdin means {}. Errors exit 1. With --json, prints an ok/result or\nok/error envelope. Each invocation has its own session; use serve for\nstateful upload sequences. Mutations are never automatically retried."
     )]
     Call { method: String },
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// Publish a verified private mail-backup.tar for the machine backup job
+    Export,
 }
 
 #[derive(Subcommand)]
@@ -100,6 +117,23 @@ pub fn run() {
         println!();
         return;
     };
+    if matches!(command, Command::Licenses) {
+        let unicode = include_str!("../../data/unicode/LICENSE.txt");
+        if cli.json {
+            println!("{}", serde_json::json!({"unicode": unicode}));
+        } else {
+            print!("{unicode}");
+        }
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    if matches!(command, Command::Daemon) {
+        if crate::backend::daemon::serve().is_err() {
+            eprintln!("omamail: engine service failed");
+            std::process::exit(1);
+        }
+        return;
+    }
     if matches!(command, Command::Serve) {
         if cli.json {
             Cli::command()
@@ -115,7 +149,7 @@ pub fn run() {
         }
         return;
     }
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     if let Command::AgentWorker { ref id } = command {
         let result = crate::backend::runtime()
             .map_err(|_| "agent_runtime_failed")
@@ -125,14 +159,14 @@ pub fn run() {
         }
         return;
     }
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     if let Command::AgentMcp { ref id } = command {
         if crate::agent::mcp::run(id).is_err() {
             std::process::exit(1);
         }
         return;
     }
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     if matches!(command, Command::AgentOpencodeServer) {
         let result = crate::backend::runtime()
             .map_err(|_| "agent_runtime_failed")
@@ -141,6 +175,19 @@ pub fn run() {
             eprintln!("omamail: {error}");
             std::process::exit(1);
         }
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    if matches!(command, Command::Backup { .. }) {
+        if !cli.json {
+            eprintln!(
+                "Exporting local mail. The previous backup stays available until verification finishes."
+            );
+        }
+        let result = crate::backend::runtime()
+            .map_err(|_| "local_backup_failed")
+            .and_then(|runtime| runtime.block_on(crate::backend::daemon::export_backup()));
+        output::print_result(result, cli.json, true);
         return;
     }
     let session = crate::backend::Session::default();
@@ -187,12 +234,16 @@ pub fn run() {
         }
         Command::Call { method } => call::read_params(io::stdin())
             .and_then(|params| runtime.block_on(call::dispatch(&session, &method, &params))),
-        Command::Serve => unreachable!(),
-        #[cfg(all(feature = "agent", unix))]
+        Command::Serve | Command::Licenses => unreachable!(),
+        #[cfg(target_os = "linux")]
+        Command::Backup { .. } => unreachable!(),
+        #[cfg(target_os = "linux")]
+        Command::Daemon => unreachable!(),
+        #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
         Command::AgentWorker { .. } => unreachable!(),
-        #[cfg(all(feature = "agent", unix))]
+        #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
         Command::AgentMcp { .. } => unreachable!(),
-        #[cfg(all(feature = "agent", unix))]
+        #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
         Command::AgentOpencodeServer => unreachable!(),
     };
     output::print_result(result, cli.json, envelope);

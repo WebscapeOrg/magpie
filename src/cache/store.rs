@@ -10,15 +10,21 @@ pub(super) fn normalize_store(value: &Value) -> Value {
         return empty();
     }
     let mut out = empty();
+    out.as_object_mut()
+        .unwrap()
+        .extend(value.as_object().unwrap().clone());
     out["account"] = json!(js_string(&value["account"]));
-    for key in ["profile", "session"] {
-        if value[key].is_object() {
-            out[key] = value[key].clone();
-        }
-    }
-    if value["labels"].is_array() {
-        out["labels"] = value["labels"].clone();
-    }
+    out["profile"] = value["profile"]
+        .as_object()
+        .cloned()
+        .map(Value::Object)
+        .unwrap_or(Value::Null);
+    out["labels"] = value["labels"]
+        .as_array()
+        .cloned()
+        .map(Value::Array)
+        .unwrap_or(json!([]));
+    out["queries"] = json!({});
     if let Some(queries) = value["queries"].as_object() {
         let mut entries: Vec<_> = queries.iter().collect();
         entries.sort_by(|a, b| {
@@ -41,25 +47,12 @@ pub(super) fn normalize_store(value: &Value) -> Value {
 }
 
 pub(super) fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
-    let calendar = method.starts_with("cache.calendar");
-    let normalize: fn(&Value) -> Value = if calendar {
-        normalize_calendar
-    } else {
-        normalize_store
-    };
+    let normalize = normalize_store;
     let empty = || normalize(&Value::Null);
-    let name = if calendar {
-        let name = field(params, "name")?;
-        if !matches!(name, "calendar" | "calendar-bar" | "calendar-reminders") {
-            return Err("cache_invalid_input");
-        }
-        format!("{name}.json")
-    } else {
-        validate_params(params, false)?;
-        format!("{}.json", account_name(field(params, "accountId")?)?)
-    };
+    validate_params(params, false)?;
+    let name = format!("{}.json", account_name(field(params, "accountId")?)?);
     let _lock = OPERATIONS.lock().map_err(|_| "cache_unavailable")?;
-    let writing = matches!(method, "cache.storePut" | "cache.calendarPut");
+    let writing = method == "cache.storePut";
     let value = normalize(&params["store"]);
     let bytes = if writing {
         let bytes = serde_json::to_vec(&value).map_err(|_| "cache_store_invalid")?;
@@ -95,34 +88,4 @@ pub(super) fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value
     }
     atomic_replace(&dir, &name, &bytes)?;
     Ok(json!({"stored":true}))
-}
-
-fn normalize_calendar(value: &Value) -> Value {
-    let mut out = json!({"version":3,"ranges":{}});
-    if value["version"].as_u64() != Some(3) {
-        return out;
-    }
-    if let Some(ranges) = value["ranges"].as_object() {
-        let mut entries: Vec<_> = ranges.iter().collect();
-        entries.sort_by(|a, b| {
-            b.1["at"]
-                .as_f64()
-                .unwrap_or(0.0)
-                .total_cmp(&a.1["at"].as_f64().unwrap_or(0.0))
-        });
-        for (key, entry) in entries.into_iter().take(8) {
-            let mut entry = entry.clone();
-            if !entry.is_object() {
-                continue;
-            }
-            entry["events"] = json!(
-                entry["events"]
-                    .as_array()
-                    .map(|v| v.iter().take(2500).cloned().collect::<Vec<_>>())
-                    .unwrap_or_default()
-            );
-            out["ranges"][key] = entry;
-        }
-    }
-    out
 }

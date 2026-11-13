@@ -1,16 +1,9 @@
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
-// A press on a row survives the list being told its messages again.
-//
-// The list is handed a new array whenever anything about any message
-// changes — a row opened half a second ago comes back marked read, a poll
-// lands — and a Repeater fed the array itself tore every row down and built
-// it again. A pointer pressed on a row at that moment was pressed on
-// nothing: no release, no click, and the message did not open.
+// Invariant: summary refreshes must preserve the pressed delegate until release, or Qt cannot deliver its click.
 Item {
   width: 400
   height: 300
@@ -32,7 +25,7 @@ Item {
 
   Mail.MessageList {
     id: list
-    width: parent.width
+    anchors.fill: parent
     service: fakeService
     textColor: Commons.Color.foreground
     accentColor: Commons.Color.accent
@@ -63,14 +56,13 @@ Item {
     }
 
     function test_a_press_outlives_the_messages_being_told_again() {
-      var target = list.children[1]
+      var target = list.itemAtIndex(1)
       verify(target && target.summary && target.summary.id === "2:INBOX", "the second row is on screen")
-      var x = 20, y = target.y + target.height / 2
-      mousePress(list, x, y)
-      // The second message comes back read, as it does after being opened.
+      var pointerX = 20, pointerY = target.y + target.height / 2
+      mousePress(list, pointerX, pointerY)
       fakeService.messages = rows(false)
       wait(30)
-      mouseRelease(list, x, y)
+      mouseRelease(list, pointerX, pointerY)
       compare(list.activated, ["2:INBOX"])
     }
   }

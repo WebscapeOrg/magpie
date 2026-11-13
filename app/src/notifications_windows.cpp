@@ -298,9 +298,9 @@ public:
                 });
             const event_token failed = toast.Failed(
                 [state, token, revision](const ToastNotification &,
-                                          const ToastFailedEventArgs &args) {
+                                          const ToastFailedEventArgs &arguments) {
                     const QString detail = QStringLiteral("0x%1").arg(
-                        static_cast<quint32>(args.ErrorCode().value), 8, 16,
+                        static_cast<quint32>(arguments.ErrorCode().value), 8, 16,
                         QLatin1Char('0'));
                     onQtThread(state, [token, revision, detail](
                         WindowsNotificationPlatform *owner) {

@@ -1,0 +1,4 @@
+module MagpieEngine {
+    header "MagpieEngine.h"
+    export *
+}

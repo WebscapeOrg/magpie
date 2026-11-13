@@ -1,7 +1,6 @@
 import QtQuick
 
-// The editor supplies selection snapshots; Rust reads and prepares the context.
-// Mail stays scoped to the captured account and launches no job until complete.
+// Invariant: Rust resolves message context within the owning account; editor snapshots carry selection only.
 Item {
   id: root
   required property var service
@@ -27,7 +26,7 @@ Item {
 
   function selectedSummary(owner, id) {
     var rows = owner.messages || []
-    for (var i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i]
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) if (rows[rowIndex].id === id) return rows[rowIndex]
     if (owner.memberSummaries && owner.memberSummaries[id]) return owner.memberSummaries[id]
     return owner.selectedId === id ? owner.selectedMessage : null
   }
@@ -43,11 +42,10 @@ Item {
       error = "Mail backend unavailable"; return false
     }
     var summaries = []
-    for (var i = 0; i < ids.length; i++) {
-      var summary = selectedSummary(owner, ids[i])
-      // The native read resolves IDs within this account, independently of the
-      // visible folder. A recovered reply need not have a loaded list row.
-      summaries.push(summary || {id: String(ids[i])})
+    for (var idIndex = 0; idIndex < ids.length; idIndex++) {
+      var summary = selectedSummary(owner, ids[idIndex])
+      // Invariant: recovered replies resolve their original IDs independently of the currently selected row.
+      summaries.push(summary || {id: String(ids[idIndex])})
     }
     var token = ++serial
     var selected = typeof runner.selection === "function" ? runner.selection() : null
@@ -70,9 +68,7 @@ Item {
         root.finishError("That mailbox is no longer set up."); return
       }
       if (failure || !result || !result.payload) {
-        // Missing/offline original mail must not strand a valid recovered
-        // draft or an existing conversation. Keep its captured draft/context;
-        // never turn a size-limit refusal into a smaller, misleading request.
+        // Invariant: missing original mail may use recovered context; oversized context must never be silently truncated.
         if (failure && failure.message !== "agent_context_too_large" && (draftFields || continuation)) {
           launch(continuation || {draftFields: draftFields, ask: prompt,
             account: String(owner.accountEmail || ""), accountId: capturedOwner})

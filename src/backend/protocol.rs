@@ -19,8 +19,8 @@ struct Frame {
     deadline: tokio::time::Instant,
 }
 
-/// Pipes retain dedicated blocking readers/writers; networking runs as bounded
-/// async futures, so a slow request does not occupy a network worker thread.
+/// Performance: Pipes retain dedicated blocking readers/writers; networking runs as bounded async
+/// futures, so a slow request does not occupy a network worker thread.
 pub fn serve(input: impl BufRead, mut output: impl Write + Send) -> io::Result<()> {
     let runtime = super::runtime()?;
     let session = super::Session::default();
@@ -54,7 +54,7 @@ pub fn serve(input: impl BufRead, mut output: impl Write + Send) -> io::Result<(
         written?;
         result
     })?;
-    // Quit is a barrier: drain every accepted frame and write its response first.
+    // Invariant: Quit is a barrier: drain every accepted frame and write its response first.
     match end {
         End::Eof => Ok(()),
         End::Reply(response) => reply(&mut output, response),
@@ -75,11 +75,12 @@ async fn process_frames(
     responses: mpsc::Sender<Value>,
     session: &super::Session,
 ) -> io::Result<()> {
-    // Subscribe before accepting frames: the initial watch check may finish
-    // before its RPC response, but its notification must still reach the writer.
+    // Algorithm: Subscribe before accepting frames: the initial watch check may finish before its
+    // RPC response, but its notification must still reach the writer.
     let mut notifications = session.mail.subscribe();
     let mut outbox_notifications = session.outbox.subscribe();
     let mut gmail_notifications = session.gmail.subscribe();
+    let mut local_notifications = session.local_mail.subscribe();
     let scheduler = schedule(receiver, responses.clone(), |frame| async move {
         super::rpc::handle(&frame.bytes, session, frame.deadline)
             .await
@@ -89,6 +90,12 @@ async fn process_frames(
     let result = loop {
         tokio::select! {
             result = &mut scheduler => break result,
+            event = local_notifications.recv() => {
+                if let Ok(event) = event
+                    && responses.send(event).await.is_err() {
+                    break Err(io::Error::other("output closed"));
+                }
+            }
             event = outbox_notifications.recv() => {
                 if let Ok(event) = event
                     && responses.send(event).await.is_err() {
@@ -110,9 +117,12 @@ async fn process_frames(
             }
         }
     };
-    // No watch can write after the accepted requests drain or after quit.
+    // Invariant: No watch can write after the accepted requests drain or after quit.
     session.mail.shutdown().await;
+    session.local_mail.shutdown().await;
     session.gmail.shutdown();
+    crate::providers::gmail_http::flush_diagnostics().await;
+    super::diagnostics::flush().await;
     let outbox_result = session.outbox.shutdown().await;
     let cache_result = session.queries.shutdown().await;
     outbox_result.map_err(io::Error::other)?;
@@ -198,9 +208,9 @@ fn read_frames(
     }
 }
 
-fn reply(output: &mut impl Write, value: Value) -> io::Result<()> {
-    // Refuse before writing any partial response. The serializer itself is
-    // bounded; building a huge temporary JSON string would defeat the ceiling.
+pub(super) fn reply(output: &mut impl Write, value: Value) -> io::Result<()> {
+    // Performance: Refuse before writing any partial response. The serializer itself is bounded;
+    // building a huge temporary JSON string would defeat the ceiling.
     let mut encoded = BoundedResponse(Vec::new());
     if serde_json::to_writer(&mut encoded, &value).is_err() {
         let refused = |item: &Value| {
@@ -235,8 +245,8 @@ fn reply(output: &mut impl Write, value: Value) -> io::Result<()> {
         let transfer = NEXT_TRANSFER.fetch_add(1, Ordering::Relaxed).to_string();
         let size = text.encode_utf16().count();
         for (index, data) in chunks.iter().enumerate() {
-            // At most six output bytes per data byte after JSON escaping,
-            // plus a small fixed envelope, well below MAX_FRAME.
+            // Algorithm: JSON escaping expands each data byte by at most six bytes, leaving the
+            // fixed envelope below MAX_FRAME.
             serde_json::to_writer(
                 &mut *output,
                 &serde_json::json!({

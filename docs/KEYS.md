@@ -29,8 +29,7 @@ readonly property string keyContext:
     root.assistantEditing ? (root.activeAssistant.commandsOpen ? "assistantCommands" : "assistant")
   : root.showPage  ? "page"
   : root.composing ? "compose"
-  : searchBar.fieldFocused ? "search"
-  : root.calendarVisible ? "calendar"
+  : searchBar.fieldFocused ? (searchBar.suggestionsOpen ? "searchSuggestions" : "search")
   : root.currentView === "reader" ? "reader"
   : "list"
 ```
@@ -40,15 +39,20 @@ readonly property string keyContext:
 | `list` | The message list | The mailbox keys |
 | `reader` | A message open | The mailbox keys, plus reply/forward and zoom. `j`/`k` move the mailbox cursor and immediately open its message; `Shift+J`/`Shift+K` scroll the message body |
 | `search` | A query being typed | `Escape`, and the modified keys |
+| `searchSuggestions` | Gmail search suggestions | Up/Down selects, Tab completes, Enter searches unless a suggestion was selected, Escape dismisses |
 | `compose` | A draft being written | `Escape`, `Ctrl+Return`, and the modified keys |
-| `eventCompose` | Creating or editing an event | `Enter` saves and closes after success; `Escape` closes; modified keys remain available |
 | `assistant` | Typing or reading in the AI dock | `Return`/`Enter` sends, `Escape`, and the modified keys |
 | `assistantCommands` | Slash-command suggestions | Up/Down selects, Return/Enter completes or executes, Escape dismisses |
 | `page` | Setup or settings | `Escape`, and the modified keys |
-| `calendar` | The calendar month | Calendar navigation and the modified keys |
 
 `Ctrl+,` opens Settings from every context, including a focused draft field.
 Back returns to the previous screen with the draft intact.
+
+When a button has keyboard focus, unmodified Return, keypad Enter and Space activate that button. The shared button controls accept `ShortcutOverride` for those keys so mailbox open/selection shortcuts cannot intercept them. Modified application shortcuts and Escape retain their normal routing.
+
+Search suggestions leave focus in the native search field. Enter submits the typed query until an arrow key selects a suggestion; Enter then completes that suggestion without searching. Tab completes the selected or first suggestion. Escape dismisses suggestions before the existing search exit behavior. Context changes restore field focus without selecting the query; only the `/` shortcut selects all. Input-method composition retains its native keys.
+
+During a submitted search, the field shows `Searching...` with a steady glow and preserves the query, selection, and text undo history. The field waits for completion before accepting edits or another submission; Clear or Escape clears the search through the normal exit path. The query returns when the search finishes. Menu → Help → Search opens syntax help; examples can be inserted when the search is idle. In the Help submenu, Enter opens the selected item, and Back, Left, or Escape returns to the main menu.
 
 While an AI request is running, Escape interrupts it and keeps the dock open; otherwise Escape closes the dock. An open command suggestion or history view is left first.
 
@@ -68,7 +72,7 @@ event is left alone, preserving normal typing, IME input and line breaks.
 `mail` in the table below is shorthand for `list` and `reader`; `all` is every
 context.
 
-**A text-entry context binds no bare key but `Escape`, except AI send/command selection described above and Enter to save in the single-line event editor.**
+**A text-entry context binds no bare key but `Escape`, except search suggestions, AI send/command selection described above.**
 There is no "is the user typing" question anywhere in the code, because there is
 nothing left for it to answer: if a bare letter is not bound in `compose`, it
 cannot fire there, and the field gets it the way any other character arrives.
@@ -85,7 +89,7 @@ types into nothing:
 onKeyContextChanged: Qt.callLater(applyContextFocus)
 function applyContextFocus() {
   if (keyContext === "compose") compose.takeFocus()
-  else if (keyContext === "search") searchBar.focusField()
+  else if (keyContext === "search" || keyContext === "searchSuggestions") searchBar.takeFocus()
   else parkKeyboard()
 }
 ```
@@ -130,37 +134,25 @@ used to exist, and they had.
 | `replyAll` | `a` | mail | Reply to all |
 | `forward` | `f` | mail | Forward |
 | `compose` | `c` | mail | Compose or edit a draft |
-| `createEvent` | `c` | calendar | Create an event |
-| `calendarNext` | `j`, `Down` | calendar | Select the next event |
-| `calendarPrevious` | `k`, `Up` | calendar | Select the previous event |
-| `openCalendarEvent` | `Return`, `o` | calendar | Open the selected event |
-| `calendarPreviousPeriod` | `h`, `Left` | calendar | Previous week or month |
-| `calendarNextPeriod` | `l`, `Right` | calendar | Next week or month |
-| `calendarToday` | `t` | calendar | Go to today |
-| `calendarWeek` | `w` | calendar | Show week view |
-| `calendarDay` | `d` | calendar | Show day view |
-| `calendarAgenda` | `a` | calendar | Show agenda view |
-| `calendarUndo` | `u` | calendar | Undo the last event change |
-| `calendarMonth` | `m` | calendar | Show month view |
 | `send` | `Ctrl+Return`, `Ctrl+Enter` | compose | Send |
-| `saveEvent` | `Return`, `Enter`, `Ctrl+Return`, `Ctrl+Enter` | eventCompose | Save and close the event |
-| `guestNext` | `Down` | eventGuests | Next guest suggestion |
-| `guestPrevious` | `Up` | eventGuests | Previous guest suggestion |
-| `guestChoose` | `Return`, `Enter` | eventGuests | Choose guest suggestion |
-| `undoSend` | `Alt+Z` | all | Undo send |
+| `undoSend` | `Alt+Z` | all | Undo send, or undo a bundled row's action |
 | `search` | `/` | mail | Search |
 | `goMailbox` | `Ctrl+1`, `Ctrl+2`, `Ctrl+3`, `Ctrl+4`, `Ctrl+5`, `Ctrl+6`, `Ctrl+7`, `Ctrl+8`, `Ctrl+9` | mail | Go to that mailbox |
-| `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail+calendar | Go to that email account |
+| `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail | Go to that email account |
 | `switchAccount` | `Alt+A` | mail | Switch account |
 | `askAgent` | `Alt+G` | mail+compose | Ask AI about the message or draft |
+| `searchSuggestionNext` | `Down` | searchSuggestions | Next search suggestion |
+| `searchSuggestionPrevious` | `Up` | searchSuggestions | Previous search suggestion |
+| `searchSuggestionComplete` | `Tab` | searchSuggestions | Complete the search suggestion |
+| `searchSuggestionAccept` | `Return`, `Enter` | searchSuggestions | Complete the selected suggestion or search |
 | `assistantSend` | `Return`, `Enter`, `Ctrl+Return`, `Ctrl+Enter` | assistant+assistantCommands | Send the AI message |
 | `assistantCommandNext` | `Down` | assistantCommands | Next command |
 | `assistantCommandPrevious` | `Up` | assistantCommands | Previous command |
 | `assistantChooseCommand` | `Return`, `Enter` | assistantCommands | Complete or run the selected AI command |
-| `calendar` | `Alt+C` | mail+calendar | Switch between mail and calendar |
-| `mailView` | `Ctrl+Shift+M` | mail+calendar | Go to mail |
-| `calendarView` | `Ctrl+Shift+C` | mail+calendar | Go to calendar |
-| `toggleSidebar` | `[` | mail+calendar | Show or hide the sidebar |
+| `calendar` | `Alt+C` | mail | Open Magpie Calendar... |
+| `mailView` | `Ctrl+Shift+M` | mail | Go to mail |
+| `calendarView` | `Ctrl+Shift+C` | mail | Open Magpie Calendar... |
+| `toggleSidebar` | `[` | mail | Show or hide the sidebar |
 | `zoomIn` | `Ctrl++`, `Ctrl+=` | reader | Zoom the message body in |
 | `zoomOut` | `Ctrl+-` | reader | Zoom the message body out |
 | `zoomReset` | `Ctrl+0` | reader | Reset the zoom |
@@ -185,7 +177,7 @@ Back and `Escape` close an untouched composition immediately without saving, inc
 
 The attachment shelf reveals a card when Tab reaches its Open or Save control. Enter or Space activates the focused control. Those controls accept Qt’s shortcut override for their activation keys so the reader’s Open and selection shortcuts do not intercept them. Escape keeps the reader’s normal Back behavior.
 
-The event and label delete confirmation initially focuses Delete. Tab and Shift+Tab cycle between Delete and Cancel; Return or Enter activates the focused button. Escape cancels.
+The label delete confirmation opens on Cancel, as Magpie Calendar's does, so Return on opening deletes nothing. Tab and Shift+Tab move between Cancel, Delete and any other choices it offers; Return or Enter activates the focused button. Escape cancels.
 
 ## Why the rail is numbered and not chorded
 
@@ -222,7 +214,7 @@ reader in a wide window — it unticks them first and goes nowhere; the next
 press goes back. Where it goes is not decided by the key: the window keeps a history
 of the places it has been — a stack in `App.qml`, ruled by
 `ui/account/Navigation.js` — and `Escape`, like every Back bar, calls `back()`,
-which pops one entry. A draft, the event form and the shortcut sheet are
+which pops one entry. A draft and the shortcut sheet are
 entries too, so the sheet closes before the message under it, and a reply
 raised from the list returns to the list, not to the message it opened on the
 way. On the root, `back()` clears a search if there is one and otherwise closes
@@ -255,7 +247,7 @@ message list clamps.
 
 ## The cursor
 
-Hover must not write `cursorId`: Qt re-reports hover as content scrolls beneath a stationary pointer. Reveal keyboard selection with `Model.contentYToReveal`; the list is a `Column`, not a view with `positionViewAtIndex`.
+Hover must not write `cursorId`: Qt re-reports hover as content scrolls beneath a stationary pointer. Reveal keyboard selection with `MessageList.reveal`, which calls `positionViewAtIndex` with `ListView.Contain`.
 
 `cursorId` is where the keyboard is. `selectedId` is what the reader shows.
 They are two different things, and conflating them was the first bug in this
@@ -290,14 +282,7 @@ The last two exist because a cursor pointing at a message that is not listed
 cannot be found, and `cursorAfterOffset` restarts at the top from there. Every
 "the cursor jumped back to the first row" report is that.
 
-The list is a `Column` of rows inside a `Flickable`, not a `ListView` — the
-panel already owns a scroller, and nesting a second gives every wheel event two
-plausible targets. So there is no `positionViewAtIndex`, and keyboard movement
-has to scroll the list itself: **`Model.contentYToReveal`** decides where the
-scroller goes, leaving it alone while the row is already visible so stepping one
-row does not drag the list under someone reading it. It is called from
-`moveCursor`, not from `cursorId` changing. Hover never changes the cursor, and
-scrolling under the pointer would fight the mouse.
+The message list owns the panel's only scroller. Its `ListView` creates visible rows and a small surrounding buffer, preserving delegates during summary-only refreshes. `revealCursorRow` calls `MessageList.reveal` only during keyboard movement; pointer hover never moves the cursor. Selection and checked IDs belong to the window, so delegate reuse cannot change them.
 
 ## The mouse
 

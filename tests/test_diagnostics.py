@@ -57,12 +57,32 @@ class Diagnostics(unittest.TestCase):
 
     def test_backend_provider_identifiers_survive_redaction(self):
         codes = ['gmail_http_failed', 'calendar_auth_refused', 'upload_capacity_exceeded',
-                 'invalid_upload_encoding']
+                 'invalid_upload_encoding', 'gmail_request_deferred', 'gmail_server_rate_limited',
+                 'local_search_invalid', 'local_search_unsupported', 'local_search_too_long']
         self.call('record', [self.event(code) for code in codes])
         data = (self.folder / 'errors.json').read_text()
         for code in codes:
             self.assertIn(code, data)
         self.assertNotIn('unknown_error', data)
+
+    def test_rpc_failure_reason_and_time_survive_without_private_values(self):
+        self.call('record', [])
+        event = {'method':'local.edit', 'success':False, 'process':12, 'request':34,
+                 'queueUs':0, 'elapsedUs':23, 'requestBytes':80,
+                 'timeMs':1792590000000, 'error':'local_disk_full'}
+        values = [event, dict(event, error='SECRET-token\nprivate@example.test'),
+                  dict(event, method=['SECRET']), dict(event, timeMs='SECRET')]
+        path = self.folder / 'rpc.json'
+        path.write_text(json.dumps(values))
+        path.chmod(0o600)
+        self.call('open')
+        report = (self.folder / 'report.txt').read_text()
+        self.assertIn('local_disk_full', report)
+        self.assertIn('1792590000000', report)
+        self.assertIn('unknown_error', report)
+        self.assertNotIn('SECRET', report)
+        self.assertNotIn('private@example.test', report)
+        self.assertNotIn('SECRET', (self.root / 'state/launched').read_text())
 
     def test_gmail_report_preserves_transport_facts_and_discards_private_values(self):
         self.call('record', [self.event('gmail_rate_limited')])
@@ -71,7 +91,8 @@ class Diagnostics(unittest.TestCase):
                  'cost': 60, 'attempt': 2, 'status': 429, 'reason': 'userRateLimitExceeded',
                  'retryAfterMs': 90000, 'waitMs': 800, 'elapsedMs': 950,
                  'outcome': 'gmail_rate_limited', 'private': 'SECRET-body'}
-        rows = [event, dict(event, status=None, reason='localBudget')]
+        rows = [event, dict(event, status=None, reason='localBudget', outcome='gmail_request_deferred'),
+                dict(event, status=None, reason='serverCooldown', outcome='gmail_server_rate_limited')]
         for key in ['time', 'operation', 'lane', 'reason', 'outcome', 'status', 'retryAfterMs', 'cost']:
             rows.append(dict(event, **{key: 'SECRET-token\r\n\x00日本語'}))
         path = self.folder / 'gmail.json'
@@ -81,6 +102,9 @@ class Diagnostics(unittest.TestCase):
         report = (self.folder / 'report.txt').read_text()
         self.assertIn('userRateLimitExceeded', report)
         self.assertIn('localBudget', report)
+        self.assertIn('serverCooldown', report)
+        self.assertIn('gmail_request_deferred', report)
+        self.assertIn('gmail_server_rate_limited', report)
         self.assertIn('"retryAfterMs": 90000', report)
         self.assertIn('"cost": 60', report)
         self.assertNotIn('SECRET', report)
@@ -100,6 +124,26 @@ class Diagnostics(unittest.TestCase):
         path.chmod(0o600)
         self.call('open')
         self.assertLessEqual((self.folder / 'report.txt').stat().st_size, 65536)
+
+    def test_rpc_report_only_keeps_generated_ids_timings_and_drop_counts(self):
+        self.call('record', [])
+        event = {'process': 12, 'request': 34, 'method': 'reader.open', 'queueUs': 56,
+                 'elapsedUs': 78, 'requestBytes': 90, 'success': True, 'accountId': 'SECRET-address',
+                 'params': {'body': 'SECRET-body'}}
+        rows = [event, dict(event, request='SECRET-caller-id'), dict(event, method='SECRET-method')]
+        for filename, value in [('rpc.json', rows), ('rpc-writer.json', {'dropped': 7, 'private': 'SECRET'}),
+                                ('gmail-writer.json', {'dropped': 9})]:
+            path = self.folder / filename
+            path.write_text(json.dumps(value))
+            path.chmod(0o600)
+        self.call('open')
+        report = (self.folder / 'report.txt').read_text()
+        self.assertIn('"request": 34', report)
+        self.assertIn('"elapsedUs": 78', report)
+        self.assertIn('rpc-writer.json: dropped records=7', report)
+        self.assertIn('gmail-writer.json: dropped records=9', report)
+        self.assertNotIn('SECRET', report)
+        self.assertNotIn('SECRET', (self.root / 'state/launched').read_text())
 
     def test_static_backend_error_vocabulary_does_not_drift(self):
         spec = importlib.util.spec_from_file_location('diagnostics', SCRIPT)
@@ -123,7 +167,7 @@ class Diagnostics(unittest.TestCase):
                 codes.update(pattern.findall(source))
         # These are synthetic fixture errors, not production backend errors.
         codes -= {'unexpected_method', 'test_directories_override_active'}
-        self.assertGreater(len(codes), 350)
+        self.assertTrue({'gmail_http_failed', 'accounts_provider_unsupported'} <= codes)
         self.assertEqual(sorted(codes - module.MESSAGES), [])
 
     def test_mail_errors_survive_recording_and_report_regeneration(self):
@@ -158,7 +202,8 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual([entry['message'] for entry in entries],
                          [code for _, code in cases])
         self.assertEqual([entry['method'] for entry in entries],
-                         [method for method, _ in cases])
+                         [('backend.request' if method.startswith(('imap.', 'jmap.')) else method)
+                          for method, _ in cases])
         self.assertNotIn('unknown_error', report)
 
     def test_error_shaped_private_values_never_reach_disk_report_or_launcher(self):

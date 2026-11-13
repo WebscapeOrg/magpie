@@ -1,4 +1,4 @@
-//! Native reader pipeline. Raw resources and sender HTML never form UI requests.
+//! Invariant: Native reader pipeline. Raw resources and sender HTML never form UI requests.
 use super::Session;
 use crate::{cache, message};
 use serde_json::{Value, json};
@@ -28,6 +28,7 @@ struct Entry {
     key: String,
     prepared: Arc<Prepared>,
     bytes: usize,
+    revision: String,
 }
 struct Prepared {
     source: String,
@@ -63,18 +64,52 @@ impl Job {
     }
 }
 impl ReaderStore {
+    #[cfg(feature = "mobile")]
+    pub(super) fn forget_account(&mut self, account: &str) {
+        self.entries.retain(|entry| entry.account != account);
+        self.bytes = self.entries.iter().map(|entry| entry.bytes).sum();
+        self.jobs.retain(|(owner, _), job| {
+            if owner != account {
+                return true;
+            }
+            if let Ok(mut live) = job.live.lock() {
+                *live = false;
+            }
+            job.cancelled.notify_waiters();
+            false
+        });
+        self.cancelled.retain(|entry| entry.key.0 != account);
+    }
+
+    #[cfg(test)]
     fn put(
         &mut self,
         account: &str,
         id: &str,
         prepared: Arc<Prepared>,
     ) -> Result<String, &'static str> {
+        self.put_revision(account, id, prepared, "")
+    }
+    fn put_revision(
+        &mut self,
+        account: &str,
+        id: &str,
+        prepared: Arc<Prepared>,
+        revision: &str,
+    ) -> Result<String, &'static str> {
+        for index in (0..self.entries.len()).rev() {
+            if self.entries[index].account == account && self.entries[index].id == id {
+                if let Some(old) = self.entries.remove(index) {
+                    self.bytes -= old.bytes;
+                }
+            }
+        }
         let bytes = prepared.bytes()?;
         if bytes > MAX_BYTES {
             return Err("reader_resource_too_large");
         }
         while self.bytes + bytes > MAX_BYTES
-            || self.entries.len() >= 64
+            || self.entries.len() >= 32
             || self.entries.iter().filter(|v| v.account == account).count() >= 12
         {
             let at = self
@@ -97,8 +132,24 @@ impl ReaderStore {
             key: key.clone(),
             prepared,
             bytes,
+            revision: revision.into(),
         });
         Ok(key)
+    }
+    fn prepared(
+        &mut self,
+        account: &str,
+        id: &str,
+        revision: &str,
+    ) -> Option<(String, Arc<Prepared>)> {
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.account == account && e.id == id && e.revision == revision)?;
+        let entry = self.entries.remove(index)?;
+        let value = (entry.key.clone(), entry.prepared.clone());
+        self.entries.push_back(entry);
+        Some(value)
     }
     fn get(&mut self, account: &str, id: &str, key: &str) -> Result<Arc<Prepared>, &'static str> {
         let at = self
@@ -133,65 +184,30 @@ fn field<'a>(p: &'a Value, key: &str) -> Result<&'a str, &'static str> {
         .filter(|s| !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control))
         .ok_or("invalid_params")
 }
-async fn registered(account: &str) -> Result<String, &'static str> {
+pub(super) async fn registered(account: &str) -> Result<String, &'static str> {
     let list = tokio::task::spawn_blocking(crate::account::list_readonly)
         .await
         .map_err(|_| "worker_failed")??;
     list["accounts"]
         .as_array()
-        .and_then(|rows| rows.iter().find(|v| v["id"] == account))
+        .and_then(|rows| {
+            rows.iter()
+                .find(|v| v["id"] == account && v["provider"] == "gmail")
+        })
         .and_then(|v| v["provider"].as_str())
         .map(str::to_owned)
         .ok_or("reader_account_unknown")
 }
 impl Session {
-    /// Internal full-resource read shared with AI context; never an IPC result.
+    /// Invariant: Internal full-resource read shared with AI context; never an IPC result.
     pub(crate) async fn fetch_resource(
         &self,
         account: &str,
         id: &str,
     ) -> Result<Value, &'static str> {
         cache::validate_params(&json!({"accountId":account,"id":id}), true)?;
-        let provider = registered(account).await?;
-        let value = match provider.as_str() {
-            "gmail" => {
-                self.gmail
-                    .call(
-                        "gmail.read",
-                        &json!({"accountId":account,"id":id,"full":true}),
-                    )
-                    .await?
-            }
-            "jmap" => self
-                .jmap
-                .call(
-                    "jmap.read",
-                    &json!({"accountId":account,"id":id,"full":true}),
-                )
-                .await?["data"]
-                .clone(),
-            "hey" => {
-                let program = crate::providers::hey_access::program()?;
-                let params = crate::providers::hey_access::checked_params(
-                    &json!({"accountId":account,"id":id,"program":program}),
-                )
-                .await?;
-                crate::providers::hey::call("hey.read", &params).await?
-            }
-            "imap" | "outlook" => {
-                let response = crate::providers::imap::call(
-                    "imap.messages",
-                    &json!({"accountId":account,"ids":[id],"full":true,"progressive":false,"readOnly":true}),
-                )
-                .await?;
-                response["messages"]
-                    .as_array()
-                    .and_then(|v| v.iter().find(|v| v["id"] == id))
-                    .cloned()
-                    .ok_or("reader_message_missing")?
-            }
-            _ => return Err("reader_provider_unknown"),
-        };
+        registered(account).await?;
+        let value = self.local_mail.read(account, id, &self.gmail).await?;
         if value["id"] != id || !value["payload"].is_object() {
             return Err("reader_message_mismatch");
         }
@@ -203,6 +219,32 @@ impl Session {
         params: &Value,
     ) -> Result<Value, &'static str> {
         let account = field(params, "accountId")?.to_lowercase();
+        if method == "reader.prefetch" {
+            let ids = params["ids"]
+                .as_array()
+                .filter(|ids| ids.len() <= 4)
+                .ok_or("invalid_params")?;
+            let now = params["now"].as_i64().ok_or("invalid_params")?;
+            let options = params["options"].as_object().ok_or("invalid_params")?;
+            if options.get("allowRemoteImages") == Some(&Value::Bool(true)) {
+                return Err("invalid_params");
+            }
+            for id in ids {
+                cache::validate_params(&json!({"accountId":account,"id":id}), true)?;
+            }
+            let Ok(_permit) = self.reader_prefetch.try_acquire() else {
+                return Ok(json!({"warmed":0}));
+            };
+            let mut warmed = 0;
+            for (index, id) in ids.iter().enumerate() {
+                let result=Box::pin(self.reader_call("reader.open",&json!({"accountId":account,"id":id,
+                    "requestId":format!("prefetch-{now}-{index}"),"cacheOnly":true,"now":now,"options":options}))).await;
+                if result.is_ok_and(|v| !v.is_null()) {
+                    warmed += 1;
+                }
+            }
+            return Ok(json!({"warmed":warmed}));
+        }
         if method == "reader.cancel" {
             let request = field(params, "requestId")?;
             let mut store = self.reader.lock().map_err(|_| "session_failed")?;
@@ -294,8 +336,41 @@ impl Session {
         let operation = async {
             registered(&account).await?;
             job.current()?;
+            let revision = self.local_mail.revision(&account, &id).await?;
+            if let Some(revision) = revision.as_deref() {
+                let prepared = self
+                    .reader
+                    .lock()
+                    .map_err(|_| "session_failed")?
+                    .prepared(&account, &id, revision);
+                if let Some((key, prepared)) = prepared {
+                    let renders = self.renders.clone();
+                    let account = account.clone();
+                    let id = id.clone();
+                    let job = job.clone();
+                    return tokio::task::spawn_blocking(move || {
+                        job.current()?;
+                        render_prepared(
+                            &prepared,
+                            &account,
+                            &id,
+                            &key,
+                            options,
+                            &renders,
+                            Some(&job.live),
+                        )
+                    })
+                    .await
+                    .map_err(|_| "worker_failed")?;
+                }
+            }
             let resource = if cache_only {
-                cache::resource::read(&account, &id).await?
+                match self.local_mail.resource(&account, &id).await? {
+                    Some(resource) => Some(resource),
+                    None => cache::resource::read(&account, &id)
+                        .await?
+                        .filter(crate::local_mail::text_complete),
+                }
             } else {
                 Some(self.fetch_resource(&account, &id).await?)
             };
@@ -303,12 +378,6 @@ impl Session {
             let Some(resource) = resource else {
                 return Ok(Value::Null);
             };
-            if !cache_only {
-                // Persistence failure does not discard a valid live read. Guarded
-                // writes cannot land after an explicit reader cancellation.
-                let _ =
-                    cache::resource::put_guarded(&account, &id, &resource, job.live.clone()).await;
-            }
             let renders = self.renders.clone();
             let store = self.reader.clone();
             let resource = Arc::new(resource);
@@ -321,7 +390,12 @@ impl Session {
                 if !*live_guard {
                     return Err("reader_cancelled");
                 }
-                let key = store_guard.put(&account, &id, prepared.clone())?;
+                let key = store_guard.put_revision(
+                    &account,
+                    &id,
+                    prepared.clone(),
+                    revision.as_deref().unwrap_or(""),
+                )?;
                 drop(live_guard);
                 drop(store_guard);
                 let result = render_prepared(
@@ -368,7 +442,7 @@ fn prepare(resource: &Value, id: &str, now: i64) -> Result<Prepared, &'static st
         })
         .unwrap_or_default();
     let has_html = !source.is_empty();
-    // Only calendar material and header metadata cross for existing invitation /
+    // Invariant: Only calendar material and header metadata cross for existing invitation /
     // unsubscribe views. MIME body and file octets remain in the native store.
     fn calendars(
         part: &Value,
@@ -424,9 +498,9 @@ fn prepare_for_store_bounded(
     now: i64,
     limit: usize,
 ) -> Result<Prepared, &'static str> {
-    // Preserve the existing accepted resource limit. A pathological charset
-    // expansion can make prepared text larger than its original resource; keep
-    // that rare entry in its old bounded form instead of rejecting valid mail.
+    // Performance: Preserve the existing accepted resource limit. A pathological charset expansion
+    // can make prepared text larger than its original resource; keep that rare entry in its old
+    // bounded form instead of rejecting valid mail.
     if serde_json::to_vec(resource.as_ref())
         .map_err(|_| "invalid_message")?
         .len()
@@ -478,8 +552,8 @@ fn render_prepared(
         renders,
         live,
     )?;
-    // QML draws both sanitized document trees. Serialized HTML copies are
-    // redundant and must not cross the process boundary a second time.
+    // Performance: QML draws both sanitized document trees. Serialized HTML copies are redundant
+    // and must not cross the process boundary a second time.
     rendered
         .as_object_mut()
         .ok_or("invalid_message")?

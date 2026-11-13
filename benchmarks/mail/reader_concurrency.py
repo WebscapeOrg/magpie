@@ -69,7 +69,7 @@ Scope {
   root.started=Date.now();root.pump()
  }
  function pump(){
-  // Each eight-ID group completes before its IDs are reused: simultaneous
+  // Performance: Each eight-ID group completes before its IDs are reused: simultaneous
   // operations refer to distinct messages at every concurrency level.
   var groupEnd=Math.min(operations,(Math.floor(completed/8)+1)*8)
   while(inFlight<levels[levelIndex]&&nextOperation<groupEnd){launch(nextOperation++)}
@@ -89,7 +89,7 @@ Scope {
  }
  function finishRound(end){
   var elapsed=(end-started)*1000
-  // Full parity is outside the round timer and after all outstanding calls.
+  // Performance: Full parity is outside the round timer and after all outstanding calls.
   // A bounded batch of response references is retained until validation.
   for(var i=0;i<operations;i++){
    if(display(replies[i])!==reference[i%8]){fail("Display parity failed: "+id(i%8));return}
@@ -108,7 +108,7 @@ Scope {
   id:backend
   executable:BINARY
   expectedVersion:VERSION
-  expectedApiVersion: 1
+  expectedApiVersion: API_REVISION
   onReadyChanged:if(ready&&!root.began){root.began=true;Qt.callLater(root.nextCase)}
   onFailureChanged:if(failure!=="")root.fail(failure)
  }
@@ -170,7 +170,7 @@ def main():
             path=temp/key.lower();path.mkdir(mode=0o700);env[key]=str(path)
         config=Path(env['XDG_CONFIG_HOME'])/'omamail';config.mkdir(mode=0o700)
         registry=config/'accounts.json';registry.write_text(json.dumps({'version':1,'accounts':[{'provider':'gmail','email':'concurrency-benchmark@example.test'}],'activeId':'concurrency-benchmark@example.test'}));registry.chmod(0o600)
-        qml=QML.replace('PAYLOAD',json.dumps(cases)).replace('ROUNDS',str(args.rounds)).replace('OPERATIONS',str(args.operations)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
+        qml=QML.replace('API_REVISION',str(json.loads((ROOT/'backend-api.json').read_text())['apiVersion'])).replace('PAYLOAD',json.dumps(cases)).replace('ROUNDS',str(args.rounds)).replace('OPERATIONS',str(args.operations)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
         (temp/'shell.qml').write_text(qml)
         start=time.perf_counter();load=os.getloadavg()
         child=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)

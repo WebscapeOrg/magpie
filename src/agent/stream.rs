@@ -18,6 +18,7 @@ pub struct ClaudeStream {
     snapshot_seen: bool,
     progress: &'static str,
     final_seen: bool,
+    usage: Option<crate::inbox::prices::Usage>,
 }
 
 pub fn valid_text(value: &str) -> Result<()> {
@@ -43,7 +44,7 @@ pub fn transcript_check(items: &[Value]) -> Result<()> {
         }
         valid_text(item["text"].as_str().ok_or("Expected text")?)?;
     }
-    // Match Python's ensure_ascii=False default separators (", ", ": ").
+    // Algorithm: Match Python's ensure_ascii=False default separators (", ", ": ").
     let bytes = serde_json::to_vec(items)
         .map_err(|_| "Invalid conversation record")?
         .len();
@@ -113,6 +114,7 @@ impl ClaudeStream {
             snapshot_seen: false,
             progress: "Thinking...",
             final_seen: false,
+            usage: None,
         })
     }
     pub fn display(&self) -> Value {
@@ -124,6 +126,8 @@ impl ClaudeStream {
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
+    pub(crate) fn usage(&self) -> Option<crate::inbox::prices::Usage> { self.usage }
+
     pub fn final_seen(&self) -> bool {
         self.final_seen
     }
@@ -150,6 +154,7 @@ impl ClaudeStream {
             *self = candidate;
         } else if candidate.final_seen {
             self.final_seen = true;
+            self.usage = candidate.usage;
         }
         result
     }
@@ -169,6 +174,12 @@ impl ClaudeStream {
     pub(super) fn finish(&mut self) {
         self.complete = true;
         self.final_seen = true;
+    }
+    pub(super) fn finish_with_usage(&mut self, usage: &Value) {
+        if !self.final_seen {
+            self.usage = crate::inbox::prices::codex(usage);
+        }
+        self.finish();
     }
     pub(super) fn status(&mut self, text: &'static str) {
         self.transcript.push(json!({"role":"status","text":text}));
@@ -295,6 +306,7 @@ impl ClaudeStream {
                 }
             }
             "result" => {
+                if !self.final_seen { self.usage = crate::inbox::prices::anthropic(&value["usage"]); }
                 self.final_seen = true;
                 if truthy(&value["is_error"]) || value["subtype"] != "success" {
                     return Err(

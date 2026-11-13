@@ -10,6 +10,10 @@ use std::{
 
 #[path = "gmail_diagnostics.rs"]
 mod diagnostics;
+
+pub(crate) async fn flush_diagnostics() {
+    diagnostics::flush().await;
+}
 #[path = "gmail_quota.rs"]
 mod quota;
 pub use quota::{Budget, Lane};
@@ -28,18 +32,19 @@ struct Request {
     operation: &'static str,
     cost: u32,
     budget: Option<(Arc<Budget>, Lane)>,
+    response_limit: usize,
 }
 
 const MAX_INPUT: usize = 64 * 1024;
 const MAX_RESPONSE: usize = 16 * 1024 * 1024;
 const DEADLINE: Duration = Duration::from_secs(20);
-// Only an explicit rate-limit refusal is retried; timeouts remain ambiguous.
+// Invariant: Only an explicit rate-limit refusal is retried; timeouts remain ambiguous.
 const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(1);
 const RATE_LIMIT_RETRIES: usize = 3;
 static REQUEST_SERIAL: AtomicU64 = AtomicU64::new(0);
 static CLIENT: OnceLock<Result<reqwest::Client, &'static str>> = OnceLock::new();
 
-// The integration fixture exercises the real dispatcher, credential reader and
+// Invariant: The integration fixture exercises the real dispatcher, credential reader and
 // request serializer. This override exists only in test builds and only inside
 // its task scope; production has no environment/configuration bypass.
 #[cfg(test)]
@@ -70,9 +75,8 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
 }
 
 fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::platform::http_client()
         .https_only(true)
-        .hickory_dns(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .connect_timeout(Duration::from_secs(10))
@@ -155,6 +159,8 @@ async fn execute_with_backoff(
                 Err(error) => {
                     observed.reason = if error == "gmail_session_invalidated" {
                         "sessionInvalidated"
+                    } else if error == "gmail_server_rate_limited" {
+                        "serverCooldown"
                     } else {
                         "localBudget"
                     };
@@ -187,7 +193,7 @@ async fn execute_with_backoff(
         );
         let wait = (backoff.saturating_mul(1 << retry) + jitter)
             .max(observed.retry_after.unwrap_or_default());
-        if answer == Err("gmail_rate_limited") {
+        if answer == Err("gmail_server_rate_limited") {
             if let Some((budget, _)) = &request.budget {
                 budget.cool_down(wait).await;
             }
@@ -202,7 +208,7 @@ async fn execute_with_backoff(
             answer.as_ref().map(|_| ()).map_err(|e| *e),
         )
         .await;
-        if answer != Err("gmail_rate_limited")
+        if answer != Err("gmail_server_rate_limited")
             || retry == RATE_LIMIT_RETRIES
             || started.elapsed() + wait >= deadline
         {
@@ -239,6 +245,7 @@ async fn log_attempt(
         process: std::process::id(),
         session,
         request: serial,
+        rpc: crate::backend::diagnostics::current(),
         operation: request.operation.into(),
         lane: lane.into(),
         cost: request.cost,
@@ -280,7 +287,7 @@ async fn attempt(
                 .header(reqwest::header::CONTENT_TYPE, request.content_type)
                 .body(body);
         } else if empty_post {
-            // Bodyless Gmail trash/untrash requests still need explicit framing.
+            // Invariant: Bodyless Gmail trash/untrash requests still need explicit framing.
             // Some gateways reject a POST without Content-Length with HTTP 411.
             builder = builder.header(reqwest::header::CONTENT_LENGTH, "0");
         }
@@ -310,23 +317,24 @@ async fn attempt(
                     "rateLimitExceeded" | "userRateLimitExceeded"
                 ) =>
                 {
-                    "gmail_rate_limited"
+                    "gmail_server_rate_limited"
                 }
                 403 => "gmail_forbidden",
+                404 => "gmail_not_found",
                 411 => "gmail_length_required",
-                429 => "gmail_rate_limited",
+                429 => "gmail_server_rate_limited",
                 _ => "gmail_http_failed",
             });
         }
         if response
             .content_length()
-            .is_some_and(|size| size > MAX_RESPONSE as u64)
+            .is_some_and(|size| size > request.response_limit as u64)
         {
             return Err("gmail_response_too_large");
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(http_error)? {
-            if chunk.len() > MAX_RESPONSE - bytes.len() {
+            if chunk.len() > request.response_limit - bytes.len() {
                 return Err("gmail_response_too_large");
             }
             bytes.extend_from_slice(&chunk);
@@ -395,30 +403,34 @@ fn body_retry_after(body: &Value) -> Option<Duration> {
         messages.push(error["message"].as_str().unwrap_or(""));
     }
     for message in messages {
-        if let Some(captures) = pattern.captures(message) {
-            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&captures[1]) {
-                let duration = Duration::from_millis(
-                    (date.timestamp_millis() - chrono::Utc::now().timestamp_millis())
-                        .clamp(0, 86400000) as u64,
-                );
-                wait = wait.into_iter().chain(Some(duration)).max();
-            }
-        }
+        let Some(captures) = pattern.captures(message) else {
+            continue;
+        };
+        let Ok(date) = chrono::DateTime::parse_from_rfc3339(&captures[1]) else {
+            continue;
+        };
+        let duration = Duration::from_millis(
+            (date.timestamp_millis() - chrono::Utc::now().timestamp_millis()).clamp(0, 86400000)
+                as u64,
+        );
+        wait = wait.into_iter().chain(Some(duration)).max();
     }
     for detail in body["error"]["details"].as_array().into_iter().flatten() {
-        if detail["@type"] == "type.googleapis.com/google.rpc.RetryInfo" {
-            if let Some(seconds) = detail["retryDelay"]
-                .as_str()
-                .and_then(|s| s.strip_suffix('s'))
-                .and_then(|s| s.parse::<f64>().ok())
-                .filter(|s| s.is_finite() && *s >= 0.0)
-            {
-                wait = wait
-                    .into_iter()
-                    .chain(Some(Duration::from_secs_f64(seconds.min(86400.0))))
-                    .max();
-            }
+        if detail["@type"] != "type.googleapis.com/google.rpc.RetryInfo" {
+            continue;
         }
+        let Some(seconds) = detail["retryDelay"]
+            .as_str()
+            .and_then(|seconds| seconds.strip_suffix('s'))
+            .and_then(|seconds| seconds.parse::<f64>().ok())
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        else {
+            continue;
+        };
+        wait = wait
+            .into_iter()
+            .chain(Some(Duration::from_secs_f64(seconds.min(86400.0))))
+            .max();
     }
     wait
 }
@@ -429,6 +441,7 @@ fn read_operation(path: &[&str], query: &[(String, String)]) -> (&'static str, u
         .any(|(k, v)| k == "format" && matches!(v.as_str(), "metadata" | "minimal"));
     match path {
         ["profile"] => ("getProfile", 1),
+        ["history"] => ("history.list", 2),
         ["labels"] => ("labels.list", 1),
         ["labels", _] => ("labels.get", 1),
         ["settings", "sendAs"] => ("settings.sendAs.list", 1),
@@ -445,6 +458,7 @@ fn read_operation(path: &[&str], query: &[(String, String)]) -> (&'static str, u
 fn write_operation(method: &reqwest::Method, path: &[&str]) -> (&'static str, u32) {
     match (method.as_str(), path) {
         ("POST", ["messages", "send"]) => ("messages.send", 100),
+        ("POST", ["drafts", "send"]) => ("drafts.send", 100),
         ("POST", ["messages", "batchModify"]) => ("messages.batchModify", 50),
         ("POST", ["messages", _, "modify"]) => ("messages.modify", 5),
         ("POST", ["messages", _, "trash"]) => ("messages.trash", 20),
@@ -469,6 +483,23 @@ pub async fn get_paced(
     let mut request = prepare_get(path, query, token)?;
     request.budget = Some((Arc::clone(budget), lane));
     execute(client()?, request, DEADLINE).await
+}
+
+pub(crate) async fn get_replica(
+    path: &[&str],
+    query: &[(String, String)],
+    token: &str,
+    budget: &Arc<Budget>,
+) -> Result<Value, &'static str> {
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let _slot = SLOTS
+        .acquire()
+        .await
+        .map_err(|_| "gmail_session_invalidated")?;
+    let mut request = prepare_get(path, query, token)?;
+    request.budget = Some((budget.clone(), Lane::Background));
+    request.response_limit = 128 * 1024 * 1024;
+    execute(client()?, request, Duration::from_secs(60)).await
 }
 pub async fn write_paced(
     method: reqwest::Method,
@@ -557,22 +588,23 @@ fn prepare_get(
         operation,
         cost,
         budget: None,
+        response_limit: MAX_RESPONSE,
     })
 }
 
 fn prepare_refresh(id: &str, secret: &str, token: &str) -> Result<Request, &'static str> {
-    for value in [id, secret, token] {
+    for value in [id, token] {
         valid(value)?;
         if value.is_empty() {
             return Err("gmail_invalid_input");
         }
     }
-    let body = format!(
-        "grant_type=refresh_token&client_id={}&client_secret={}&refresh_token={}",
-        encode(id),
-        encode(secret),
-        encode(token)
-    );
+    valid(secret)?;
+    let mut body = format!("grant_type=refresh_token&client_id={}", encode(id));
+    if !secret.is_empty() {
+        body.push_str(&format!("&client_secret={}", encode(secret)));
+    }
+    body.push_str(&format!("&refresh_token={}", encode(token)));
     if body.len() > MAX_INPUT {
         return Err("gmail_invalid_input");
     }
@@ -585,6 +617,7 @@ fn prepare_refresh(id: &str, secret: &str, token: &str) -> Result<Request, &'sta
         operation: "oauth.refresh",
         cost: 0,
         budget: None,
+        response_limit: MAX_RESPONSE,
     })
 }
 

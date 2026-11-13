@@ -6,35 +6,9 @@ import "../../components" as Mail
 import "../.." as Omamail
 import "../../account/Accounts.js" as Accounts
 
-// A mailbox can be named where it is set up: the name goes to the store
-// with the rest of the form, comes back into the field on the next visit,
-// and an empty field is no name.
 Item {
   width: 700
   height: 900
-
-  QtObject {
-    id: fakeAuth
-    property bool loggedIn: false
-    property bool loginBusy: false
-    property bool toolsChecked: true
-    property var missingTools: []
-    property string lastError: ""
-    property var settings: ({ username: "", aliases: [], imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 465 })
-  }
-
-  QtObject {
-    id: fakeService
-    property var auth: fakeAuth
-    property string accountAddress: ""
-    property string accountName: "Work"
-    property string accountSenderName: "Ada Lovelace"
-    property bool backendCanNameSender: false
-    property var saved: null
-    property var signedIn: null
-    function configureCurrentAccount(values) { saved = values }
-    function configureCurrentAccountAndSignIn(values, secret) { signedIn = values }
-  }
 
   QtObject {
     id: gmailAuth
@@ -67,7 +41,6 @@ Item {
     function openProviderWebsite(_id) {}
   }
 
-  // A second Gmail mailbox: the client exists, so its step is folded away.
   Mail.SetupPage {
     id: gmailPage
     width: 600
@@ -90,75 +63,12 @@ Item {
     function hide(_id) {}
   }
 
-  Mail.ImapSetupPage {
-    id: page
-    width: 600
-    service: fakeService
-    textColor: Commons.Color.foreground
-    dimColor: Commons.Color.foreground
-    dangerColor: Commons.Color.accent
-    accentColor: Commons.Color.accent
-    panelFontFamily: "monospace"
-  }
-
-  QtObject {
-    id: outlookService
-    property var auth: null
-    property string accountAddress: "ada@hotmail.com"
-    property string accountSenderName: ""
-    property bool backendCanNameSender: true
-    property var saved: null
-    function configureCurrentAccount(values) { saved = values }
-  }
-
-  Mail.OutlookSetupPage {
-    id: outlookPage
-    width: 600
-    service: outlookService
-    textColor: Color.foreground
-    dimColor: Color.foreground
-    dangerColor: Color.accent
-    accentColor: Color.accent
-    panelFontFamily: "monospace"
-  }
-
   TestCase {
     name: "SetupNameField"
     when: windowShown
 
-    function field(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(page)
-    }
+    function gmailField(name) { return findChild(gmailPage, name) }
 
-    function outlookField(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(outlookPage)
-    }
-
-    function gmailField(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(gmailPage)
-    }
-
-    // Gmail: the field stands above the steps, so a second mailbox — whose
-    // client step is folded away — still gets one; the name goes with a
-    // sign-in as well as with saving the client.
     function test_a_second_gmail_mailbox_can_be_named_and_the_name_goes_with_the_sign_in() {
       compare(gmailPage.configured, true)
       var name = gmailField("account-name-field")
@@ -179,22 +89,18 @@ Item {
       compare(gmailAuth.credentialSaves, 1)
     }
 
-    // A draft mailbox is addressed by its position until it has an id: a
-    // name written to it before the address must not turn the setup page
-    // into the previous mailbox's.
+    // Invariant: a draft has a position before an account ID; naming it must preserve that current draft.
     function test_naming_a_draft_keeps_it_current() {
       var list = Accounts.emptyList()
-      list = Accounts.add(list, { email: "ada@example.com", provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: "ada@example.com", aliases: [], insecure: false }, label: "", signature: "" })
-      list = Accounts.setActive(list, "imap:ada@example.com")
+      list = Accounts.add(list, {email: "ada@example.com", provider: "gmail", label: "", signature: ""})
+      list = Accounts.setActive(list, "ada@example.com")
       realService.activeIndex = -1
       realService.accountList = list
       realService.accountsLoaded = true
       wait(0)
       realService.refreshCurrent()
-      tryCompare(realService, "activeAccountId", "imap:ada@example.com")
-      realService.addAccount("gmail")
+      tryCompare(realService, "activeAccountId", "ada@example.com")
+      realService.addAccount()
       compare(realService.activeIndex, 1, "the draft is the current mailbox, by position")
       var draft = realService.accountAt(1)
       verify(draft !== null)
@@ -206,85 +112,19 @@ Item {
       compare(realService.accountName, "Work", "which is what the field reads back")
     }
 
-    function test_the_name_comes_from_the_store_and_goes_back_with_the_form() {
-      var name = field("account-name-field")
-      verify(name !== null)
-      compare(name.text, "Work", "the name the entry has is what the field shows")
-      field("imap-address-field").text = "ada@icloud.com"
-      name.text = "  Ada at home  "
-      page.save()
-      verify(fakeService.saved !== null)
-      compare(fakeService.saved.label, "Ada at home", "trimmed, with the rest of the form")
-      compare(fakeService.saved.email, "ada@icloud.com")
-      page.signIn()
-      verify(fakeService.signedIn !== null)
-      compare(fakeService.signedIn.label, "Ada at home", "and on the way to a sign-in")
-      name.text = ""
-      page.save()
-      compare(fakeService.saved.label, "", "empty is no name, which puts the address back")
-    }
-
-    // The sender name is asked for beside the mailbox name, and the two stay
-    // apart: one is how Omamail lists the mailbox, the other what recipients
-    // see. A backend too old to write it gets no field and no value, so the
-    // entry keeps whatever it already had.
-    function test_imap_setup_names_the_sender_only_on_a_backend_that_writes_it() {
-      var sender = field("sender-name-field")
-      verify(sender !== null)
-      verify(!sender.visible, "hidden while the backend cannot name the sender")
-      field("imap-address-field").text = "ada@icloud.com"
-      page.save()
-      compare(fakeService.saved.senderName, undefined, "and left out of the form")
-
-      fakeService.backendCanNameSender = true
-      verify(sender.visible)
-      compare(sender.text, "Ada Lovelace", "the name the entry has is what the field shows")
-      verify(sender.placeholderText.indexOf("Your name") === 0)
-      verify(field("account-name-field").placeholderText.indexOf("Mailbox name") === 0)
-      sender.text = "  Ada King  "
-      field("account-name-field").text = "Home"
-      page.save()
-      compare(fakeService.saved.senderName, "Ada King", "trimmed, with the rest of the form")
-      compare(fakeService.saved.label, "Home", "beside the mailbox name, not in place of it")
-      page.signIn()
-      compare(fakeService.signedIn.senderName, "Ada King", "and on the way to a sign-in")
-      fakeService.backendCanNameSender = false
-      page.syncFromStore()
-    }
-
-    function test_outlook_setup_names_the_sender() {
-      var sender = outlookField("sender-name-field")
-      verify(sender !== null)
-      verify(sender.visible)
-      sender.text = "Ada Lovelace"
-      outlookField("outlook-address-field").text = "ada@hotmail.com"
-      outlookField("outlook-client-id-field").text = "00000000-0000-0000-0000-000000000000"
-      outlookPage.save()
-      verify(outlookService.saved !== null)
-      compare(outlookService.saved.provider, "outlook")
-      compare(outlookService.saved.senderName, "Ada Lovelace")
-    }
-
-    // The setup form's value reaches the entry through the same save as the
-    // rest of it, cleaned the way the settings field's is.
-    function test_configuring_an_account_stores_its_sender_name() {
-      var list = Accounts.emptyList()
-      list = Accounts.add(list, { email: "ada@example.com", provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: "ada@example.com", aliases: [], insecure: false }, label: "", signature: "" })
-      list = Accounts.setActive(list, "imap:ada@example.com")
-      realService.activeIndex = -1
-      realService.accountList = list
-      realService.accountsLoaded = true
-      wait(0)
-      realService.refreshCurrent()
-      tryCompare(realService, "activeAccountId", "imap:ada@example.com")
-      realService.configureCurrentAccount({ senderName: "Ada\nLovelace" })
-      compare(String(realService.accountList.accounts[0].senderName || ""), "Ada Lovelace")
-      compare(realService.accountSenderName, "Ada Lovelace", "which is what the field reads back")
-      realService.configureCurrentAccount({ label: "Work" })
-      compare(String(realService.accountList.accounts[0].senderName || ""), "Ada Lovelace",
-        "a save without it keeps the name")
+    function test_gmail_name_can_be_cleared_without_changing_the_account_address() {
+      gmailService.accountName = "Personal"
+      gmailService.accountEmail = "ada@example.com"
+      gmailPage.syncFromStore()
+      var name = gmailField("account-name-field")
+      compare(name.text, "Personal")
+      name.text = "  "
+      gmailService.saved = null
+      gmailPage.saveName()
+      verify(gmailService.saved !== null)
+      compare(gmailService.saved.label, "")
+      compare(gmailService.saved.email, undefined)
+      compare(gmailService.accountEmail, "ada@example.com")
     }
   }
 }

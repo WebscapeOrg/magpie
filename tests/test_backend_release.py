@@ -67,6 +67,172 @@ class ReleaseTests(unittest.TestCase):
         killpg.assert_called_once_with(42, backend_api.signal.SIGKILL)
         self.assertFalse(posix.killed)
 
+    def test_windows_fixture_restores_folders_after_setup_and_test_failures(self):
+        spec = importlib.util.spec_from_file_location('backend_api_folders', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        for fail_at in ('setup', 'test'):
+            current = {'config': 'original-config', 'local': 'original-local'}
+            original = dict(current)
+            def set_path(key, value):
+                if fail_at == 'setup' and key == 'local' and value == 'fixture-local':
+                    raise OSError('synthetic setup failure')
+                current[key] = value
+            with self.assertRaises(OSError):
+                with backend_api.redirected_folders(
+                        [('config', 'fixture-config'), ('local', 'fixture-local')], current.get, set_path):
+                    raise OSError('synthetic test failure')
+            self.assertEqual(current, original, 'no redirected folder may survive a failed fixture')
+
+    def test_windows_fixture_owns_only_new_data_and_preserves_replacements(self):
+        spec = importlib.util.spec_from_file_location('backend_api_owned_data', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        owned = self.root / 'OmamailData'
+        sibling = self.root / 'other-app'
+        sibling.write_bytes(b'preserve')
+        with self.assertRaisesRegex(OSError, 'synthetic failure'):
+            with backend_api.exclusive_fixture_directory(owned):
+                (owned / 'synthetic').write_bytes(b'test')
+                raise OSError('synthetic failure')
+        self.assertFalse(owned.exists())
+        self.assertEqual(sibling.read_bytes(), b'preserve')
+        owned.mkdir()
+        (owned / 'existing').write_bytes(b'untouched')
+        with self.assertRaises(FileExistsError):
+            with backend_api.exclusive_fixture_directory(owned):
+                self.fail('must not enter an existing directory')
+        self.assertEqual((owned / 'existing').read_bytes(), b'untouched')
+        owned.rename(self.root / 'old-data')
+        with self.assertRaisesRegex(RuntimeError, 'replaced fixture'):
+            with backend_api.exclusive_fixture_directory(owned):
+                owned.rename(self.root / 'moved-fixture')
+                owned.mkdir()
+                (owned / 'replacement').write_bytes(b'preserve replacement')
+        self.assertEqual((owned / 'replacement').read_bytes(), b'preserve replacement')
+
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows Known Folders')
+    def test_windows_fixture_resolves_native_app_data_in_child(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_folders', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        get_path, _ = backend_api.windows_known_folders()
+        expected = {
+            'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+            'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+            'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+        }
+        env = {key: value for key, value in os.environ.items()
+               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'QT_QPA_PLATFORM')}
+        env.update(HOME=str(self.root), TMP=str(self.root), TEMP=str(self.root))
+        env.update(backend_api.windows_fixture_environment(expected['config'], expected['local'], get_path))
+        backend_api.verify_windows_fixture_folders(env, expected)
+        altered = backend_api.windows_child_folders({**env, 'USERPROFILE': str(self.root)})
+        print('Synthetic USERPROFILE changes child LocalAppData:',
+              Path(altered['local']) != Path(expected['local']))
+
+    def test_windows_fixture_refuses_child_root_drift_before_use(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_root_guard', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        with mock.patch.object(backend_api, 'windows_child_folders', return_value={'local': '/other'}):
+            with self.assertRaisesRegex(RuntimeError, 'local differs in child'):
+                backend_api.verify_windows_fixture_folders({}, {'local': '/owned'})
+
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows ACLs')
+    def test_windows_fixture_applies_private_acl(self):
+        spec = importlib.util.spec_from_file_location('backend_api_private_acl', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        directory = self.root / 'private [fixture]'
+        directory.mkdir(mode=0o700)
+        child = directory / 'child'
+        child.mkdir(mode=0o700)
+        (child / 'file').write_text('synthetic')
+        backend_api.make_windows_fixture_private([directory])
+        script = r"""
+$ErrorActionPreference = 'Stop'
+$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$results = foreach ($path in $paths) {
+    $acl = if ([System.IO.Directory]::Exists($path)) {
+        [System.IO.Directory]::GetAccessControl($path)
+    } else {
+        [System.IO.File]::GetAccessControl($path)
+    }
+    $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+    [pscustomobject]@{
+        owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        expectedOwner = $owner
+        protected = $acl.AreAccessRulesProtected
+        rules = @($rules | ForEach-Object { [pscustomobject]@{
+            sid = $_.IdentityReference.Value
+            allow = $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
+            fullControl = $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl
+            inherited = $_.IsInherited
+            inheritance = [int]$_.InheritanceFlags
+            propagation = [int]$_.PropagationFlags
+        } })
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
+"""
+        paths = [directory, child, child / 'file']
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                                input=json.dumps([str(path) for path in paths]), text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = json.loads(result.stdout)
+        self.assertEqual(len(records), len(paths))
+        for path, record in zip(paths, records):
+            self.assertEqual(record['owner'], record['expectedOwner'])
+            self.assertTrue(record['protected'])
+            self.assertEqual(record['rules'], [{'sid': record['owner'], 'allow': True,
+                             'fullControl': True, 'inherited': False,
+                             'inheritance': 3 if path.is_dir() else 0, 'propagation': 0}])
+
+    def test_contract_snapshot_detects_writes_outside_temporary_home(self):
+        spec = importlib.util.spec_from_file_location('backend_api_storage_snapshot', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        home = self.root / 'home'
+        home.mkdir()
+        local = self.root / 'local-data'
+        local.mkdir()
+        sentinel = local / 'sentinel'
+        sentinel.write_text('preserve')
+        start = backend_api.HARNESS.index('function storageSnapshot()')
+        end = backend_api.HARNESS.index('(async () =>', start)
+        script = "const fs = require('fs'); const assert = require('assert/strict');\n"
+        script += backend_api.HARNESS[start:end]
+        script += """
+const before = storageSnapshot();
+fs.writeFileSync(process.env.SENTINEL, 'forbidden change outside HOME');
+assert.notDeepEqual(storageSnapshot(), before);
+"""
+        result = subprocess.run(['node', '-e', script], env=dict(os.environ,
+                                HOME=str(home), SENTINEL=str(sentinel),
+                                CONTRACT_STORAGE_ROOTS=json.dumps([str(home), str(local)])),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_windows_fixture_never_redirects_local_app_data(self):
+        spec = importlib.util.spec_from_file_location('backend_api_native_local', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        config_key = '3eb685db-65f9-4cf6-a03a-e3ef65729f3d'
+        downloads_key = '374de290-123f-4565-9164-39c4925e467b'
+        current = {config_key: 'original-config', downloads_key: 'original-downloads'}
+        original = dict(current)
+        def set_path(key, value):
+            self.assertIn(key, original, 'LocalAppData must never be redirected')
+            current[key] = value
+        with backend_api.windows_fixture_folders(self.root, self.root / 'config', current.__getitem__, set_path):
+            self.assertEqual(current[config_key], str(self.root / 'config'))
+            self.assertEqual(current[downloads_key], str(self.root / 'Downloads'))
+        self.assertEqual(current, original)
+
     def test_preparation_allows_old_pin_but_merge_requires_equality(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)
@@ -74,11 +240,11 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'Cargo.lock').write_text('[[package]]\nname = "omamail"\nversion = "0.8.1"\n')
         self.assertNotEqual(self.run_helper('check', '--root', self.root).returncode, 0)
 
-    def test_release_version_includes_plugin_manifest_and_standalone_host(self):
+    def test_backend_version_includes_standalone_host_and_keeps_plugin_independent(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)
         fixtures = {
-            'manifest.json': '{"version":"0.8.1"}',
+            'manifest.json': '{"version":"invalid"}',
             'app/CMakeLists.txt': 'project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n',
         }
         for name, value in fixtures.items():
@@ -89,6 +255,41 @@ class ReleaseTests(unittest.TestCase):
                 result = self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2')
                 self.assertNotEqual(result.returncode, 0)
                 path.write_text(original)
+
+    def test_standalone_manifest_preserves_defaults_without_changing_plugin_metadata(self):
+        self.metadata()
+        plugin = {'id': 'magpie', 'name': 'Magpie', 'version': '1.0.0',
+                  'barWidget': {'defaults': {'maxMessages': 50}}}
+        path = self.root / 'manifest.json'
+        path.write_text(json.dumps(plugin))
+        result = self.run_helper('standalone-manifest', '--root', self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundled = json.loads(result.stdout)
+        self.assertEqual(bundled, dict(plugin, id='omamail', name='Omamail', version='0.8.2'))
+        self.assertEqual(json.loads(path.read_text()), plugin)
+        (self.root / 'app/CMakeLists.txt').write_text('project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n')
+        self.assertNotEqual(self.run_helper('standalone-manifest', '--root', self.root).returncode, 0)
+
+    def test_standalone_manifest_preserves_unicode_through_ascii_pipes(self):
+        self.metadata()
+        plugin = {'id': 'magpie', 'name': 'Magpie', 'version': '1.0.0',
+                  'icon': '🐦', 'description': '日本語 — café'}
+        path = self.root / 'manifest.json'
+        original = json.dumps(plugin, ensure_ascii=False).encode('utf-8')
+        path.write_bytes(original)
+        command = ['python3', str(ROOT / 'scripts/package-backend.py'),
+                   'standalone-manifest', '--root', str(self.root)]
+        env = {**os.environ, 'PYTHONIOENCODING': 'ascii:strict'}
+        result = subprocess.run(command, env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.isascii())
+        expected = dict(plugin, id='omamail', name='Omamail', version='0.8.2')
+        self.assertEqual(json.loads(result.stdout), expected)
+        output = self.root / 'bundled.json'
+        written = subprocess.run(command + ['--output', str(output)], env=env, capture_output=True)
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertEqual(json.loads(output.read_text(encoding='utf-8')), expected)
+        self.assertEqual(path.read_bytes(), original)
 
     def test_release_pr_gate_requires_published_version_before_merge(self):
         # Execute the actual workflow guard: removing or weakening it must let
@@ -130,6 +331,30 @@ class ReleaseTests(unittest.TestCase):
 
     def check_api(self, *args):
         return self.run_helper('check-api', '--root', self.root, *args)
+
+    def test_legacy_published_contract_validation_never_writes_sibling_files(self):
+        contract = self.api_fixture()
+        del contract['releasedApiVersion']
+        del contract['unreleased']
+        self.published.write_text(json.dumps(contract))
+        sibling = self.published.with_name(self.published.name + '.split')
+        protected = self.root / 'protected'
+        protected.write_text('keep this data')
+        sibling.symlink_to(protected)
+        result = self.check_api('--published', self.published)
+        self.assertEqual(protected.read_text(), 'keep this data')
+        self.assertTrue(sibling.is_symlink())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_legacy_published_contract_rejects_duplicate_fields(self):
+        contract = self.api_fixture()
+        del contract['releasedApiVersion']
+        del contract['unreleased']
+        raw = json.dumps(contract).replace('"apiVersion": 1', '"apiVersion": 2, "apiVersion": 1')
+        self.published.write_text(raw)
+        result = self.check_api('--published', self.published)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('duplicate API contract field', result.stderr)
 
     def test_internal_rust_versions_and_source_can_reuse_pin_and_api(self):
         self.api_fixture()
@@ -246,6 +471,68 @@ class ReleaseTests(unittest.TestCase):
         result = self.check_api('--published', self.published)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def deletion_fixture(self):
+        contract = self.api_fixture()
+        contract['methods'].append('obsolete.send')
+        contract['contractCases'].append({
+            'name': 'obsolete send', 'method': 'obsolete.send', 'params': {},
+            'errorCode': -32602})
+        self.published.write_text(json.dumps(contract))
+        snapshot = {key: contract[key] for key in ('apiVersion', 'protocolVersion', 'methods', 'contractCases')}
+        return dict(contract, apiVersion=2, methods=['system.info'],
+                    contractCases=[contract['contractCases'][0]], releasedContract=snapshot)
+
+    def test_released_snapshot_preserves_deleted_methods_and_cases(self):
+        contract = self.deletion_fixture()
+        self.api.write_text(json.dumps(contract))
+        for mode in ('--published', '--baseline'):
+            result = self.check_api(mode, self.published)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        contract['releasedContract']['contractCases'][1]['errorCode'] = -32000
+        self.api.write_text(json.dumps(contract))
+        for mode in ('--published', '--baseline'):
+            self.assertNotEqual(self.check_api(mode, self.published).returncode, 0,
+                                'a snapshot cannot silently rewrite published behavior')
+
+    def test_released_snapshot_requires_an_exact_valid_historical_view(self):
+        original = self.deletion_fixture()
+        for mutation in ('wrong-revision', 'wrong-protocol', 'nested-snapshot', 'unknown-field',
+                         'duplicate-method', 'missing-method', 'missing-cases', 'folded'):
+            with self.subTest(mutation=mutation):
+                contract = json.loads(json.dumps(original))
+                snapshot = contract['releasedContract']
+                if mutation == 'wrong-revision': snapshot['apiVersion'] = 2
+                if mutation == 'wrong-protocol': snapshot['protocolVersion'] = 2
+                if mutation == 'nested-snapshot': snapshot['releasedContract'] = {}
+                if mutation == 'unknown-field': snapshot['unexpected'] = True
+                if mutation == 'duplicate-method': snapshot['methods'].append('system.info')
+                if mutation == 'missing-method': snapshot['methods'] = ['system.info']
+                if mutation == 'missing-cases': snapshot['contractCases'] = []
+                if mutation == 'folded': contract['releasedApiVersion'] = 2
+                self.api.write_text(json.dumps(contract))
+                self.assertNotEqual(self.check_api().returncode, 0)
+
+    def test_snapshot_requires_new_and_changed_cases_to_be_unreleased(self):
+        contract = self.deletion_fixture()
+        contract['contractCases'] = [{
+            'name': 'handshake', 'method': 'system.info', 'params': {},
+            'types': {'version': 'string'}}]
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+        contract['unreleased']['cases'] = ['handshake']
+        self.api.write_text(json.dumps(contract))
+        result = self.check_api('--published', self.published)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        contract['methods'].append('message.new')
+        (self.root / 'src/backend/methods.rs').write_text(
+            'pub const ALL: &[&str] = &["system.info", "message.new"];')
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+        contract['unreleased']['methods'] = ['message.new']
+        self.api.write_text(json.dumps(contract))
+        result = self.check_api('--published', self.published)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_api_revisions_and_pin_require_canonical_values(self):
         contract = self.api_fixture()
         for value in (True, 0, -1, '1', 1.5, 2147483648):
@@ -319,6 +606,22 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(self.provenance_matches())
         (self.root / 'ui/data.txt').write_text('embedded')
         config.unlink()
+        self.assertFalse(self.provenance_matches())
+
+    def test_embedded_unicode_notice_is_a_fingerprinted_build_input(self):
+        self.source_fixture()
+        cli = self.root / 'src/cli'
+        cli.mkdir()
+        (cli / 'mod.rs').write_text('const NOTICE: &str = include_str!("../../data/unicode/LICENSE.txt");')
+        notice = self.root / 'data/unicode/LICENSE.txt'
+        notice.parent.mkdir(parents=True)
+        notice.write_text('Synthetic original notice')
+        result = self.run_helper('provenance', '--root', self.root, '--output', self.build_manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads(self.build_manifest.read_text())
+        self.assertIn('data/unicode/LICENSE.txt', manifest['sourceFiles'])
+        self.assertTrue(self.provenance_matches())
+        notice.write_text('Synthetic changed notice')
         self.assertFalse(self.provenance_matches())
 
     def test_uninventoried_cargo_inputs_fail_closed(self):
@@ -552,6 +855,9 @@ class ReleaseTests(unittest.TestCase):
                     'methods': ['system.info', 'message.new'],
                     'contractCases': [{'name': 'handshake', 'method': 'system.info', 'params': {}, 'types': {'name': 'string'}}],
                     'unreleased': {'methods': ['message.new'], 'cases': []}}
+        contract['releasedContract'] = {
+            'apiVersion': 1, 'protocolVersion': 1, 'methods': ['system.info', 'obsolete.send'],
+            'contractCases': contract['contractCases']}
         (self.root / 'backend-api.json').write_text(json.dumps(contract, indent=2) + '\n')
         git('checkout', '-b', 'release/0.8.2')
         git('add', '.')
@@ -573,12 +879,36 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(folded['releasedApiVersion'], 2)
         self.assertEqual(folded['unreleased'], {'methods': [], 'cases': []})
         self.assertEqual(folded['methods'], contract['methods'])
+        self.assertNotIn('releasedContract', folded)
         # Restore the old checkout without touching the remote's newer revision.
         git('checkout', '--detach', prepared)
         result = self.run_helper('pin', '--root', self.root, '--branch', 'release/0.8.2', '--expected', prepared)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
         self.assertEqual(git('rev-parse', 'HEAD'), prepared)
+
+    def test_invalid_contract_cannot_change_pin_or_reach_git_mutations(self):
+        self.metadata()
+        (self.root / 'backend-api.json').write_text('{}')
+        spec = importlib.util.spec_from_file_location('release_pin_contract', ROOT / 'scripts/package-backend.py')
+        packaging = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packaging)
+        revision = 'a' * 40
+        commands = []
+
+        def git(command, **options):
+            args = command[3:]
+            commands.append(args)
+            output = revision if args == ['rev-parse', 'HEAD'] else (
+                revision + '\trefs/heads/release/0.8.2' if args[0] == 'ls-remote' else '')
+            return subprocess.CompletedProcess(command, 0, stdout=output)
+
+        with mock.patch.object(packaging.subprocess, 'run', side_effect=git):
+            with self.assertRaises(ValueError):
+                packaging.pin(self.root, 'release/0.8.2', revision)
+        self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
+        self.assertEqual((self.root / 'backend-api.json').read_text(), '{}')
+        self.assertTrue(all(args[0] in ('check-ref-format', 'rev-parse', 'ls-remote', 'diff') for args in commands))
 
 
 if __name__ == '__main__':

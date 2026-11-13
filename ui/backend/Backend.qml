@@ -10,13 +10,13 @@ Item {
   required property string executable
   required property string expectedVersion
   property int expectedApiVersion: 0
-  // The step the checkout is ahead of the pin by, if any: `needsUpdate` says
-  // the connected binary lacks it, and a call to one of its methods is
-  // refused here rather than sent to a binary that never heard of it.
+  // Invariant: Unsupported unreleased methods fail locally before the pinned backend can interpret them.
   property int latestApiVersion: 0
   property var unreleasedMethods: []
-  readonly property int apiVersion: Compatibility.connectedApiVersion(protocolInfo)
-  readonly property bool needsUpdate: ready && Compatibility.needsUpdate(protocolInfo, latestApiVersion)
+  property string expectedContractHash: ""
+  readonly property int apiVersion: Compatibility.usableApiVersion(protocolInfo,
+    expectedApiVersion, latestApiVersion, expectedContractHash)
+  readonly property bool needsUpdate: ready && apiVersion < latestApiVersion
   property bool launchEnabled: true
   onLaunchEnabledChanged: Qt.callLater(reconcileProcess)
   onExecutableChanged: Qt.callLater(reconcileProcess)
@@ -27,6 +27,7 @@ Item {
       child.running = false
     } else if (!child.running && !stopping) {
       failure = ""
+      processStarted = false
       child.running = true
     }
   }
@@ -49,35 +50,54 @@ Item {
   property var shutdownCallbacks: []
   property var shutdownError: null
   property var shutdownFailure: null
+  property bool processExitConfirmed: true
+  property bool restarting: false
+  property var restartCallback: null
+  property string restartExecutable: ""
+  property int restartSequence: 0
+  readonly property string incompatibleFailure: "Incompatible backend"
+  property bool processStarted: false
+  property int reconnectAttempts: 0
+  // True for the first seconds after the engine went away, so a routine restart raises no alarm.
+  readonly property bool reconnecting: reconnectGrace.running
+  readonly property int reconnectDelayMs: Math.min(30000, 1000 * Math.pow(2, reconnectAttempts))
 
   signal shutdownComplete(var error)
   signal notification(string method, var params)
   signal requestFailed(string method, var error)
 
   function parseMessage(raw, callback) {
-    return Upload.parse(raw, function(method, params, done) {
-      return root.call(method, params, done)
+    return Upload.parse(raw, function(method, parameters, done) {
+      return root.call(method, parameters, done)
     }, function() { return root.ready }, callback, uploadQueue)
   }
 
   function putBodyCache(accountId, id, body, callback) {
-    return Upload.putBody(accountId, id, body, function(method, params, done) {
-      return root.call(method, params, done)
+    return Upload.putBody(accountId, id, body, function(method, parameters, done) {
+      return root.call(method, parameters, done)
     }, function() { return root.ready }, callback, uploadQueue)
   }
 
-  function call(method, params, callback) {
-    // Keep each physical frame small even for Unicode-heavy MIME/JSON data.
-    if (JSON.stringify(params).length > 200000) {
-      return Upload.request(method, params, function(nextMethod, nextParams, done) {
+  function call(method, parameters, callback) {
+    if (operationRefusal(method, parameters) !== null)
+      return request(method, parameters, callback, false)
+    // Invariant: Physical frames remain bounded even when Unicode makes serialized MIME expand.
+    if (JSON.stringify(parameters).length > 200000) {
+      return Upload.request(method, parameters, function(nextMethod, nextParams, done) {
         return root.request(nextMethod, nextParams, done, false)
       }, function() { return root.ready }, callback, uploadQueue)
     }
-    return request(method, params, callback, false)
+    return request(method, parameters, callback, false)
   }
 
-  function request(method, params, callback, internal) {
-    var operation = method === "request.upload" && params ? params.method : method
+  function operationRefusal(method, parameters) {
+    var operation = method === "request.upload" && parameters ? parameters.method : method
+    return Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
+      || Compatibility.methodRefusal(protocolInfo, operation)
+  }
+
+  function request(method, parameters, callback, internal) {
+    var operation = method === "request.upload" && parameters ? parameters.method : method
     var done = function(result, error) {
       if (error) root.requestFailed(operation, error)
       if (typeof callback === "function") callback(result, error)
@@ -88,15 +108,14 @@ Item {
       done(null, { code: -32010, message: message })
       return
     }
-    var refusal = Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
+    var refusal = operationRefusal(method, parameters)
     if (refusal !== null) {
       done(null, refusal)
       return
     }
     var id = "qml-" + (++sequence)
-    // Snapshot the payload now, just as an immediately written request did.
-    // The caller may reuse or mutate its model while this frame is waiting.
-    var entry = { id: id, frame: Wire.request(id, method, params),
+    // Invariant: Capture request parameters before queueing; callers may mutate their model while the request waits.
+    var entry = { id: id, frame: Wire.request(id, method, parameters),
       callback: done, operation: operation, cancelled: false }
     queued.push(entry)
     drainRequests()
@@ -113,9 +132,7 @@ Item {
     return handle
   }
 
-  // Only sent frames occupy a slot or start their request deadline. New work
-  // joins the tail even from a response callback, so a busy account cannot
-  // repeatedly jump ahead of the other accounts already waiting.
+  // Invariant: Only dispatched frames consume slots or deadlines; callback-submitted work joins the FIFO tail.
   function drainRequests() {
     if (draining || !connected) return
     draining = true
@@ -124,12 +141,7 @@ Item {
         var entry = queued.shift()
         var next = Object.assign({}, pending)
         var timeout = entry.operation === "agent.context" || entry.operation === "inbox.avatar" || entry.operation === "inbox.snooze" || entry.operation === "inbox.tick" || entry.operation === "inbox.wake" ? 65000 : 30000
-        // An IMAP frame is a whole conversation — connect, login, SELECT, then
-        // one command per 4 096-UID window — on a server that charges about
-        // half a second per command, so it outlives the backend's own call
-        // budget (CALL_BUDGET in src/providers/imap/mod.rs) instead of killing
-        // the process while the server is still answering.
-        if (entry.operation.indexOf("imap.") === 0) timeout = 180000
+        if (entry.operation === "inbox.interview") timeout = 195000
         entry.deadline = Date.now() + timeout
         next[entry.id] = entry
         pending = next
@@ -139,7 +151,101 @@ Item {
     } finally { draining = false }
   }
 
-  function shutdown(callback) {
+  function restart(callback) {
+    if (restarting) {
+      if (typeof callback === "function")
+        callback({ code: -32010, message: "Backend restart is already in progress" })
+      return
+    }
+    if (!launchEnabled || executable === "" || (shutdownStarted && !shutdownFinished)) {
+      if (typeof callback === "function")
+        callback({ code: -32010, message: "Backend cannot restart yet" })
+      return
+    }
+    cancelReconnect()
+    restarting = true
+    var sequence = ++restartSequence
+    restartCallback = callback
+    restartExecutable = executable
+    if (shutdownFinished) {
+      startAfterShutdown()
+      return
+    }
+    shutdown(function(error) {
+      if (!root.restarting) return
+      if (error) root.finishRestart(error)
+      else Qt.callLater(function() {
+        if (root.restartSequence === sequence) root.startAfterShutdown()
+      })
+    }, true)
+  }
+
+  // Invariant: the engine can restart under a running window, for an update or after a crash, and
+  // its pipe then closes; only a new serve reattaches. Requests in flight fail and are never replayed.
+  function scheduleReconnect() {
+    reconnectStable.stop()
+    if (!reconnectAllowed()) {
+      reconnectGrace.stop()
+      return
+    }
+    if (reconnectAttempts === 0 && !reconnectDelay.running) {
+      console.warn("Mail backend stopped; reconnecting")
+      reconnectGrace.restart()
+    }
+    reconnectDelay.restart()
+  }
+
+  function reconnectAllowed() {
+    return !stopping && launchEnabled && executable !== "" && failure !== incompatibleFailure
+  }
+
+  function cancelReconnect() {
+    reconnectDelay.stop()
+    reconnectGrace.stop()
+    reconnectStable.stop()
+  }
+
+  function launchEnded() {
+    if (!reconnectAllowed()) return
+    processExitConfirmed = true
+    scheduleReconnect()
+  }
+
+  function startAfterShutdown() {
+    if (!restarting) return
+    if (!shutdownFinished || !processExitConfirmed || child.running) {
+      finishRestart({ code: -32010, message: "Backend stop was not confirmed" })
+      return
+    }
+    if (!launchEnabled || executable === "" || executable !== restartExecutable) {
+      finishRestart({ code: -32010, message: "Backend changed during restart" })
+      return
+    }
+    shutdownStarted = false
+    shutdownFinished = false
+    shutdownError = null
+    shutdownFailure = null
+    quitRequested = false
+    failure = ""
+    processStarted = false
+    restartDeadline.restart()
+    child.running = true
+  }
+
+  function finishRestart(error) {
+    if (!restarting) return
+    restartDeadline.stop()
+    var callback = restartCallback
+    restartCallback = null
+    restartExecutable = ""
+    restarting = false
+    if (typeof callback === "function") callback(error || null)
+  }
+
+  function shutdown(callback, forRestart) {
+    cancelReconnect()
+    if (restarting && !forRestart)
+      finishRestart({ code: -32010, message: "Backend restart was cancelled" })
     if (typeof callback === "function") {
       if (shutdownFinished) {
         callback(shutdownError)
@@ -154,9 +260,8 @@ Item {
     shutdownDeadline.restart()
     uploadQueue.fail({ code: -32010, message: "Backend is shutting down" })
     if (!connected) {
-      // A configured process may be between construction and onStarted. Let
-      // that signal enter the internal quit path; the deadline still bounds it.
-      if (child.running) return
+      // Invariant: A process starting during shutdown must still enter the bounded quit path.
+      if (child.running || !processExitConfirmed) return
       finishShutdown(null)
       return
     }
@@ -166,9 +271,7 @@ Item {
   function maybeRequestQuit() {
     var count = Object.keys(pending).length + queued.length
     if (!Compatibility.shouldRequestQuit(stopping, count, quitRequested)) return
-    // A failure may have disconnected the process while the response callback
-    // was running. onExited (or the confirmation deadline) owns that result;
-    // this drain tail must never turn it into a clean shutdown.
+    // Invariant: A disconnect during a response callback cannot be reclassified as a clean shutdown by the drain tail.
     if (!connected) return
     quitRequested = true
     request("system.quit", {}, function(result, error) {
@@ -189,7 +292,7 @@ Item {
     responseTransfer = null
     var callbacks = shutdownCallbacks
     shutdownCallbacks = []
-    for (var i = 0; i < callbacks.length; i++) callbacks[i](shutdownError)
+    for (var callbackIndex = 0; callbackIndex < callbacks.length; callbackIndex++) callbacks[callbackIndex](shutdownError)
     shutdownComplete(shutdownError)
   }
 
@@ -201,6 +304,8 @@ Item {
     }
     failPending(message)
     child.running = false
+    if (!shutdownStarted)
+      finishRestart({ code: -32010, message: message })
   }
 
   function failPending(message) {
@@ -216,12 +321,11 @@ Item {
     uploadQueue.fail(error)
     for (var id in previous)
       failEntry(previous[id], error)
-    for (var i = 0; i < waiting.length; i++)
-      failEntry(waiting[i], error)
+    for (var requestIndex = 0; requestIndex < waiting.length; requestIndex++)
+      failEntry(waiting[requestIndex], error)
   }
 
-  // A receiver may have disappeared while its request was waiting. One
-  // callback must not strand the remaining queue or interrupt process stop.
+  // Invariant: A failed or destroyed receiver cannot strand the remaining callbacks or prevent process shutdown.
   function failEntry(entry, error) {
     if (entry.cancelled) return
     try { entry.callback(null, error) }
@@ -276,6 +380,41 @@ Item {
   }
 
   Timer {
+    id: reconnectDelay
+    objectName: "backend-reconnect-delay"
+    interval: root.reconnectDelayMs
+    repeat: false
+    onTriggered: {
+      root.reconnectAttempts++
+      if (root.reconnectAllowed()) root.reconcileProcess()
+    }
+  }
+
+  Timer {
+    id: reconnectGrace
+    objectName: "backend-reconnect-grace"
+    interval: 15000
+    repeat: false
+  }
+
+  // Invariant: only a connection that lasts ends the back-off, so an engine that dies straight
+  // after its handshake cannot be relaunched once a second for ever.
+  Timer {
+    id: reconnectStable
+    objectName: "backend-reconnect-stable"
+    interval: 30000
+    repeat: false
+    onTriggered: root.reconnectAttempts = 0
+  }
+
+  Timer {
+    id: restartDeadline
+    interval: 10000
+    repeat: false
+    onTriggered: root.stopForFailure("Backend restart timed out")
+  }
+
+  Timer {
     id: shutdownDeadline
     interval: 5000
     repeat: false
@@ -298,7 +437,15 @@ Item {
     running: root.launchEnabled && root.executable !== ""
     stdinEnabled: true
     stdout: SplitParser { onRead: data => root.receive(data) }
+    onRunningChanged: {
+      // Invariant: a start that fails reports no running change of its own; processStarted is
+      // cleared by whoever asks for the launch, so the failed start still counts as an ending.
+      if (running) root.processExitConfirmed = false
+      else if (!root.processStarted) root.launchEnded()
+    }
     onStarted: {
+      root.processStarted = true
+      root.processExitConfirmed = false
       if (!root.launchEnabled) {
         root.stopForFailure("Backend unavailable")
         return
@@ -310,12 +457,20 @@ Item {
       }
       root.failure = ""
       root.request("system.info", {}, function(info, error) {
-        if (error || !Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
-          root.stopForFailure("Incompatible backend")
-        else root.protocolInfo = info
+        if (error)
+          root.stopForFailure(root.failure || "Backend handshake failed")
+        else if (!Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
+          root.stopForFailure(root.incompatibleFailure)
+        else {
+          root.protocolInfo = info
+          reconnectGrace.stop()
+          reconnectStable.restart()
+          root.finishRestart(null)
+        }
       }, true)
     }
     onExited: function(exitCode) {
+      root.processExitConfirmed = true
       var clean = Compatibility.isCleanShutdown(
         root.stopping, root.quitRequested, Object.keys(root.pending).length + root.queued.length,
         root.shutdownFailure !== null, exitCode)
@@ -332,6 +487,8 @@ Item {
       if (root.stopping)
         root.finishShutdown(root.shutdownFailure
           || { code: -32010, message: message })
+      else root.finishRestart({ code: -32010, message: message })
+      root.scheduleReconnect()
     }
   }
 }

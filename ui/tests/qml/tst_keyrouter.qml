@@ -3,11 +3,8 @@ import QtQuick.Window 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtTest 1.3
 import "../../components" as Omamail
+import "../../controls" as Widgets
 
-// The keyboard belongs to the application, and the context says what a key
-// means where. Two things are exercised: that a key is live only in the
-// contexts its row names, and that changing context takes the keyboard with it
-// — the part that, kept separate, let a dismissed field eat every key.
 Item {
   id: host
   width: 300; height: 200
@@ -28,8 +25,12 @@ Item {
 
   readonly property Item focusItem: host.Window.activeFocusItem
 
-  // Stands in for the window's focus scope: a home for the keyboard, and a
-  // field that is only on screen while its context is.
+  Omamail.IconButton { id: iconButton; tooltipText: "Test action" }
+  Omamail.IconTextButton { id: iconTextButton; text: "Test action" }
+  Widgets.Button { id: textButton; text: "Test action"; focusable: true }
+  Widgets.PanelActionButton { id: panelButton; tooltipText: "Test action"; focusable: true }
+  SignalSpy { id: buttonClicks; signalName: "clicked" }
+
   FocusScope {
     id: scope
     anchors.fill: parent
@@ -68,6 +69,42 @@ Item {
     function test_a_bare_letter_fires_in_its_context() {
       keyClick(Qt.Key_E)
       compare(host.lastId, "archive")
+    }
+
+    function test_focused_buttons_activate_before_mailbox_shortcuts_data() {
+      return [{tag: "icon", button: iconButton}, {tag: "text", button: textButton},
+              {tag: "panel", button: panelButton}, {tag: "icon-text", button: iconTextButton}]
+    }
+
+    function test_focused_buttons_activate_before_mailbox_shortcuts(data) {
+      var button = data.button
+      buttonClicks.target = button
+      buttonClicks.clear()
+      button.forceActiveFocus()
+      verify(button.activeFocus)
+      compare(button.Accessible.role, Accessible.Button)
+      compare(button.Accessible.name, "Test action")
+      keyClick(Qt.Key_Return)
+      keyClick(Qt.Key_Enter, Qt.KeypadModifier)
+      keyClick(Qt.Key_Space)
+      compare(buttonClicks.count, 3)
+      compare(host.lastId, "", "activation must not open or select a mailbox row")
+      keyClick(Qt.Key_Comma, Qt.ControlModifier)
+      compare(host.lastId, "settings", "modified application shortcuts remain available")
+      compare(buttonClicks.count, 3)
+      host.lastId = ""
+      keyClick(Qt.Key_Escape)
+      compare(host.lastId, "back", "Escape still follows normal navigation")
+      compare(buttonClicks.count, 3)
+      button.Accessible.pressAction()
+      compare(buttonClicks.count, 4)
+      try {
+        button.enabled = false
+        button.Accessible.pressAction()
+        compare(buttonClicks.count, 4, "disabled controls refuse accessible press actions")
+      } finally {
+        button.enabled = true
+      }
     }
 
     function test_space_toggles_selection_in_the_list() {
@@ -144,12 +181,12 @@ Item {
 
     function test_escape_is_the_way_out_of_every_context() {
       var contexts = ["list", "reader", "search", "compose", "page", "calendar"]
-      for (var i = 0; i < contexts.length; i++) {
-        host.context = contexts[i]
+      for (var index = 0; index < contexts.length; index++) {
+        host.context = contexts[index]
         host.lastId = ""
         wait(20)
         keyClick(Qt.Key_Escape)
-        compare(host.lastId, "back", "Escape must leave " + contexts[i])
+        compare(host.lastId, "back", "Escape must leave " + contexts[index])
       }
     }
 
@@ -167,9 +204,7 @@ Item {
       compare(host.lastId, "help")
     }
 
-    // A sheet taller than the window is the reason: behind it, moving moves
-    // the sheet. App.qml is what sends it there; the router only has to keep
-    // the keys alive.
+    // Invariant: overlay movement must remain routable so App can scroll a sheet taller than the window.
     function test_moving_survives_an_overlay_so_it_can_walk_one() {
       host.overlay = true
       wait(20)
@@ -177,8 +212,6 @@ Item {
       compare(host.lastId, "cursorDown")
     }
 
-    // Explicit open remains available from the reader, alongside immediate
-    // opening when the mailbox cursor moves.
     function test_open_works_from_the_reader_too() {
       host.context = "reader"
       wait(20)
@@ -189,9 +222,6 @@ Item {
       compare(host.lastId, "open")
     }
 
-    // Answering works from the list as well as the reader: the row's own menu
-    // has always offered it, and the keyboard was able to do less than a
-    // right-click. What is opened first is App.qml's job.
     function test_answering_works_from_the_list_and_the_reader() {
       keyClick(Qt.Key_R)
       compare(host.lastId, "reply", "from the list")
@@ -202,10 +232,7 @@ Item {
       compare(host.lastId, "reply", "and from the reader")
     }
 
-    // Zoom is not: there is no message body to size until one is open.
-    // A row of nine keys, told apart by which one fired. No chord: Qt puts a
-    // 400ms deadline on an unfinished sequence, which is what the mailboxes
-    // used to be reached through and why half the presses did nothing.
+    // Invariant: direct Ctrl+digit bindings avoid the platform deadline on unfinished key sequences.
     function test_a_digit_names_the_mailbox_it_opens() {
       keyClick(Qt.Key_3, Qt.ControlModifier)
       compare(host.lastId, "goMailbox")
@@ -240,27 +267,24 @@ Item {
     function test_mail_and_calendar_have_mnemonic_shortcuts() {
       keyClick(Qt.Key_C, Qt.ControlModifier | Qt.ShiftModifier)
       compare(host.lastId, "calendarView")
-      host.context = "calendar"
+      host.context = "list"
       host.lastId = ""
       wait(20)
       keyClick(Qt.Key_M, Qt.ControlModifier | Qt.ShiftModifier)
       compare(host.lastId, "mailView")
     }
 
-    // Bare `w` is week view. The platform close chord is Ctrl+W / Cmd+W, and
-    // the two must not share a Shortcut: an ambiguous match swallows Close.
+    // Invariant: a matching week-view shortcut would make the platform Close chord ambiguous and swallow it.
     function test_calendar_week_is_not_the_close_chord() {
-      host.context = "calendar"
+      host.context = "list"
       wait(20)
       keyClick(Qt.Key_W)
-      compare(host.lastId, "calendarWeek")
+      compare(host.lastId, "")
       host.lastId = ""
       keyClick(Qt.Key_W, Qt.ControlModifier)
       compare(host.lastId, "", "Ctrl/Cmd+W is Close, not week view")
     }
 
-    // One press, not a chord: it opens a list the keyboard then walks, so
-    // getting to it should not itself be a sequence.
     function test_the_switcher_opens_on_one_press() {
       keyClick(Qt.Key_A, Qt.AltModifier)
       compare(host.lastId, "switchAccount")
@@ -288,11 +312,7 @@ Item {
       compare(host.lastId, "zoomReset")
     }
 
-    // The mechanism, not a key: leaving a text-entry context has to take the
-    // keyboard with it. Handing it back to the focus scope does not — that
-    // re-elects the scope's current focus item, which is the field being left,
-    // so the dismissed field kept swallowing j and k for the rest of the
-    // session. It has to land on a plain Item.
+    // Invariant: restoring a FocusScope reselects its departed field; park focus on a plain Item.
     function test_leaving_a_draft_takes_the_keyboard_with_it() {
       host.context = "compose"
       compose.opened = true

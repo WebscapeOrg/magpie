@@ -1,16 +1,11 @@
 import QtQuick 2.15
+import QtQuick.Window
 import QtTest 1.3
 import "../../components" as Omamail
 
-// The mailbox list, and the row above it that stands for all of them.
-//
-// Two things here are worth a test rather than a reading. The combined row
-// shifts every account down by one, so the index this component reports and
-// the index it is given are no longer the same number — which is the kind of
-// arithmetic that looks right and is off by one. And the popup answers keys
-// itself, against the rule the rest of the window follows, so a `KeyRouter`
-// binding put here later would look live and never run.
+// Invariant: the combined row shifts account indexes; the popup consumes keys before KeyRouter.
 Item {
+  id: host
   width: 600
   height: 400
 
@@ -57,16 +52,15 @@ Item {
     name: "AccountSwitcher"
     when: windowShown
 
-    // The rows live inside the popup's content, which is built only once the
-    // menu has been opened.
+    // Invariant: popup content exists only after opening the menu.
     function accountRows(item) {
       var found = []
       var node = item === undefined ? switcher.menuRows : item
       if (!node) return found
       if (node.objectName === "account-row") found.push(node)
       var children = node.children || []
-      for (var i = 0; i < children.length; i++)
-        found = found.concat(accountRows(children[i]))
+      for (var childIndex = 0; childIndex < children.length; childIndex++)
+        found = found.concat(accountRows(children[childIndex]))
       return found
     }
 
@@ -81,8 +75,6 @@ Item {
     function cleanup() {
       switcher.close()
     }
-
-    // ------------------------------------------------------- the row model
 
     function test_the_combined_row_is_offered_only_when_there_is_more_than_one() {
       compare(switcher.unifiedOffered, true)
@@ -100,12 +92,8 @@ Item {
       compare(switcher.rowCount, 0)
     }
 
-    // ----------------------------------------------------------- the cursor
-
     function test_the_cursor_walks_the_combined_row_with_the_rest() {
       switcher.openCentered()
-      // Opening rests on the mailbox already in use, which is the first
-      // account — one row below the combined one.
       compare(switcher.cursorIndex, 1)
 
       switcher.moveCursor(-1)
@@ -132,10 +120,6 @@ Item {
       compare(switcher.cursorIndex, 0, "one row wraps onto itself")
     }
 
-    // ------------------------------------------------------- what is chosen
-
-    // The arithmetic worth testing: the row the keyboard is on is not the
-    // account index this reports.
     function test_choosing_a_mailbox_reports_its_own_index_not_its_row() {
       switcher.openCentered()
       switcher.cursorIndex = 1
@@ -162,7 +146,6 @@ Item {
       compare(unifiedSpy.count, 1)
     }
 
-    // Without the row there is no shift, and row 0 is account 0 again.
     function test_with_one_mailbox_row_zero_is_account_zero() {
       switcher.accounts = oneMailbox
       switcher.openCentered()
@@ -182,11 +165,7 @@ Item {
       compare(unifiedSpy.count, 0)
     }
 
-    // -------------------------------------------------------- what is in use
-
-    // The combined view leaves an account active underneath, because compose
-    // still needs an address to send from. Drawing both as in use said the
-    // window was in two places at once.
+    // Invariant: unified viewing leaves a sending account active underneath; only the combined row is in use.
     function test_only_one_row_is_drawn_as_the_one_in_use() {
       switcher.openCentered()
       var rows = accountRows()
@@ -201,11 +180,6 @@ Item {
       compare(rows[2].inUse, false)
     }
 
-    // ------------------------------------------------------------- the keys
-
-    // The popup takes every key before the window's shortcut map sees it, so
-    // these handlers are the ones that run. This is the half of that the
-    // component's own comment promises is tested.
     function test_the_open_menu_answers_its_own_keys() {
       switcher.openCentered()
       compare(switcher.opened, true)
@@ -225,10 +199,7 @@ Item {
       compare(switcher.opened, false, "and closes the menu")
     }
 
-    // A digit is a letter here: no row carries a number, and a mailbox may
-    // well be named with one. Blank is nothing typed, and typing it all
-    // away rests the cursor on the mailbox in use rather than on the
-    // combined row.
+    // Invariant: digits remain searchable mailbox text because these rows have no numeric shortcuts.
     function test_digits_and_blanks_are_typing() {
       switcher.openCentered()
       compare(switcher.cursorIndex, 1, "the mailbox in use")
@@ -248,9 +219,36 @@ Item {
       compare(chosenSpy.signalArguments[0][0], 0)
     }
 
-    // Letters narrow the rows to the mailboxes they name — by the name they
-    // were given or their address — and Enter opens the match by its place
-    // in the full list. The combined row stands aside while anything is typed.
+    function test_many_mailboxes_keep_the_cursor_and_management_actions_in_view() {
+      var mailboxes = []
+      for (var mailboxIndex = 0; mailboxIndex < 20; mailboxIndex++)
+        mailboxes.push({ id: String(mailboxIndex), email: "mailbox-" + mailboxIndex + "@example.test",
+          active: mailboxIndex === 19, signedIn: true })
+      switcher.accounts = mailboxes
+      switcher.openCentered()
+      tryCompare(switcher, "opened", true)
+      wait(20)
+      var rows = accountRows()
+      compare(rows.length, 20)
+      var lastRow = rows[19]
+      var lastPosition = lastRow.mapToItem(host, 0, 0)
+      verify(lastPosition.y >= 0, "active account is above the window")
+      verify(lastPosition.y + lastRow.height <= host.height, "active account is below the window")
+      keyClick(Qt.Key_Down)
+      compare(switcher.cursorIndex, 0)
+      keyClick(Qt.Key_Down)
+      compare(switcher.cursorIndex, 1)
+      var firstPosition = rows[0].mapToItem(host, 0, 0)
+      verify(firstPosition.y >= 0 && firstPosition.y + rows[0].height <= host.height,
+        "wrapped keyboard cursor is outside the window")
+      keyClick(Qt.Key_Tab)
+      var focused = host.Window.window.activeFocusItem
+      compare(focused.text, "Add a mailbox...")
+      var actionPosition = focused.mapToItem(host, 0, 0)
+      verify(actionPosition.y >= 0 && actionPosition.y + focused.height <= host.height,
+        "focused management action is outside the window")
+    }
+
     function test_typing_finds_a_mailbox_by_name_or_address() {
       switcher.openCentered()
       compare(switcher.rowCount, 4)

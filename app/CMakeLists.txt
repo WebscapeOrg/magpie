@@ -10,12 +10,38 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(backend_contract_path "${CMAKE_CURRENT_SOURCE_DIR}/../backend-api.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${backend_contract_path}")
+file(READ "${backend_contract_path}" backend_contract)
+file(SHA256 "${backend_contract_path}" OMAMAIL_BACKEND_CONTRACT_HASH)
+string(JSON OMAMAIL_BACKEND_API_VERSION GET "${backend_contract}" apiVersion)
+string(JSON OMAMAIL_RELEASED_API_VERSION GET "${backend_contract}" releasedApiVersion)
+string(JSON OMAMAIL_UNRELEASED_METHODS GET "${backend_contract}" unreleased methods)
+configure_file(src/backend_contract.h.in backend_contract.h @ONLY)
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS
   Core Gui Qml Quick QuickControls2 Network Test)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(standalone_manifest "${CMAKE_CURRENT_BINARY_DIR}/manifest.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py")
+execute_process(COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py"
+  standalone-manifest --output "${standalone_manifest}"
+  COMMAND_ERROR_IS_FATAL ANY)
+file(READ "${standalone_manifest}" standalone_manifest_contents)
+string(JSON standalone_manifest_contents SET "${standalone_manifest_contents}"
+  name "\"Magpie Mail\"")
+file(WRITE "${standalone_manifest}" "${standalone_manifest_contents}")
+
 set(OMAMAIL_NATIVE_SOURCES
+  src/activation.cpp
+  src/activation.h
   src/app_icon.cpp
   src/app_icon.h
   src/application_host.cpp
@@ -28,6 +54,10 @@ set(OMAMAIL_NATIVE_SOURCES
   src/process.h
   src/resource_check.cpp
   src/resource_check.h
+  src/runtime.cpp
+  src/runtime.h
+  src/status_file.cpp
+  src/status_file.h
 )
 
 if(APPLE)
@@ -64,10 +94,11 @@ if(WIN32)
   target_compile_definitions(omamail_native PRIVATE
     _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
-target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(omamail_native PUBLIC
   OMAMAIL_APP_VERSION="${PROJECT_VERSION}"
   OMAMAIL_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+  OMAMAIL_MANIFEST_PATH="${standalone_manifest}"
 )
 if(DEFINED OMAMAIL_BACKEND AND NOT OMAMAIL_BACKEND STREQUAL "")
   get_filename_component(OMAMAIL_BACKEND_ABSOLUTE "${OMAMAIL_BACKEND}" ABSOLUTE)
@@ -110,17 +141,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
   qt_add_resources(omamail-app standalone_qml
     PREFIX "/omamail"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    FILES ${OMAMAIL_STANDALONE_QML} "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+    FILES ${OMAMAIL_STANDALONE_QML}
   )
+  qt_add_resources(omamail-app standalone_manifest
+    PREFIX "/omamail" BASE "${CMAKE_CURRENT_BINARY_DIR}"
+    FILES "${standalone_manifest}")
   qt_add_resources(omamail-app standalone_brand
     PREFIX "/omamail/app"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}"
-    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/omamail.svg"
-      "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/omamail.icns"
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/omamail.icns"
   )
 endif()
 
 include(CTest)
+option(OMAMAIL_DESKTOP_ACCEPTANCE "Build the synthetic desktop acceptance driver" OFF)
+if(OMAMAIL_DESKTOP_ACCEPTANCE)
+  find_package(Qt6 REQUIRED COMPONENTS QuickTest)
+  qt_add_executable(desktop_acceptance ../benchmarks/mail/desktop_main.cpp)
+  target_link_libraries(desktop_acceptance PRIVATE
+    omamail_native omamail_nativeplugin Qt6::QuickTest Qt6::QuickControls2)
+endif()
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   function(omamail_native_test name source)
@@ -142,19 +182,41 @@ if(BUILD_TESTING)
   omamail_native_test(tst_settings tst_settings.cpp)
   omamail_native_test(tst_resources tst_resources.cpp)
   omamail_native_test(tst_notifications tst_notifications.cpp)
+  omamail_native_test(tst_activation tst_activation.cpp)
 
   target_compile_definitions(tst_process PRIVATE
     PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
     RPC_BACKEND_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/rpc_backend.py")
-  set_tests_properties(tst_resources tst_notifications PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  set_tests_properties(tst_process tst_settings tst_resources tst_notifications tst_activation
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
   add_test(NAME notification_source_boundary
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_notification_sources.py")
   add_test(NAME application_identity
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_identity.py")
+  find_program(PWSH_EXECUTABLE pwsh)
+  if(PWSH_EXECUTABLE)
+    add_test(NAME failure_assertions COMMAND "${PWSH_EXECUTABLE}"
+      -NoProfile -NonInteractive -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/Test-Assertions.ps1")
+  endif()
 
-  find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner HINTS "${QT6_INSTALL_PREFIX}/bin")
+  if(NOT QMLTESTRUNNER_EXECUTABLE AND TARGET Qt6::qmltestrunner)
+    set(QMLTESTRUNNER_EXECUTABLE "$<TARGET_FILE:Qt6::qmltestrunner>")
+  else()
+    find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner
+      HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_BINS}" "${QT6_INSTALL_PREFIX}/bin")
+  endif()
   if(QMLTESTRUNNER_EXECUTABLE)
+    add_test(NAME standalone_plain_labels
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_plain_labels.py"
+        "${QMLTESTRUNNER_EXECUTABLE}")
+    add_test(NAME tst_host_contract COMMAND ${QMLTESTRUNNER_EXECUTABLE}
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/../ui"
+      -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/tst_host_contract.qml"
+      -o -,txt)
+    set_tests_properties(tst_host_contract PROPERTIES
+      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Omamail;QT_QUICK_CONTROLS_FALLBACK_STYLE=Basic")
     add_test(NAME tst_standalone_composition COMMAND ${QMLTESTRUNNER_EXECUTABLE}
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"

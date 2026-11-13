@@ -30,7 +30,7 @@ impl ListAdapter for RecordingAdapter {
 
 fn account(provider: Provider) -> Account {
     Account {
-        id: format!("{}:a@example.org", provider.id()),
+        id: "a@example.org".into(),
         provider,
     }
 }
@@ -48,7 +48,7 @@ async fn list_translates_canonical_mailbox_and_returns_summaries() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let result = list_with(
         ListRequest {
-            account: account(Provider::Imap),
+            account: account(Provider::Gmail),
             mailbox: Mailbox::Unread,
             query: String::new(),
             limit: 25,
@@ -57,17 +57,20 @@ async fn list_translates_canonical_mailbox_and_returns_summaries() {
         &recording_adapter(
             seen.clone(),
             json!({
-                "ids":["7:INBOX"], "messages":[message("7:INBOX")],
+                "ids":["message-7"], "messages":[message("message-7")],
                 "nextPageToken":"next", "estimate":1
             }),
         ),
     )
     .await
     .unwrap();
-    assert_eq!(seen.lock().unwrap()[0]["query"], "folder:INBOX UNSEEN");
-    assert_eq!(result["accountId"], "imap:a@example.org");
+    assert_eq!(
+        seen.lock().unwrap()[0]["query"],
+        "in:inbox is:unread -category:promotions -category:social -category:forums"
+    );
+    assert_eq!(result["accountId"], "a@example.org");
     assert_eq!(result["mailbox"], "unread");
-    assert_eq!(result["messages"][0]["id"], "7:INBOX");
+    assert_eq!(result["messages"][0]["id"], "message-7");
     assert_eq!(result["nextPageToken"], "next");
 }
 
@@ -79,10 +82,13 @@ async fn list_uses_explicit_provider_mappings_and_preserves_continuation() {
             Mailbox::Archive,
             "in:anywhere -in:spam -in:trash",
         ),
-        (Provider::Hey, Mailbox::Unread, "box:imbox unseen"),
-        (Provider::Jmap, Mailbox::Archive, "role:archive"),
-        (Provider::Outlook, Mailbox::Sent, "folder:\\Sent"),
-        (Provider::Imap, Mailbox::Inbox, "folder:INBOX"),
+        (
+            Provider::Gmail,
+            Mailbox::Unread,
+            "in:inbox is:unread -category:promotions -category:social -category:forums",
+        ),
+        (Provider::Gmail, Mailbox::Sent, "in:sent"),
+        (Provider::Gmail, Mailbox::Inbox, "in:inbox"),
     ] {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let result = list_with(
@@ -117,7 +123,7 @@ async fn list_search_overrides_the_selected_mailbox() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     list_with(
         ListRequest {
-            account: account(Provider::Jmap),
+            account: account(Provider::Gmail),
             mailbox: Mailbox::Trash,
             query: "project orbital".into(),
             limit: 25,
@@ -130,33 +136,14 @@ async fn list_search_overrides_the_selected_mailbox() {
     )
     .await
     .unwrap();
-    assert_eq!(seen.lock().unwrap()[0]["query"], "text:project orbital");
-}
-
-#[tokio::test]
-async fn list_rejects_a_mailbox_without_an_explicit_provider_mapping() {
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let error = list_with(
-        ListRequest {
-            account: account(Provider::Hey),
-            mailbox: Mailbox::Archive,
-            query: String::new(),
-            limit: 25,
-            page_token: String::new(),
-        },
-        &recording_adapter(seen.clone(), json!({})),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(error, "mail_mailbox_unavailable");
-    assert!(seen.lock().unwrap().is_empty());
+    assert_eq!(seen.lock().unwrap()[0]["query"], "project orbital");
 }
 
 #[tokio::test]
 async fn list_rejects_a_continuation_when_the_provider_omits_a_listed_summary() {
     let error = list_with(
         ListRequest {
-            account: account(Provider::Imap),
+            account: account(Provider::Gmail),
             mailbox: Mailbox::Inbox,
             query: String::new(),
             limit: 25,

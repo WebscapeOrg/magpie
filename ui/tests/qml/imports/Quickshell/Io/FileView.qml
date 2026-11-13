@@ -7,9 +7,10 @@ QtObject {
   property bool atomicWrites: false
   signal loaded()
   signal fileChanged()
-  signal loadFailed()
+  signal loadFailed(int error)
 
   function reload() {}
-  function text() { return "" }
+  property string contents: ""
+  function text() { return contents }
   function setText(_value) {}
 }

@@ -2,14 +2,27 @@ const assert = require("assert")
 const { load, deepEqual } = require("./load")
 
 const html = load("message/Html.js")
+const tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII="
 
-// =============================================================== the parser
-//
-// The gate is only as good as where it thinks a tag stops, so this is the part
+function sanitizeWithTestImages(source, options) {
+  if (!options || options.allowRemoteImages !== true
+    || Object.prototype.hasOwnProperty.call(options, "remoteImageData"))
+    return html.sanitize(source, options)
+  const prepared = {}
+  for (const token of html.tokenize(source)) {
+    if (token.type !== "start" || token.name !== "img") continue
+    for (const attribute of token.attrs) {
+      if (attribute.name === "src") prepared[attribute.value] = tinyPng
+    }
+  }
+  return html.sanitize(source, Object.assign({}, options, { remoteImageData: prepared }))
+}
+
+// Invariant: The gate is only as good as where it thinks a tag stops, so this is the part
 // that gets read the way Qt reads it: tags by scanning, attributes with their
 // quotes, raw-text elements by their own closing tag.
 {
-  // Structure in, same structure out. A browser's parser would insert a
+  // Invariant: Structure in, same structure out. A browser's parser would insert a
   // <tbody> here, hoist stray content out of the table and reopen formatting
   // across a block; every one of those is a change to mail nobody asked for.
   const untouched = [
@@ -20,7 +33,7 @@ const html = load("message/Html.js")
   ]
   for (const markup of untouched) assert.strictEqual(html.stripColors(markup), markup)
 
-  // Closed, never moved: mail leaves <td> and <li> open constantly, and without
+  // Invariant: Closed, never moved: mail leaves <td> and <li> open constantly, and without
   // an implied close each one nests inside the last.
   assert.strictEqual(html.stripColors("<ul><li>one<li>two</ul>"),
     "<ul><li>one</li><li>two</li></ul>")
@@ -28,15 +41,15 @@ const html = load("message/Html.js")
     "<table><tr><td>a</td><td>b</td></tr></table>")
   assert.strictEqual(html.stripColors("<p>one<p>two"), "<p>one</p><p>two</p>")
 
-  // What the sender left open is closed at the end; what they closed twice is
+  // Invariant: What the sender left open is closed at the end; what they closed twice is
   // closed once. A stray end tag closes nothing, because the only other reading
   // would close something they meant to keep.
   assert.strictEqual(html.stripColors("<div><span>x"), "<div><span>x</span></div>")
   assert.strictEqual(html.stripColors("x</div></p>"), "x")
-  // Mis-nesting comes out well-formed rather than mis-nested.
+  // Invariant: Mis-nesting comes out well-formed rather than mis-nested.
   assert.strictEqual(html.stripColors("<b><i>x</b></i>"), "<b><i>x</i></b>")
 
-  // Attribute values are read with their quotes, so a ">" in one does not end
+  // Invariant: Attribute values are read with their quotes, so a ">" in one does not end
   // the tag — and an unquoted value ends at whitespace.
   assert.strictEqual(html.stripColors("<a title=\"a>b\" href=\"https://x.example.com\">t</a>"),
     "<a title=\"a>b\" href=\"https://x.example.com\">t</a>")
@@ -50,48 +63,48 @@ const html = load("message/Html.js")
   assert.strictEqual(closingToken.attrs, undefined,
     "an ordinary closing tag does not allocate an attribute list")
   assert.strictEqual(closing.end, 4)
-  // A single-quoted value is re-quoted, so the quote inside it has to go.
+  // Invariant: A single-quoted value is re-quoted, so the quote inside it has to go.
   assert.strictEqual(html.stripColors("<a title='say \"hi\"'>t</a>"),
     "<a title=\"say &quot;hi&quot;\">t</a>")
 
-  // Old mail is shouted, and names are matched folded. The reader takes the
+  // Invariant: Old mail is shouted, and names are matched folded. The reader takes the
   // fast path when it saw no capital while scanning a name, so the shouted form
   // is its own path and has to be checked.
   assert.strictEqual(
-    html.sanitize("<DIV STYLE=\"COLOR:red;padding:4px\"><IMG SRC=\"https://cdn.example.com/a.png\" WIDTH=\"90\">x</DIV>",
+    sanitizeWithTestImages("<DIV STYLE=\"COLOR:red;padding:4px\"><IMG SRC=\"https://cdn.example.com/a.png\" WIDTH=\"90\">x</DIV>",
       { allowRemoteImages: true }).html,
-    "<div style=\"padding:4px\"><img src=\"https://cdn.example.com/a.png\" width=\"90\">x</div>")
-  assert.strictEqual(html.sanitize("<SCRIPT>bad()</SCRIPT>ok").html, "ok")
-  assert.strictEqual(html.sanitize("<P STYLE=\"DISPLAY:NONE\">secret</P><p>real</p>").html, "<p>real</p>")
-  assert.strictEqual(html.sanitize("<A HREF=\"JAVASCRIPT:x()\">t</A>").html, "<a>t</a>")
+    '<div style="padding:4px"><img src="' + tinyPng + '" width="90">x</div>')
+  assert.strictEqual(sanitizeWithTestImages("<SCRIPT>bad()</SCRIPT>ok").html, "ok")
+  assert.strictEqual(sanitizeWithTestImages("<P STYLE=\"DISPLAY:NONE\">secret</P><p>real</p>").html, "<p>real</p>")
+  assert.strictEqual(sanitizeWithTestImages("<A HREF=\"JAVASCRIPT:x()\">t</A>").html, "<a>t</a>")
 
-  // A "<" that starts no tag is a "<" the sender typed, and it goes back out
+  // Invariant: A "<" that starts no tag is a "<" the sender typed, and it goes back out
   // escaped rather than raw. It draws the same either way, and leaving it raw
   // is how a "<" in one place and the letters that finish a tag in another end
   // up as a tag once something between them is unwrapped.
   assert.strictEqual(html.stripColors("a < b and 3<4"), "a &lt; b and 3&lt;4")
 
-  // A raw-text element ends at its own closing tag and at nothing else, so a
+  // Invariant: A raw-text element ends at its own closing tag and at nothing else, so a
   // stylesheet cannot hide markup from the walk that follows it.
-  assert.strictEqual(html.sanitize("<style>p::after{content:\"<img src=x>\"}</style>ok").html, "ok")
-  assert.strictEqual(html.sanitize("<script>var a = 1 < 2;</script>ok").html, "ok")
-  // ...and per the spec the first "</style" ends it, whatever it is inside.
-  assert.ok(html.sanitize("<style>a{}</style><p>after</p>").html.indexOf("<p>after</p>") >= 0)
+  assert.strictEqual(sanitizeWithTestImages("<style>p::after{content:\"<img src=x>\"}</style>ok").html, "ok")
+  assert.strictEqual(sanitizeWithTestImages("<script>var a = 1 < 2;</script>ok").html, "ok")
+  // Invariant: ...and per the spec the first "</style" ends it, whatever it is inside.
+  assert.ok(sanitizeWithTestImages("<style>a{}</style><p>after</p>").html.indexOf("<p>after</p>") >= 0)
 
-  // A tag that never closes takes the rest of the document with it, which is
+  // Invariant: A tag that never closes takes the rest of the document with it, which is
   // what Qt does with it too — and is the reading that cannot leave a fetch
   // behind.
-  assert.strictEqual(html.sanitize("<p>kept</p><div class=\"never").html, "<p>kept</p>")
+  assert.strictEqual(sanitizeWithTestImages("<p>kept</p><div class=\"never").html, "<p>kept</p>")
 
-  // A doctype is not text: Qt would lay it out as a line above the message.
-  assert.strictEqual(html.sanitize("<!DOCTYPE html><p>hi</p>").html, "<p>hi</p>")
+  // Invariant: A doctype is not text: Qt would lay it out as a line above the message.
+  assert.strictEqual(sanitizeWithTestImages("<!DOCTYPE html><p>hi</p>").html, "<p>hi</p>")
 
-  // A title is not body text either, and nearly every marketing mail ships one.
-  assert.strictEqual(html.sanitize("<head><title>Newsletter</title></head><p>real</p>").html,
+  // Invariant: A title is not body text either, and nearly every marketing mail ships one.
+  assert.strictEqual(sanitizeWithTestImages("<head><title>Newsletter</title></head><p>real</p>").html,
     "<head></head><p>real</p>")
 }
 
-// The sanitised and reading documents ask the same source element about its
+// Invariant: The sanitised and reading documents ask the same source element about its
 // style. Parsing that declaration list once per phase made style-heavy mail do
 // the same character scan repeatedly.
 {
@@ -104,122 +117,118 @@ const html = load("message/Html.js")
   assert.strictEqual(html.sourceDeclarations(html.parse("<p>x</p>").children[0]), null)
 }
 
-// A tree is walked by recursion everywhere downstream, so a message nested a
+// Performance: A tree is walked by recursion everywhere downstream, so a message nested a
 // few thousand elements deep would be a stack overflow inside the process that
 // draws the whole desktop. Past the ceiling an element keeps its content, it
 // just stops adding a level to hold it.
 {
   const deepest = "<div>".repeat(20000) + "<img src=\"http://127.0.0.1/x.png\">text"
-  const out = html.sanitize(deepest, { allowRemoteImages: true })
+  const out = sanitizeWithTestImages(deepest, { allowRemoteImages: true })
   assert.ok(out.html.indexOf("127.0.0.1") < 0, "the ceiling is not a way past the image policy")
   assert.ok(out.html.indexOf("text") > 0, "the content is still there")
   const tables = "<table><tr><td>".repeat(4000) + "cell"
-  assert.ok(html.sanitize(tables).html.indexOf("cell") > 0)
+  assert.ok(sanitizeWithTestImages(tables).html.indexOf("cell") > 0)
   assert.ok(html.tooHeavyForRichText(tables), "and it is still refused as too heavy")
 }
 
-// The reader is told how heavy the result is by the call that produced it:
+// Invariant: The reader is told how heavy the result is by the call that produced it:
 // asking separately would mean parsing the whole body again to count what was
 // just counted.
 {
-  const light = html.sanitize("<p>hi</p>")
+  const light = sanitizeWithTestImages("<p>hi</p>")
   assert.strictEqual(light.tooHeavy, false)
   assert.strictEqual(light.complexity.tags, 1)
-  const heavy = html.sanitize("<div></div>".repeat(html.MAX_ELEMENTS + 1))
+  const heavy = sanitizeWithTestImages("<div></div>".repeat(html.MAX_ELEMENTS + 1))
   assert.strictEqual(heavy.tooHeavy, true)
   assert.strictEqual(heavy.tooHeavy, html.tooHeavyForRichText(heavy.html),
     "and it agrees with asking the long way round")
 }
 
-// Both readings of a body out of one parse, because the tokenize underneath is
+// Performance: Both readings of a body out of one parse, because the tokenize underneath is
 // the most expensive thing this file does and the reader wants both.
 {
   const body = "<img src=\"https://track.example.com/p.gif\" width=\"1\">"
     + "<p>copy</p><img src=\"http://127.0.0.1/x.png\" width=\"90\">"
     + "<img src=\"https://cdn.example.com/real.png\" width=\"90\">"
-  const asked = html.sanitize(body, { withPlainText: true })
-  // Numbered off the sender's own tree, before the image policy is applied: a
+  const asked = sanitizeWithTestImages(body, { withPlainText: true })
+  // Invariant: Numbered off the sender's own tree, before the image policy is applied: a
   // message's second picture is its second picture whether or not the first was
   // a request to the machine itself. A beacon is the one thing not counted —
   // it is not a picture, and a marker offering to open one would fire it.
   assert.strictEqual(asked.plainText.text, "copy\n[image 1][image 2]")
   deepEqual(asked.plainText.images, [
     "http://127.0.0.1/x.png", "https://cdn.example.com/real.png"])
-  // ...while the document itself keeps none of them.
+  // Invariant: ...while the document itself keeps none of them.
   assert.strictEqual(asked.images, 0)
   assert.ok(asked.html.indexOf("127.0.0.1") < 0)
-  // The same answer the long way round, so the shortcut cannot drift from it.
+  // Invariant: The same answer the long way round, so the shortcut cannot drift from it.
   deepEqual(asked.plainText, html.readPlainText(body))
-  // And nothing is paid for it unless it is asked for.
-  assert.strictEqual(html.sanitize(body).plainText, null)
+  // Invariant: And nothing is paid for it unless it is asked for.
+  assert.strictEqual(sanitizeWithTestImages(body).plainText, null)
 }
 
-// ------------------------------------------------------------ scaffolding
-//
-// Real mail is mostly boxes holding one box. Qt parses each one back out of the
+// Performance: Real mail is mostly boxes holding one box. Qt parses each one back out of the
 // string and lays it out, and that half of the cost is the half this file
 // cannot measure — so the document it is handed is made smaller, but only in
 // the two shapes that provably render the same.
 {
-  // A stack of empty wrappers is the innermost thing in it.
-  assert.strictEqual(html.sanitize("<div><div><div><p>hi</p></div></div></div>").html, "<p>hi</p>")
+  // Invariant: A stack of empty wrappers is the innermost thing in it.
+  assert.strictEqual(sanitizeWithTestImages("<div><div><div><p>hi</p></div></div></div>").html, "<p>hi</p>")
   const table = "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>"
-  assert.strictEqual(html.sanitize("<div>" + table + "</div>").html, table)
-  // An inline element carrying nothing is nothing.
-  assert.strictEqual(html.sanitize("<p><span>a</span>b<font>c</font></p>").html, "<p>abc</p>")
+  assert.strictEqual(sanitizeWithTestImages("<div>" + table + "</div>").html, table)
+  // Invariant: An inline element carrying nothing is nothing.
+  assert.strictEqual(sanitizeWithTestImages("<p><span>a</span>b<font>c</font></p>").html, "<p>abc</p>")
 
-  // Anything the wrapper carries is a reason it is there.
-  assert.strictEqual(html.sanitize("<div style=\"padding:8px\"><p>hi</p></div>").html,
+  // Invariant: Anything the wrapper carries is a reason it is there.
+  assert.strictEqual(sanitizeWithTestImages("<div style=\"padding:8px\"><p>hi</p></div>").html,
     "<div style=\"padding:8px\"><p>hi</p></div>")
-  // Centring is not one of those reasons. The sender centres a 600px card in
+  // Invariant: Centring is not one of those reasons. The sender centres a 600px card in
   // the middle of a wide window; the reader is a panel of left-aligned text
   // beside a left-aligned list, and a newsletter kept centred there comes out
   // as a column of short lines adrift in it.
-  assert.strictEqual(html.sanitize("<div align=\"center\"><p>hi</p></div>").html, "<p>hi</p>")
-  assert.strictEqual(html.sanitize("<center><p>hi</p></center>").html, "<p>hi</p>")
-  assert.strictEqual(html.sanitize("<p style=\"text-align:center;font-size:9px\">hi</p>").html,
+  assert.strictEqual(sanitizeWithTestImages("<div align=\"center\"><p>hi</p></div>").html, "<p>hi</p>")
+  assert.strictEqual(sanitizeWithTestImages("<center><p>hi</p></center>").html, "<p>hi</p>")
+  assert.strictEqual(sanitizeWithTestImages("<p style=\"text-align:center;font-size:9px\">hi</p>").html,
     "<p style=\"font-size:9px\">hi</p>")
-  // Every other alignment is the sender saying something the panel can honour:
+  // Invariant: Every other alignment is the sender saying something the panel can honour:
   // a column of numbers reads right, and Arabic reads from the other end.
-  assert.ok(html.sanitize("<p style=\"text-align:right\">9.00</p>").html
+  assert.ok(sanitizeWithTestImages("<p style=\"text-align:right\">9.00</p>").html
     .indexOf("text-align:right") > 0)
-  // And a cell keeps even centring: a column lining up is the one thing a grid
+  // Invariant: And a cell keeps even centring: a column lining up is the one thing a grid
   // is kept for.
-  assert.ok(html.sanitize("<table><tr><th align=\"center\">a</th><th>b</th></tr>"
+  assert.ok(sanitizeWithTestImages("<table><tr><th align=\"center\">a</th><th>b</th></tr>"
     + "<tr><td style=\"text-align:center\">c</td><td>d</td></tr></table>").html
     .indexOf("text-align:center") > 0)
-  // <b> is not <span>: it says something with no attributes at all.
-  assert.strictEqual(html.sanitize("<p><b>bold</b></p>").html, "<p><b>bold</b></p>")
+  // Invariant: <b> is not <span>: it says something with no attributes at all.
+  assert.strictEqual(sanitizeWithTestImages("<p><b>bold</b></p>").html, "<p><b>bold</b></p>")
 
-  // Two boxes are two boxes, and a box holding text as well as a box is not
+  // Invariant: Two boxes are two boxes, and a box holding text as well as a box is not
   // holding only that box.
-  assert.strictEqual(html.sanitize("<div><p>a</p><p>b</p></div>").html, "<div><p>a</p><p>b</p></div>")
-  assert.strictEqual(html.sanitize("<div>text<p>b</p></div>").html, "<div>text<p>b</p></div>")
-  // Whitespace between blocks is not text: a template's newlines do not pin a
+  assert.strictEqual(sanitizeWithTestImages("<div><p>a</p><p>b</p></div>").html, "<div><p>a</p><p>b</p></div>")
+  assert.strictEqual(sanitizeWithTestImages("<div>text<p>b</p></div>").html, "<div>text<p>b</p></div>")
+  // Invariant: Whitespace between blocks is not text: a template's newlines do not pin a
   // wrapper in place.
-  assert.strictEqual(html.sanitize("<div>\n  <p>a</p>\n</div>").html, "<p>a</p>")
-  // An inline child means the wrapper is what puts it on its own line.
-  assert.strictEqual(html.sanitize("<div><span style=\"font-size:9px\">a</span></div>").html,
+  assert.strictEqual(sanitizeWithTestImages("<div>\n  <p>a</p>\n</div>").html, "<p>a</p>")
+  // Invariant: An inline child means the wrapper is what puts it on its own line.
+  assert.strictEqual(sanitizeWithTestImages("<div><span style=\"font-size:9px\">a</span></div>").html,
     "<div><span style=\"font-size:9px\">a</span></div>")
 
-  // On mail shaped like the real thing this is most of the document. Nine
+  // Invariant: On mail shaped like the real thing this is most of the document. Nine
   // layout tables around a card is what this mailbox actually receives.
   let card = "", close = ""
-  for (let d = 0; d < 9; d++) {
-    card += "<table width=\"" + (600 - d * 10) + "\" align=\"center\"><tr><td>"
+  for (let depth = 0; depth < 9; depth++) {
+    card += "<table width=\"" + (600 - depth * 10) + "\" align=\"center\"><tr><td>"
     close = "</td></tr></table>" + close
   }
   card += "<img src=\"https://cdn.example.com/h.png\" width=\"540\"><p>copy</p>" + close
-  const carded = html.sanitize(card, { allowRemoteImages: true })
+  const carded = sanitizeWithTestImages(card, { allowRemoteImages: true })
   assert.ok(carded.complexity.tags < 12,
     "nine levels of scaffolding come out as a handful of elements, not thirty")
-  assert.ok(carded.html.indexOf("copy") > 0 && carded.html.indexOf("h.png") > 0,
+  assert.ok(carded.html.indexOf("copy") > 0 && carded.html.indexOf(tinyPng) > 0,
     "and everything that was in them is still there")
 }
 
-// --------------------------------------------------- html read as plain text
-//
-// The markers and the picture list come off one walk, so a marker cannot open
+// Invariant: The markers and the picture list come off one walk, so a marker cannot open
 // somebody else's image however strange the markup is.
 {
   deepEqual(html.readPlainText("<div>Hello</div><img src=\"a.png\"><br><img src='b.png' width=600><p>Bye</p>"),
@@ -227,20 +236,20 @@ const html = load("message/Html.js")
   assert.strictEqual(html.readPlainText("<ul><li>one</li><li>two &amp; three</li></ul>").text,
     "• one\n• two & three")
   assert.strictEqual(html.readPlainText("a&nbsp;&nbsp;b").text, "a  b")
-  // An <img> written inside another element's attribute is text, not a picture.
+  // Invariant: An <img> written inside another element's attribute is text, not a picture.
   deepEqual(html.readPlainText("<div title=\"<img src=ghost.png>\">real</div>"),
     { text: "real", images: [] })
   deepEqual(html.readPlainText(""), { text: "", images: [] })
 
-  // HTML collapses a run of whitespace and so does this: a template's
+  // Invariant: HTML collapses a run of whitespace and so does this: a template's
   // indentation is not the sender spacing anything out, and kept it arrives as
   // gaps in the middle of sentences.
   assert.strictEqual(html.readPlainText("<p>Dear\n     Sir,\n  hello</p>").text,
     "Dear Sir, hello")
-  // A non-breaking space is spacing the sender asked for, and survives.
+  // Invariant: A non-breaking space is spacing the sender asked for, and survives.
   assert.strictEqual(html.readPlainText("a&nbsp;&nbsp;b").text, "a  b")
 
-  // A cell ends a line. Without that a statement's labels and its figures come
+  // Invariant: A cell ends a line. Without that a statement's labels and its figures come
   // out run together on one line each, which is the shape the fallback exists
   // to avoid.
   assert.strictEqual(
@@ -248,7 +257,7 @@ const html = load("message/Html.js")
       + "<tr><td>Due</td><td>2026/08/03</td></tr></table>").text,
     "Period\n2026/07\n\nDue\n2026/08/03")
 
-  // A line does not start where the markup was indented. Every nested tag a
+  // Invariant: A line does not start where the markup was indented. Every nested tag a
   // block sits inside contributes a space of its own, so a heading four boxes
   // down arrived four spaces in — and a run of two is two non-breaking spaces
   // by the time the fallback is drawn, which is a ragged left edge down the
@@ -258,100 +267,94 @@ const html = load("message/Html.js")
     "Heading")
   assert.strictEqual(html.readPlainText("<p>a</p>\n\n   <p>  b</p>").text, "a\nb")
 
-  // A beacon is not a picture, and a marker offering to open one is noise in
+  // Invariant: A beacon is not a picture, and a marker offering to open one is noise in
   // the middle of the message it was hidden inside.
   deepEqual(html.readPlainText("<img src=\"p.gif\" width=\"1\"><img src=\"a.png\">"),
     { text: "[image 1]", images: ["a.png"] })
 }
 
-// ------------------------------------------------------------- stripping
-//
-// Qt's rich text engine ignores unknown tags but renders the *text content*
+// Invariant: Qt's rich text engine ignores unknown tags but renders the *text content*
 // of a <style> block, so a message with a stylesheet shows its CSS as a wall
 // of text unless the block is removed outright.
 
-assert.strictEqual(html.sanitize("<style>p{color:red}</style><p>hi</p>").html, "<p>hi</p>")
-assert.strictEqual(html.sanitize("<script>alert(1)</script>text").html, "text")
-assert.strictEqual(html.sanitize("<iframe src='x'></iframe>text").html, "text")
-assert.strictEqual(html.sanitize("<p onclick='x()'>hi</p>").html, "<p>hi</p>")
-assert.strictEqual(html.sanitize("<a href='javascript:x()'>hi</a>").html, "<a>hi</a>")
-assert.strictEqual(html.sanitize("<!-- c -->kept").html, "kept")
-assert.strictEqual(html.sanitize("<meta charset='utf-8'>body").html, "body")
+assert.strictEqual(sanitizeWithTestImages("<style>p{color:red}</style><p>hi</p>").html, "<p>hi</p>")
+assert.strictEqual(sanitizeWithTestImages("<script>alert(1)</script>text").html, "text")
+assert.strictEqual(sanitizeWithTestImages("<iframe src='x'></iframe>text").html, "text")
+assert.strictEqual(sanitizeWithTestImages("<p onclick='x()'>hi</p>").html, "<p>hi</p>")
+assert.strictEqual(sanitizeWithTestImages("<a href='javascript:x()'>hi</a>").html, "<a>hi</a>")
+assert.strictEqual(sanitizeWithTestImages("<!-- c -->kept").html, "kept")
+assert.strictEqual(sanitizeWithTestImages("<meta charset='utf-8'>body").html, "body")
 
-// The tags that carry an email's actual layout must survive untouched. Real
+// Invariant: The tags that carry an email's actual layout must survive untouched. Real
 // mail is still table-and-inline-style HTML written for Outlook, which is
 // exactly the subset Qt renders.
 // Layout survives; the sender's palette does not (see the theming block).
 const table = "<table><tr><td>Item</td><td style=\"padding:6px\"><b>Total</b></td></tr>"
   + "<tr><td>Tea</td><td>2.00</td></tr></table>"
-assert.strictEqual(html.sanitize(table).html, table)
-assert.strictEqual(html.sanitize("<a href=\"https://example.com\">link</a>").html,
+assert.strictEqual(sanitizeWithTestImages(table).html, table)
+assert.strictEqual(sanitizeWithTestImages("<a href=\"https://example.com\">link</a>").html,
   "<a href=\"https://example.com\">link</a>")
-assert.strictEqual(html.sanitize("<a href=\"mailto:a@b.com\">mail</a>").html,
+assert.strictEqual(sanitizeWithTestImages("<a href=\"mailto:a@b.com\">mail</a>").html,
   "<a href=\"mailto:a@b.com\">mail</a>")
 
-// -------------------------------------------------------- remote images
-//
-// Qt fetches <img src="https://..."> for real. Left alone, every tracking
+// Invariant: Qt fetches <img src="https://..."> for real. Left alone, every tracking
 // pixel in the message fires the moment the reader opens it.
 
 const tracked = "<p>Hi</p><img src=\"https://track.example/pixel.gif\" width=\"1\">"
-const blocked = html.sanitize(tracked)
+const blocked = sanitizeWithTestImages(tracked)
 assert.strictEqual(blocked.blockedImages, 1)
 assert.ok(blocked.html.indexOf("track.example") < 0, "the URL must not reach the renderer")
 assert.ok(blocked.html.indexOf("<p>Hi</p>") === 0, "the rest of the message is untouched")
 
-// A 1x1 image is a beacon, never something to look at, so it goes even when
+// Invariant: A 1x1 image is a beacon, never something to look at, so it goes even when
 // images are welcome. Every real message in a live mailbox carries one.
-const allowedPixel = html.sanitize(tracked, { allowRemoteImages: true })
+const allowedPixel = sanitizeWithTestImages(tracked, { allowRemoteImages: true })
 assert.strictEqual(allowedPixel.images, 0)
 assert.strictEqual(allowedPixel.blockedImages, 1)
-assert.strictEqual(html.sanitize("<img src='https://a.example.com/b.gif' height=\"1\">",
+assert.strictEqual(sanitizeWithTestImages("<img src='https://a.example.com/b.gif' height=\"1\">",
   { allowRemoteImages: true }).images, 0)
-assert.strictEqual(html.sanitize("<img src='https://a.example.com/b.gif' style='width:1px;height:1px'>",
+assert.strictEqual(sanitizeWithTestImages("<img src='https://a.example.com/b.gif' style='width:1px;height:1px'>",
   { allowRemoteImages: true }).images, 0)
 
-// A real picture is kept.
+// Invariant: A real picture is kept.
 const real = "<img src=\"https://cdn.example/photo.png\" width=\"600\" height=\"400\">"
-assert.strictEqual(html.sanitize(real, { allowRemoteImages: true }).images, 1)
-assert.ok(html.sanitize(real, { allowRemoteImages: true }).html.indexOf("photo.png") > 0)
-assert.strictEqual(html.sanitize(real).images, 0, "still off unless asked for")
+assert.strictEqual(sanitizeWithTestImages(real, { allowRemoteImages: true }).images, 1)
+assert.ok(sanitizeWithTestImages(real, { allowRemoteImages: true }).html.indexOf(tinyPng) > 0)
+assert.strictEqual(sanitizeWithTestImages(real).images, 0, "still off unless asked for")
 
-// Every image is a fetch Qt performs during layout, and every completed fetch
+// Invariant: Every image is a fetch Qt performs during layout, and every completed fetch
 // triggers another layout pass, so the count is capped.
 let many = ""
-for (let i = 0; i < html.MAX_IMAGES + 8; i++) many += "<img src=\"https://cdn.example.com/" + i + ".png\" width=\"90\">"
-const capped = html.sanitize(many, { allowRemoteImages: true })
+for (let index = 0; index < html.MAX_IMAGES + 8; index++) many += "<img src=\"https://cdn.example.com/" + index + ".png\" width=\"90\">"
+const capped = sanitizeWithTestImages(many, { allowRemoteImages: true })
 assert.strictEqual(capped.images, html.MAX_IMAGES)
 assert.strictEqual(capped.blockedImages, 8)
-assert.strictEqual(html.sanitize(many, { allowRemoteImages: true, maxImages: 3 }).images, 3)
+assert.strictEqual(sanitizeWithTestImages(many, { allowRemoteImages: true, maxImages: 3 }).images, 3)
 
-// A caller may defer remote resources until it has fetched and validated the
+// Invariant: A caller may defer remote resources until it has fetched and validated the
 // bytes itself. Qt then sees no loading URL (and draws no broken placeholder),
 // only a data URI once that exact source is ready.
 {
   const source = "<p><img src=\"https://cdn.example.com/photo.png\" width=\"120\"></p>"
-  const waiting = html.sanitize(source, {
+  const waiting = sanitizeWithTestImages(source, {
     allowRemoteImages: true, remoteImageData: ({}), withReader: true
   })
   assert.strictEqual(waiting.html.indexOf("cdn.example.com"), -1)
   assert.strictEqual(waiting.reader.html.indexOf("cdn.example.com"), -1)
   deepEqual(waiting.remoteImageSources, ["https://cdn.example.com/photo.png"])
-  deepEqual(html.sanitize("<div style=\"display:none\"><img src=\"https://track.example.com/hidden.png\" width=\"40\"></div>")
+  deepEqual(sanitizeWithTestImages("<div style=\"display:none\"><img src=\"https://track.example.com/hidden.png\" width=\"40\"></div>")
     .remoteImageSources, [], "a hidden picture is not prefetched")
 
-  const ready = html.sanitize(source, {
+  const ready = sanitizeWithTestImages(source, {
     allowRemoteImages: true,
-    remoteImageData: ({ "https://cdn.example.com/photo.png": "data:image/png;base64,iVBORw0KGgo=" }),
+    remoteImageData: ({ "https://cdn.example.com/photo.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=" }),
     withReader: true
   })
-  assert.ok(ready.html.indexOf("data:image/png;base64,iVBORw0KGgo=") > 0)
-  assert.ok(ready.reader.html.indexOf("data:image/png;base64,iVBORw0KGgo=") > 0)
+  assert.ok(ready.html.indexOf("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=") > 0)
+  assert.ok(ready.reader.html.indexOf("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=") > 0)
 }
 
-// -------------------------------------------------------------- complexity
-//
-// Qt lays rich text out synchronously on the GUI thread, and this plugin runs
+// Invariant: Qt lays rich text out synchronously on the GUI thread, and this plugin runs
 // inside the shell that draws the whole desktop. A document heavy enough to
 // stall that layout stalls the bar and every other panel with it, so the
 // reader has to be able to refuse one.
@@ -362,25 +365,23 @@ assert.strictEqual(html.tooHeavyForRichText("<div></div>".repeat(html.MAX_ELEMEN
 assert.strictEqual(html.tooHeavyForRichText(""), false)
 assert.strictEqual(html.tooHeavyForRichText(null), false)
 
-// Opening tags only — a closing tag adds no element to lay out.
+// Invariant: Opening tags only — a closing tag adds no element to lay out.
 const size = html.complexity("<div><p>hi</p><img src='x'></div>")
 assert.strictEqual(size.tags, 3)
 assert.strictEqual(size.images, 1)
 assert.strictEqual(html.complexity(null).length, 0)
 
-// cid: images point at attachments this plugin does not fetch, and data: URIs
+// Invariant: unresolved cid: images are blocked; validated data: URIs
 // are already local. Neither is a network request, and neither is counted.
-assert.strictEqual(html.sanitize("<img src=\"cid:logo\">").blockedImages, 0)
-assert.strictEqual(html.sanitize("<img src=\"data:image/png;base64,AAA\">").blockedImages, 0)
-assert.strictEqual(html.sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>").blockedImages, 2)
-assert.strictEqual(html.sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>",
+assert.strictEqual(sanitizeWithTestImages("<img src=\"cid:logo\">").blockedImages, 1)
+assert.strictEqual(sanitizeWithTestImages("<img src=\"data:image/png;base64,AAA\">").blockedImages, 0)
+assert.strictEqual(sanitizeWithTestImages("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>").blockedImages, 2)
+assert.strictEqual(sanitizeWithTestImages("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>",
   { allowRemoteImages: true }).images, 2, "images with no stated size are real pictures")
-// Protocol-relative sources are still network fetches.
-assert.strictEqual(html.sanitize("<img src=\"//cdn.example/x.png\">").blockedImages, 1)
+// Invariant: Protocol-relative sources are still network fetches.
+assert.strictEqual(sanitizeWithTestImages("<img src=\"//cdn.example/x.png\">").blockedImages, 1)
 
-// ------------------------------------------------- where an image may point
-//
-// A crafted message must not be able to make the reader talk to the machine it
+// Invariant: A crafted message must not be able to make the reader talk to the machine it
 // runs on. These are requests the user never asked for, aimed at whatever the
 // sender names, and issuing one is the attack whether or not anything is drawn.
 
@@ -394,15 +395,15 @@ const localSources = [
   "http://169.254.169.254/latest/meta-data",
   "http://router/x.png",
   "http://printer.local/x.png",
-  // 127.0.0.1 written so a naive check does not recognise it.
+  // Invariant: 127.0.0.1 written so a naive check does not recognise it.
   "http://2130706433/x.png",
   "http://0177.0.0.1/x.png",
   "http://0x7f000001/x.png",
-  // Userinfo, so the host is not what a reader skimming the URL sees.
+  // Invariant: Userinfo, so the host is not what a reader skimming the URL sees.
   "http://cdn.example.com@127.0.0.1/x.png"
 ]
 for (const source of localSources) {
-  const asked = html.sanitize("<img src=\"" + source + "\" width=\"90\">",
+  const asked = sanitizeWithTestImages("<img src=\"" + source + "\" width=\"90\">",
     { allowRemoteImages: true })
   assert.strictEqual(asked.images, 0, source + " must never be fetched")
   assert.ok(asked.html.indexOf("img") < 0, source + " must not reach the renderer")
@@ -414,65 +415,85 @@ assert.strictEqual(html.externallyOpenableHttpUrl("https://meet.google.com/abc-d
   "https://meet.google.com/abc-defg-hij")
 assert.strictEqual(html.externallyOpenableHttpUrl("javascript:alert(1)"), "")
 assert.strictEqual(html.externallyOpenableHttpUrl("file:///etc/passwd"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com/jobs/\n42?ref=\tmail\r"),
+  "https://example.com/jobs/42?ref=mail")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://192.168.1.1\\@example.com/admin"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://localhost\\.example.com/"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com\\@192.168.1.1/"),
+  "https://example.com\\@192.168.1.1/")
+// Invariant: the browser decodes no character references, so the host as written is the one it
+// opens, and it must be public too.
+for (const hidden of ["https://example.com&sol;@192.168.1.1/admin", "https://example.com&SOL;@192.168.1.1/",
+  "https://example.com&sol@10.0.0.1/", "https://www.google.com&sol;@localhost:631/",
+  "https://docs.example.com&sol;@router.lan/", "https://example.com&amp;sol;@192.168.1.1/admin"]) {
+  assert.strictEqual(html.externallyOpenableHttpUrl(hidden), "", hidden + " must not open in a browser")
+}
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com/a?b=1&amp;c=2"),
+  "https://example.com/a?b=1&amp;c=2")
+// Invariant: a link the browser could not open is not offered to it.
+for (const broken of ["https://example.com:example.com/x", "https://example.com:99999/",
+  "https://example.com\u001f@good.example/x", "https://example.com/\u0001"]) {
+  assert.strictEqual(html.externallyOpenableHttpUrl(broken), "", JSON.stringify(broken) + " must not open")
+}
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com:8443/x"), "https://example.com:8443/x")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com:/x"), "https://example.com:/x")
 
-// A public address in a URL is fine, however it is written.
-assert.strictEqual(html.sanitize("<img src=\"https://93.184.216.34/x.png\" width=\"90\">",
+// Invariant: A public address in a URL is fine, however it is written.
+assert.strictEqual(sanitizeWithTestImages("<img src=\"https://93.184.216.34/x.png\" width=\"90\">",
   { allowRemoteImages: true }).images, 1)
 
-// Qt resolves the character references in an attribute before it fetches, so a
+// Invariant: Qt resolves the character references in an attribute before it fetches, so a
 // source that does not look like a URL to a reader can still be one to it.
 assert.strictEqual(
-  html.sanitize("<img src=\"&#104;ttps://track.example.com/p.gif\" width=\"90\">").blockedImages, 1)
+  sanitizeWithTestImages("<img src=\"&#104;ttps://track.example.com/p.gif\" width=\"90\">").blockedImages, 1)
 assert.strictEqual(
-  html.sanitize("<img src=\"&#104;ttps://127.0.0.1/p.gif\" width=\"90\">",
+  sanitizeWithTestImages("<img src=\"&#104;ttps://127.0.0.1/p.gif\" width=\"90\">",
     { allowRemoteImages: true }).images, 0)
 
-// A relative source has no base but the plugin's own directory, so Qt would
+// Invariant: A relative source has no base but the plugin's own directory, so Qt would
 // read whatever sits next to the QML.
-assert.ok(html.sanitize("<img src=\"../../../etc/hostname\">").html.indexOf("img") < 0)
-assert.ok(html.sanitize("<img src=\"file:///etc/hostname\">").html.indexOf("img") < 0)
+assert.ok(sanitizeWithTestImages("<img src=\"../../../etc/hostname\">").html.indexOf("img") < 0)
+assert.ok(sanitizeWithTestImages("<img src=\"file:///etc/hostname\">").html.indexOf("img") < 0)
 
-// The count the reader offers to load is the count it can actually load.
+// Invariant: The count the reader offers to load is the count it can actually load.
 const mixed = "<img src=\"https://cdn.example.com/a.png\" width=\"90\">"
   + "<img src=\"http://127.0.0.1/b.png\" width=\"90\">"
   + "<img src=\"https://cdn.example.com/pixel.gif\" width=\"1\">"
-assert.strictEqual(html.sanitize(mixed).remoteImages, 1)
-assert.strictEqual(html.sanitize(mixed, { allowRemoteImages: true }).images, 1)
+assert.strictEqual(sanitizeWithTestImages(mixed).remoteImages, 1)
+assert.strictEqual(sanitizeWithTestImages(mixed, { allowRemoteImages: true }).images, 1)
 
-// A url() in an inline style is a fetch too, wherever the engine honours one.
-assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
+// Invariant: A url() in an inline style is a fetch too, wherever the engine honours one.
+assert.ok(sanitizeWithTestImages("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
   .html.indexOf("track.example.com") < 0)
-assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
+assert.ok(sanitizeWithTestImages("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
   .html.indexOf("padding:4px") > 0, "the rest of the style survives")
 
-// ---------------------------------------------------------- tag boundaries
-//
-// Qt reads an attribute value with its quotes, so a ">" inside an alt text does
+// Invariant: Qt reads an attribute value with its quotes, so a ">" inside an alt text does
 // not end the tag for the engine — and a check that stops at the first ">" it
 // sees takes half a tag, finds no src in it, and hands the whole thing back.
 // Putting a ">" in an alt text was enough to walk an image past the block.
 {
   const hidden = "<img alt=\"a>b\" src=\"https://tracker.example.com/p.gif\" width=\"90\">"
-  assert.strictEqual(html.sanitize(hidden).blockedImages, 1)
-  assert.ok(html.sanitize(hidden).html.indexOf("tracker.example.com") < 0)
-  assert.strictEqual(html.sanitize(hidden, { allowRemoteImages: true }).images, 1)
+  assert.strictEqual(sanitizeWithTestImages(hidden).blockedImages, 1)
+  assert.ok(sanitizeWithTestImages(hidden).html.indexOf("tracker.example.com") < 0)
+  assert.strictEqual(sanitizeWithTestImages(hidden, { allowRemoteImages: true }).images, 1)
 
   const hiddenLocal = "<img alt='a>b' src=\"http://127.0.0.1/p.gif\" width=\"90\">"
-  assert.ok(html.sanitize(hiddenLocal, { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
+  assert.ok(sanitizeWithTestImages(hiddenLocal, { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
 
-  // A quote that never closes takes the rest of the document with it: Qt would
+  // Invariant: A quote that never closes takes the rest of the document with it: Qt would
   // swallow the remainder into the tag anyway, and dropping it is the reading
   // that cannot leave a fetch behind.
-  assert.ok(html.sanitize("<p>hi</p><img src=\"https://tracker.example.com/p.gif\" alt=\"oops")
+  assert.ok(sanitizeWithTestImages("<p>hi</p><img src=\"https://tracker.example.com/p.gif\" alt=\"oops")
     .html.indexOf("tracker.example.com") < 0)
 
-  // Ordinary markup around an image is untouched.
+  // Invariant: Ordinary markup around an image is untouched.
   assert.strictEqual(
-    html.sanitize("<p>hi</p><img alt=\"x\" src=\"https://cdn.example.com/a.png\" width=\"90\"><p>bye</p>").html,
+    sanitizeWithTestImages("<p>hi</p><img alt=\"x\" src=\"https://cdn.example.com/a.png\" width=\"90\"><p>bye</p>").html,
     "<p>hi</p><p>bye</p>")
 }
 
-// The markers in a plain-text body and the list of pictures they open are two
+// Invariant: The markers in a plain-text body and the list of pictures they open are two
 // walks over the same tags, so they have to end a tag in the same place.
 {
   const body = "<img alt=\"a>b\" src=\"https://cdn.example.com/one.png\"><p>x</p>"
@@ -481,12 +502,11 @@ assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example
     ["https://cdn.example.com/one.png", "https://cdn.example.com/two.png"])
 }
 
-// What the plain-text reader may hand to an Image element. Qt fetches a
+// Invariant: What the plain-text reader may hand to an Image element. Qt fetches a
 // remote src itself, so only prepared raster bytes qualify.
 assert.strictEqual(html.isDisplayableImageUrl("https://cdn.example.com/a.png"), false)
 assert.strictEqual(html.isDisplayableImageUrl("http://127.0.0.1/a.png"), false)
 assert.strictEqual(html.isDisplayableImageUrl("file:///etc/hostname"), false)
-const tinyPng = "data:image/png;base64,iVBORw0KGgo="
 assert.strictEqual(html.isDisplayableImageUrl(tinyPng), true)
 assert.strictEqual(html.isDisplayableImageUrl("data:image/svg+xml;base64,AAA"), false)
 assert.strictEqual(html.isDisplayableImageUrl("cid:logo"), false)
@@ -502,22 +522,20 @@ assert.strictEqual(html.isDisplayableImageUrl(disguisedSvg), false,
   "disguised SVG must not reach a Qt Image source")
 for (const invalid of [
   "data:image/png;base64,iVBORw0KGgo",       // truncated quartet
-  "data:image/png;base64,iVBORw0KGgo===",    // excess padding
-  "data:image/png;base64,iVBORw0KGgo=tail",  // trailing bytes after padding
-  "data:image/jpeg;base64,iVBORw0KGgo=",     // declaration does not match bytes
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII===",    // excess padding
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=tail",  // trailing bytes after padding
+  "data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=",     // declaration does not match bytes
   "data:image/png;base64,iVBORw0KGgp="        // noncanonical padding bits
 ]) assert.strictEqual(html.isRasterDataImage(invalid), false, invalid)
 
 assert.strictEqual(html.hasRemoteImages(tracked), true)
 assert.strictEqual(html.hasRemoteImages("<p>none</p>"), false)
 
-assert.strictEqual(html.sanitize("").html, "")
-assert.strictEqual(html.sanitize(null).html, "")
-assert.strictEqual(html.sanitize(null).blockedImages, 0)
+assert.strictEqual(sanitizeWithTestImages("").html, "")
+assert.strictEqual(sanitizeWithTestImages(null).html, "")
+assert.strictEqual(sanitizeWithTestImages(null).blockedImages, 0)
 
-// ----------------------------------------------------------- theming
-//
-// A sender ships a background AND the text colour that suits it. Removing only
+// Invariant: A sender ships a background AND the text colour that suits it. Removing only
 // the background is what makes a message unreadable — GitHub's #24292e text
 // would land on a #131313 ground — so both come out and the document
 // stylesheet supplies the pair.
@@ -527,7 +545,7 @@ assert.strictEqual(html.stripColors("<font color=\"#333\">hi</font>"), "<font>hi
 assert.strictEqual(html.stripColors("<p style=\"color:#24292e\">hi</p>"), "<p>hi</p>")
 assert.strictEqual(html.stripColors("<p style=\"background-color:#fff\">hi</p>"), "<p>hi</p>")
 
-// Everything that is not a colour survives: layout is the sender's to keep.
+// Invariant: Everything that is not a colour survives: layout is the sender's to keep.
 assert.strictEqual(
   html.stripColors("<p style=\"color:#111;font-weight:bold;padding:4px\">hi</p>"),
   "<p style=\"font-weight:bold;padding:4px\">hi</p>")
@@ -539,12 +557,12 @@ assert.strictEqual(html.stripColors("<img src=\"a.png\" width=\"600\">"),
 assert.strictEqual(html.stripColors(""), "")
 assert.strictEqual(html.stripColors(null), "")
 
-// sanitize does it by default, so nothing renders in the sender's palette
+// Invariant: sanitize does it by default, so nothing renders in the sender's palette
 // unless a caller explicitly asks to keep it.
-assert.ok(html.sanitize("<td bgcolor=\"#fff\" style=\"color:#000\">x</td>").html.indexOf("#") < 0)
-assert.ok(html.sanitize("<td bgcolor=\"#fff\">x</td>", { keepColors: true }).html.indexOf("#fff") > 0)
+assert.ok(sanitizeWithTestImages("<td bgcolor=\"#fff\" style=\"color:#000\">x</td>").html.indexOf("#") < 0)
+assert.ok(sanitizeWithTestImages("<td bgcolor=\"#fff\">x</td>", { keepColors: true }).html.indexOf("#fff") > 0)
 
-// An HTML `background` is not one of them. It is an image URL, Qt fetches it,
+// Invariant: An HTML `background` is not one of them. It is an image URL, Qt fetches it,
 // and it rode in the colour list because senders write it beside `bgcolor` —
 // so with `keepColors` on, a real message reached its sender's host with remote
 // images off. No appearance option may buy a network request, so the attributes
@@ -553,100 +571,98 @@ const painted = "<table background=\"https://static.example.net/tile.png\" bgcol
   + "<tr><td background=\"https://static.example.net/cell.png\" bgcolor=\"#eeeeee\">a</td>"
   + "<td>b</td></tr><tr><td>c</td><td>d</td></tr></table>"
 for (const options of [{}, { keepColors: true }, { keepColors: true, allowRemoteImages: true }]) {
-  const formatted = html.sanitize(painted, options).html
+  const formatted = sanitizeWithTestImages(painted, options).html
   assert.ok(formatted.indexOf("background=") < 0,
     "background survived " + JSON.stringify(options))
   assert.ok(formatted.indexOf("static.example.net") < 0)
 }
-// The colours themselves are still an appearance question, still answered by
+// Invariant: The colours themselves are still an appearance question, still answered by
 // the option rather than by the resource rule.
-assert.ok(html.sanitize(painted, { keepColors: true }).html.indexOf("#ffffff") > 0)
+assert.ok(sanitizeWithTestImages(painted, { keepColors: true }).html.indexOf("#ffffff") > 0)
 assert.strictEqual(html.stripColors("<body background=\"https://x.example.com/a.png\">t</body>"),
   "<body>t</body>")
 
-// The rest of the attributes whose value is an address rather than a value.
+// Invariant: The rest of the attributes whose value is an address rather than a value.
 for (const attribute of ["srcset", "lowsrc", "dynsrc", "poster", "usemap",
     "ping", "formaction", "longdesc"]) {
-  assert.ok(html.sanitize("<p " + attribute + "=\"https://x.example.com/a\">t</p>",
+  assert.ok(sanitizeWithTestImages("<p " + attribute + "=\"https://x.example.com/a\">t</p>",
     { keepColors: true }).html.indexOf("x.example.com") < 0,
     attribute + " kept an address")
 }
-// And a url() in a style is a fetch wherever the engine honours one, whatever
+// Invariant: And a url() in a style is a fetch wherever the engine honours one, whatever
 // the appearance setting says.
 for (const options of [{}, { keepColors: true }]) {
-  assert.ok(html.sanitize("<div style=\"background-image:url(https://x.example.com/a.png)\">t</div>",
+  assert.ok(sanitizeWithTestImages("<div style=\"background-image:url(https://x.example.com/a.png)\">t</div>",
     options).html.indexOf("url(") < 0)
 }
 
-// Spelled with a character reference it is the same fetch, and the reference
+// Invariant: Spelled with a character reference it is the same fetch, and the reference
 // carries a ";" — which is also what separates one declaration from the next.
 // Split on that ";", the declaration became two pieces that matched no rule
 // here and were written back out as the url( they started as, for Qt to decode.
 // So the references come out before anything is split.
 for (const hidden of ["&#117;rl", "&#x75;rl", "&amp;#117;rl", "u&#114;l"]) {
   for (const options of [{}, { keepColors: true }]) {
-    const out = html.sanitize("<div style=\"background-image:" + hidden
+    const out = sanitizeWithTestImages("<div style=\"background-image:" + hidden
       + "(https://x.example.com/a.png)\">t</div>", options).html
     assert.ok(out.indexOf("x.example.com") < 0,
       hidden + " reached the renderer " + JSON.stringify(options) + ": " + out)
   }
 }
-// The same reference used to smuggle a whole second declaration past the split.
+// Invariant: The same reference used to smuggle a whole second declaration past the split.
 assert.strictEqual(
-  html.sanitize("<div style=\"padding:2px&#59;background-image:url(https://x.example.com/a.png)\">t</div>",
+  sanitizeWithTestImages("<div style=\"padding:2px&#59;background-image:url(https://x.example.com/a.png)\">t</div>",
     { keepColors: true }).html,
   "<div style=\"padding:2px\">t</div>")
-// ...and to hide the thing that says it is hidden.
-assert.strictEqual(html.sanitize("<p style=\"display:&#110;one\">secret</p><p>real</p>").html,
+// Invariant: ...and to hide the thing that says it is hidden.
+assert.strictEqual(sanitizeWithTestImages("<p style=\"display:&#110;one\">secret</p><p>real</p>").html,
   "<p>real</p>")
-// CSS escapes and comments are the same smuggle after entities are gone.
+// Invariant: CSS escapes and comments are the same smuggle after entities are gone.
 // A hex escape is at most six digits; the space form is the other spelling.
 for (const hidden of ["\\000075rl", "\\75 rl", "url/**/", "\\\\75rl", "url/\\*\\*/", "url/\\2a\\2a/"]) {
   for (const options of [{}, { keepColors: true }]) {
-    const out = html.sanitize("<div style=\"background-image:" + hidden
+    const out = sanitizeWithTestImages("<div style=\"background-image:" + hidden
       + "(https://x.example.com/a.png)\">t</div>", options).html
     assert.ok(out.indexOf("x.example.com") < 0,
       hidden + " reached the renderer " + JSON.stringify(options) + ": " + out)
   }
 }
-// Duplicate src: only the first is judged, so the second must not survive.
-assert.ok(html.sanitize(
+// Invariant: Duplicate src: only the first is judged, so the second must not survive.
+assert.ok(sanitizeWithTestImages(
   "<img src=\"data:image/png;base64,AAA\" src=\"https://x.example.com/a.png\" width=\"90\">"
 ).html.indexOf("x.example.com") < 0)
 
-// A `src` is an image's attribute and is checked as one. Anywhere else it is
+// Invariant: A `src` is an image's attribute and is checked as one. Anywhere else it is
 // the same address with none of that checking behind it.
 for (const source of ["<input type=\"image\" src=\"https://x.example.com/a.png\">",
     "<image src=\"https://x.example.com/a.png\">"]) {
-  assert.ok(html.sanitize(source, { allowRemoteImages: true }).html.indexOf("x.example.com") < 0,
+  assert.ok(sanitizeWithTestImages(source, { allowRemoteImages: true }).html.indexOf("x.example.com") < 0,
     "a src survived on " + source)
 }
 
-// A data: URL is the message's own bytes only when it is a raster picture.
+// Invariant: A data: URL is the message's own bytes only when it is a raster picture.
 // SVG is a document with references of its own; the fetch worker refuses it
 // and so does the sanitiser, even with remote images off.
-assert.ok(html.sanitize("<img src=\"" + tinyPng + "\">").html.indexOf("data:image/png") > 0)
-assert.strictEqual(html.sanitize("<img src=\"" + disguisedSvg + "\">").html, "",
+assert.ok(sanitizeWithTestImages("<img src=\"" + tinyPng + "\">").html.indexOf("data:image/png") > 0)
+assert.strictEqual(sanitizeWithTestImages("<img src=\"" + disguisedSvg + "\">").html, "",
   "a disguised document must be removed before rendering")
-assert.strictEqual(html.sanitize("<img src=\"data:text/html,<b>x\">").html, "")
-assert.strictEqual(html.sanitize("<img src=\"data:image/svg+xml;base64,AAA\">").html, "")
+assert.strictEqual(sanitizeWithTestImages("<img src=\"data:text/html,<b>x\">").html, "")
+assert.strictEqual(sanitizeWithTestImages("<img src=\"data:image/svg+xml;base64,AAA\">").html, "")
 assert.strictEqual(html.imageSourceKind("data:image/svg+xml;base64,AAA"), "unsafe")
 
-// The host is the one question where reading an address twice is not the safe
+// Invariant: The host is the one question where reading an address twice is not the safe
 // direction: a second decoding can turn up a "@" and hand the authority to a
 // later label. So it has to be public to both readings.
-assert.ok(html.sanitize("<img src=\"https://127.0.0.1&amp;#64;good.example.com/x.png\">",
+assert.ok(sanitizeWithTestImages("<img src=\"https://127.0.0.1&amp;#64;good.example.com/x.png\">",
   { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
 assert.strictEqual(
   reading("<p><a href=\"https://127.0.0.1&amp;#64;good.example.com/x\">t</a></p>").html, "<p>t</p>")
-// An "&" in an ordinary query string decodes to itself and changes no host.
+// Invariant: An "&" in an ordinary query string decodes to itself and changes no host.
 assert.strictEqual(
   reading("<p><a href=\"https://good.example.com/a?b=1&amp;c=2\">t</a></p>").html,
   "<p><a href=\"https://good.example.com/a?b=1&amp;c=2\">t</a></p>")
 
-// ------------------------------------------------- markup that was text
-//
-// The tokenizer refuses a "<" that starts no tag and keeps it as text, and the
+// Performance: The tokenizer refuses a "<" that starts no tag and keeps it as text, and the
 // serialiser used to write it back exactly as it found it. That held only while
 // nothing moved the text: `collapse` welds together the text on either side of
 // a span it unwraps, and reading mode rebuilds a paragraph out of pieces and
@@ -655,16 +671,16 @@ assert.strictEqual(
 // nobody sent — past the image policy, past the link rule, past all of it,
 // because by then it was not an element, it was a string.
 const smuggled = [
-  // A zero-width space is what stopped it being a tag on the way in.
+  // Invariant: A zero-width space is what stopped it being a tag on the way in.
   "<p>Hello <\u200bimg src=\"http://127.0.0.1:9/x.png\" width=\"1\" height=\"1\"> world</p>",
-  // No zero-width needed when the halves are in two elements.
+  // Invariant: No zero-width needed when the halves are in two elements.
   "<p><span><</span><span>img src=\"https://x.example.com/b.png\"></span></p>",
   "<pre><b><</b>img src=\"https://x.example.com/c.png\"></pre>",
   "<p><\u200ba href=\"file:///etc/passwd\">click me</p>",
   "<p><\u200bstyle>body{background-image:url(https://x.example.com/x.png)}</p>"
 ]
 for (const source of smuggled) {
-  const ready = html.sanitize(source, { withReader: true })
+  const ready = sanitizeWithTestImages(source, { withReader: true })
   for (const [view, out] of [["formatted", ready.html], ["reading", ready.reader.html]]) {
     assert.ok(!/<(img|a|style)\b/i.test(out.replace(/<\/?(p|span|pre|b|strong|em|br)\b[^>]*>/gi, "")),
       view + " parsed a tag out of text: " + out)
@@ -672,13 +688,11 @@ for (const source of smuggled) {
   assert.strictEqual(ready.reader.images + ready.reader.blockedImages, 0,
     "an image nobody counted reached the reading: " + ready.reader.html)
 }
-// What the sender actually typed still reads as itself, entities and all.
+// Invariant: What the sender actually typed still reads as itself, entities and all.
 assert.strictEqual(reading("<p>a &lt; b, 3<4, &pound;4.00 and two &amp; three</p>").html,
   "<p>a &lt; b, 3&lt;4, &pound;4.00 and two &amp; three</p>")
 
-// --------------------------------------------------------- table nesting
-//
-// Qt lays tables out by resolving column widths against each other, and
+// Invariant: Qt lays tables out by resolving column widths against each other, and
 // deeply nested tables with competing widths keep that resolution going far
 // longer than anyone waits — with the GUI thread held, which in this plugin is
 // the thread drawing the whole desktop. Real mail in a live mailbox reaches
@@ -688,10 +702,10 @@ assert.strictEqual(html.tableDepth("<table><tr><td>x</td></tr></table>"), 1)
 assert.strictEqual(html.tableDepth("<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>"), 2)
 assert.strictEqual(html.tableDepth("<p>none</p>"), 0)
 assert.strictEqual(html.tableDepth(null), 0)
-// Sibling tables are not nesting.
+// Invariant: Sibling tables are not nesting.
 assert.strictEqual(html.tableDepth("<table></table><table></table>"), 1)
 
-// A grid survives untouched however deep it sits: two rows that each hold more
+// Invariant: A grid survives untouched however deep it sits: two rows that each hold more
 // than one cell is the sender saying "these line up", and nothing else in the
 // message says it.
 const grid = "<table><tr><th>Status</th><th>Job</th></tr><tr><td>ok</td><td>build</td></tr></table>"
@@ -700,23 +714,23 @@ assert.strictEqual(html.flattenTables("<table><tr><td><table><tr><td>"
   + grid + "</td></tr></table></td></tr></table>").indexOf("<th>Status</th>") > 0, true,
   "a grid three tables down is still the message")
 
-// A row of cells is not a grid: one row is how mail lays a logo out beside a
+// Invariant: A row of cells is not a grid: one row is how mail lays a logo out beside a
 // nav, and how GitHub centres a card. It becomes plain blocks.
 const strip = "<table><tr><td>logo</td><td>nav</td></tr></table>"
 assert.strictEqual(html.flattenTables(strip, 2).indexOf("<table"), -1)
 assert.ok(html.flattenTables(strip, 2).indexOf("logo") > 0, "the content stays")
 
-// So does a single cell, which is a box and nothing more — with whatever
+// Invariant: So does a single cell, which is a box and nothing more — with whatever
 // styling rode on it.
 const deep = "<table><tr><td><table><tr><td><table><tr><td style=\"padding:4px\">deep</td></tr></table></td></tr></table></td></tr></table>"
 const flat = html.flattenTables(deep, 2)
 assert.strictEqual(html.tableDepth(flat), 0, "no layout table survives at any depth")
 assert.ok(flat.indexOf("deep") > 0, "the content stays")
 assert.ok(flat.indexOf("padding:4px") > 0, "and so does its styling")
-// Tags balance, or Qt renders the rest of the message inside a stray block.
+// Invariant: Tags balance, or Qt renders the rest of the message inside a stray block.
 assert.strictEqual((flat.match(/<div/g) || []).length, (flat.match(/<\/div>/g) || []).length)
 
-// The depth cap is still the backstop, and it counts the grids that were kept
+// Invariant: The depth cap is still the backstop, and it counts the grids that were kept
 // rather than every box on the way down.
 const grids = "<table><tr><td>a</td><td>b</td></tr><tr><td><table><tr><td>c</td><td>d</td></tr>"
   + "<tr><td><table><tr><td>e</td><td>f</td></tr><tr><td>g</td><td>h</td></tr></table></td></tr>"
@@ -724,18 +738,16 @@ const grids = "<table><tr><td>a</td><td>b</td></tr><tr><td><table><tr><td>c</td>
 assert.strictEqual(html.tableDepth(grids), 3)
 assert.strictEqual(html.tableDepth(html.flattenTables(grids, 2)), 2, "nothing survives past the limit")
 
-// sanitize flattens by default; a caller can ask for the original.
-assert.strictEqual(html.complexity(html.sanitize(deep).html).tableDepth, 0)
-assert.strictEqual(html.complexity(html.sanitize(deep, { keepTables: true }).html).tableDepth, 3)
+// Invariant: sanitize flattens by default; a caller can ask for the original.
+assert.strictEqual(html.complexity(sanitizeWithTestImages(deep).html).tableDepth, 0)
+assert.strictEqual(html.complexity(sanitizeWithTestImages(deep, { keepTables: true }).html).tableDepth, 3)
 
-// The backstop still catches anything flattening cannot tame.
+// Invariant: The backstop still catches anything flattening cannot tame.
 let wide = ""
-for (let i = 0; i < html.MAX_TABLES + 5; i++) wide += "<table><tr><td>x</td></tr></table>"
+for (let index = 0; index < html.MAX_TABLES + 5; index++) wide += "<table><tr><td>x</td></tr></table>"
 assert.strictEqual(html.tooHeavyForRichText(wide), true, "too many tables is still too many")
 
-// ------------------------------------------------------------- document
-//
-// Colours are passed in from the panel, which reads them off the active theme.
+// Invariant: Colours are passed in from the panel, which reads them off the active theme.
 // Nothing in this file may name a colour.
 
 const doc = html.documentFor("<p>hi</p>", {
@@ -746,17 +758,17 @@ assert.ok(doc.indexOf("#cacccc") > 0, "the theme foreground reaches the document
 assert.ok(doc.indexOf("blockquote") > 0, "quoted replies get their own colour")
 assert.ok(doc.indexOf("<html>") === 0)
 
-// A caller that passes nothing still gets a well-formed document rather than
+// Invariant: A caller that passes nothing still gets a well-formed document rather than
 // "undefined" in the stylesheet.
 const bare = html.documentFor("x")
 assert.ok(bare.indexOf("undefined") < 0)
 assert.ok(bare.indexOf("x</body>") > 0)
 
-// QTextDocument ignores max-width on ordinary containers. The QML reader uses
+// Invariant: QTextDocument ignores max-width on ordinary containers. The QML reader uses
 // the sender's outer content width instead, so a 600px message does not stretch
 // across a wide monitor.
 {
-  const card = html.sanitize("<html><body><div style=\"max-width:600px\">"
+  const card = sanitizeWithTestImages("<html><body><div style=\"max-width:600px\">"
     + "<div style=\"max-width:520px\"><p>copy</p></div></div></body></html>")
   assert.strictEqual(html.preferredContentWidth(card.document, 1800), 600)
   assert.strictEqual(html.preferredContentWidth(card.document, 480), 480,
@@ -765,10 +777,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
     "unconstrained mail keeps the available width")
 }
 
-
-// ------------------------------------------------- plain text with images
-//
-// Stripping images outright left a message built around its pictures reading as
+// Invariant: Stripping images outright left a message built around its pictures reading as
 // a long run of unexplained blank space.
 {
   deepEqual(html.readPlainText('<img src="a.png"><img src=\'b b.png\'><img data-x=1 src=c.png >').images,
@@ -784,7 +793,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.ok(plainDoc.indexOf("&nbsp;&nbsp;spaced") > 0, "hand-made alignment survives")
   assert.ok(plainDoc.indexOf("Hi<br>") > 0, "line breaks survive")
 
-  // A sender pads the inbox's preview line with characters that draw nothing —
+  // Invariant: A sender pads the inbox's preview line with characters that draw nothing —
   // soft hyphens and combining grapheme joiners, hundreds of them — so the list
   // shows one sentence and stops. Linear's text/plain is fifty lines, and
   // thirty-one of them hold nothing but that padding: rendered honestly, a page
@@ -792,18 +801,18 @@ assert.ok(bare.indexOf("x</body>") > 0)
   var padded = "Lead sentence.\n\n\u034f \u00ad\u034f\u2007\u00a0\u00ad\u034f\n \u00ad\u034f\n\nBody."
   assert.strictEqual(html.readableText(padded), "Lead sentence.\n\nBody.")
   assert.ok(html.plainTextDocument(padded, {}, false).indexOf("Lead sentence.<br><br>Body.") > 0)
-  // One blank line is a paragraph break and stays one.
+  // Invariant: One blank line is a paragraph break and stays one.
   assert.strictEqual(html.readableText("a\n\nb"), "a\n\nb")
   assert.strictEqual(html.readableText("a\n\n\n\n\nb"), "a\n\nb")
-  // A line the sender indented is still indented, and a single break is single.
+  // Invariant: A line the sender indented is still indented, and a single break is single.
   assert.strictEqual(html.readableText("a\n  b"), "a\n  b")
-  // Spacing inside a line that says something is the sender aligning it.
+  // Invariant: Spacing inside a line that says something is the sender aligning it.
   assert.strictEqual(html.readableText("Name\u00a0\u00a0Jane"), "Name\u00a0\u00a0Jane")
-  // A zero-width space inside a word is padding too, and the word closes up.
+  // Invariant: A zero-width space inside a word is padding too, and the word closes up.
   assert.strictEqual(html.readableText("un\u200bsubscribe"), "unsubscribe")
   assert.strictEqual(html.readableText(null), "")
 
-  // A message that shipped its own text/plain part never had images in it.
+  // Invariant: A message that shipped its own text/plain part never had images in it.
   assert.ok(html.plainTextDocument("[image 1]", {}, false).indexOf("<a ") < 0,
     "markers are left alone when the text is the sender's own")
 
@@ -813,21 +822,18 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.strictEqual(html.imageLinkIndex(""), 0)
 }
 
-
-// ------------------------------------------------------- fitting to width
-//
-// These encode facts measured against Qt's own rich text engine: max-width is
+// Invariant: These encode facts measured against Qt's own rich text engine: max-width is
 // honoured in pixels but a percentage collapses the image, and an explicit
 // height survives the clamp and smears the picture.
 {
-  var cssSizedLogo = html.sanitize(
+  var cssSizedLogo = sanitizeWithTestImages(
     '<img src="https://cdn.example.com/logo.png" style="height:34px;padding:3px">',
     { allowRemoteImages: true })
   var logoDoc = html.documentFor(cssSizedLogo.document, { maxImageWidth: 1200 })
   assert.ok(logoDoc.indexOf('height="34"') > 0,
     "a CSS-only logo height becomes the HTML attribute Qt supports")
 
-  var logoRow = html.sanitize('<div style="line-height:0;font-size:0">'
+  var logoRow = sanitizeWithTestImages('<div style="line-height:0;font-size:0">'
     + '<img src="https://cdn.example.com/logo.png" style="height:34px"></div>'
     + '<p>Title below</p>', { allowRemoteImages: true }).html
   assert.ok(logoRow.indexOf("line-height:0") < 0,
@@ -854,7 +860,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.ok(compact.indexOf("margin:10px 0") > 0, "vertical rhythm stays")
   assert.ok(compact.indexOf("padding:5px 0 7px 0") > 0, "all four sides handled")
 
-  // The reader rebuilds its document on every relayout from the document
+  // Performance: The reader rebuilds its document on every relayout from the document
   // `sanitize` already built, so a whole drag costs no parse at all — which is
   // only safe as long as fitting writes the tree out rather than editing it. A
   // narrow pass must not leave its marks on the wide one that follows.
@@ -862,7 +868,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   // clamped by the stylesheet's max-width instead.
   var fitted = "<table width=\"600\"><tr><td>a</td><td>b</td></tr>"
     + "<tr><td style=\"padding:4px 30px\">"
-    + "<img src=\"a.png\" width=\"540\" height=\"200\"></td><td>c</td></tr></table>"
+    + "<img src=\"" + tinyPng + "\" width=\"540\" height=\"200\"></td><td>c</td></tr></table>"
   var narrow = html.documentFor(fitted, { maxImageWidth: 380, compact: true })
   var roomy = html.documentFor(fitted, { maxImageWidth: 800, compact: true })
   assert.ok(narrow.indexOf('width="600"') < 0, "600 does not fit in 380")
@@ -870,9 +876,9 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.ok(narrow.indexOf("padding:4px 0") > 0)
   assert.strictEqual(html.documentFor(fitted, { maxImageWidth: 380, compact: true }), narrow,
     "and the same width twice is the same document")
-  // Uncompacted, the sender's gutters are their own again.
+  // Invariant: Uncompacted, the sender's gutters are their own again.
   assert.ok(html.documentFor(fitted, { maxImageWidth: 380 }).indexOf("padding:4px 30px") > 0)
-  // A width the window cannot hold is given up at every window, though: the
+  // Invariant: A width the window cannot hold is given up at every window, though: the
   // reader has no horizontal scroll, so what overflows is simply not read.
   assert.ok(html.documentFor(fitted, { maxImageWidth: 380 }).indexOf('width="600"') < 0)
   assert.ok(html.documentFor(fitted, { maxImageWidth: 800 }).indexOf('width="600"') > 0,
@@ -882,15 +888,15 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.ok(html.documentFor(fitted, { maxImageWidth: 800 }).indexOf('height="200"') > 0,
     "an image that already fits keeps its intended height")
 
-  // The document itself is accepted in place of the string written from it, and
+  // Invariant: The document itself is accepted in place of the string written from it, and
   // has to fit to exactly the same thing.
-  var built = html.sanitize(fitted, { allowRemoteImages: true })
+  var built = sanitizeWithTestImages(fitted, { allowRemoteImages: true })
   assert.strictEqual(html.documentFor(built.document, { maxImageWidth: 380, compact: true }),
     html.documentFor(built.html, { maxImageWidth: 380, compact: true }))
   assert.strictEqual(html.documentFor(built.document, { maxImageWidth: 800, compact: true })
     .indexOf('width="600"') > 0, true, "and it is still good at the next width")
 
-  // Qt honours white-space:nowrap, and the reader has nowhere to scroll to. A
+  // Invariant: Qt honours white-space:nowrap, and the reader has nowhere to scroll to. A
   // heading the sender promised would stay on one line is a heading cut off at
   // the panel's edge — Cloudflare's Chinese subject ran a third of the way past
   // it. Wrapping is what the reader can honour.
@@ -906,7 +912,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   assert.ok(relaxed.indexOf('width="100"') > 0, "one that fits is left alone")
   assert.ok(relaxed.indexOf("width:640px") < 0, "declared widths too")
 
-  // Some mail templates use a 1%-wide cell plus nowrap to mean "take only
+  // Invariant: Some mail templates use a 1%-wide cell plus nowrap to mean "take only
   // what the label needs". Qt does not implement that intrinsic sizing. Once
   // nowrap is removed, the percentage squeezes each word into one character
   // per line. The Semrush status labels exposed this combination.
@@ -925,10 +931,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
     "the intrinsic table around the labels is not squeezed either")
 }
 
-
-// ------------------------------------------------------------ hidden text
-//
-// Measured: Qt's rich text engine ignores display:none outright, but honours
+// Invariant: Measured: Qt's rich text engine ignores display:none outright, but honours
 // font-size — so an email preheader, which is hidden text set at 1px, renders
 // as a two-pixel smudge of unreadable characters above the message.
 {
@@ -943,34 +946,31 @@ assert.ok(bare.indexOf("x</body>") > 0)
     "<p>before</p>", "an unclosed hidden element runs to the end")
   assert.strictEqual(html.dropHidden('<div style="color:red">keep</div>'),
     '<div style="color:red">keep</div>', "visible markup is untouched")
-  // A void element has no subtree to eat, so it must not swallow what follows.
+  // Invariant: A void element has no subtree to eat, so it must not swallow what follows.
   assert.ok(html.dropHidden('<img src=a.png style="display:none"><p>real</p>').indexOf("<p>real</p>") >= 0)
 
-  assert.ok(html.sanitize('<div style="display:none">SECRET</div><p>real</p>').html.indexOf("SECRET") < 0,
+  assert.ok(sanitizeWithTestImages('<div style="display:none">SECRET</div><p>real</p>').html.indexOf("SECRET") < 0,
     "and the sanitizer applies it")
 }
 
-
-// ============================================================== reading mode
-//
-// A different question from the one the sanitiser answers. The sanitiser is a
+// Invariant: A different question from the one the sanitiser answers. The sanitiser is a
 // filter over the sender's document and is judged on what it removed; this
 // builds a document of its own and is judged on what it kept — every word the
 // message says, in order, with none of the sender's presentation anywhere in
 // it.
 
-// Every attribute in a reading-mode document, as "element/name" pairs. The
+// Invariant: Every attribute in a reading-mode document, as "element/name" pairs. The
 // whole security argument for this mode is that the list is `a/href` and
 // `img/src` and cannot be anything else, because no attribute is ever copied
 // from the sender's tree — each one in the output was constructed from a value
 // that had already been checked.
 function attributesOf(node, out) {
   var children = node.children || []
-  for (var i = 0; i < children.length; i++) {
-    var child = children[i]
+  for (var index = 0; index < children.length; index++) {
+    var child = children[index]
     if (child.type === "text") continue
-    for (var j = 0; j < child.attrs.length; j++) {
-      out.push(child.name + "/" + child.attrs[j].name)
+    for (var attributeIndex = 0; attributeIndex < child.attrs.length; attributeIndex++) {
+      out.push(child.name + "/" + child.attrs[attributeIndex].name)
     }
     attributesOf(child, out)
   }
@@ -979,7 +979,7 @@ function attributesOf(node, out) {
 
 function reading(source, options) {
   const settings = Object.assign({ withReader: true }, options || {})
-  const ready = html.sanitize(source, settings)
+  const ready = sanitizeWithTestImages(source, settings)
   const kinds = {}
   for (const pair of attributesOf(ready.reader.document, [])) kinds[pair] = true
   for (const pair of Object.keys(kinds)) {
@@ -989,7 +989,7 @@ function reading(source, options) {
       || pair === "td/valign" || pair === "td/style",
       "reading mode emitted " + pair + ", which is a sender attribute it cannot have")
   }
-  // The attribute list is only half of it. An element the reader never built
+  // Invariant: The attribute list is only half of it. An element the reader never built
   // can still arrive as text: this mode joins text the sender kept apart, so a
   // "<" that was not a tag when it was parsed can be one by the time it is
   // written. Every "<" in the output has to belong to an element in the tree.
@@ -1003,26 +1003,26 @@ function reading(source, options) {
 function elementsOf(node) {
   var total = 0
   var children = node.children || []
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].type === "text") continue
-    total += 1 + elementsOf(children[i])
+  for (var index = 0; index < children.length; index++) {
+    if (children[index].type === "text") continue
+    total += 1 + elementsOf(children[index])
   }
   return total
 }
 
-// An <img> or a <br> writes one "<" rather than two.
+// Invariant: An <img> or a <br> writes one "<" rather than two.
 function voidsOf(node) {
   var total = 0
   var children = node.children || []
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].type === "text") continue
-    if (children[i].name === "img" || children[i].name === "br" || children[i].name === "hr") total++
-    total += voidsOf(children[i])
+  for (var index = 0; index < children.length; index++) {
+    if (children[index].type === "text") continue
+    if (children[index].name === "img" || children[index].name === "br" || children[index].name === "hr") total++
+    total += voidsOf(children[index])
   }
   return total
 }
 
-// A newsletter shaped like the ones that made this mode necessary: a card seven
+// Invariant: A newsletter shaped like the ones that made this mode necessary: a card seven
 // layout tables down, rows of avatars and names, a styled call to action, a
 // footer, a beacon, and a preheader hidden four different ways. No real domain
 // and nothing from anybody's mailbox — the structure is the fixture.
@@ -1030,8 +1030,8 @@ function activityMail() {
   function boxes(depth, inner) {
     var open = ""
     var close = ""
-    for (var i = 0; i < depth; i++) {
-      open += '<table width="' + (600 - i * 20) + '" align="center" cellpadding="0"'
+    for (var index = 0; index < depth; index++) {
+      open += '<table width="' + (600 - index * 20) + '" align="center" cellpadding="0"'
         + ' cellspacing="0" bgcolor="#ffffff"'
         + ' background="https://static.example.net/tile.png" class="card">'
         + '<tr><td align="center" style="padding:0 24px;'
@@ -1042,11 +1042,11 @@ function activityMail() {
   }
 
   var people = ""
-  for (var i = 1; i <= 3; i++) {
+  for (var index = 1; index <= 3; index++) {
     people += '<table width="100%"><tr>'
-      + '<td width="40"><img src="https://static.example.net/avatar' + i + '.png"'
+      + '<td width="40"><img src="https://static.example.net/avatar' + index + '.png"'
       + ' width="32" height="32" alt=""></td>'
-      + '<td style="font-family:Graphik;font-size:14px;color:#050038">Person ' + i + '</td>'
+      + '<td style="font-family:Graphik;font-size:14px;color:#050038">Person ' + index + '</td>'
       + '<td align="right" style="font-size:12px;color:#6c6c6c">moved 4 cards</td>'
       + '</tr></table>'
   }
@@ -1078,7 +1078,7 @@ function activityMail() {
   const newsletter = activityMail()
   const read = reading(newsletter)
 
-  // Everything the message says, in the order it says it, and nothing about how
+  // Invariant: Everything the message says, in the order it says it, and nothing about how
   // it was arranged to say it.
   assert.strictEqual(read.html,
     "<p>Example</p>"
@@ -1091,18 +1091,18 @@ function activityMail() {
     + "<p>You are a member of this board. "
     + "<a href=\"https://example.com/unsubscribe\">Unsubscribe</a> at any time.</p>")
 
-  // The sender's fourteen tables, eight deep, are gone as structure rather than
+  // Invariant: The sender's fourteen tables, eight deep, are gone as structure rather than
   // flattened into eight levels of empty box.
   assert.ok(html.complexity(newsletter).tableDepth >= 7, "the fixture really is a stack of tables")
   assert.strictEqual(read.complexity.tables, 0)
   assert.strictEqual(read.complexity.tableDepth, 0)
 
-  // A row of a layout table is a line. Three paragraphs where a name and what
+  // Invariant: A row of a layout table is a line. Three paragraphs where a name and what
   // that person did used to sit side by side is the loose vertical stream this
   // whole mode exists to stop producing.
   assert.ok(read.html.indexOf("Person 2 moved 4 cards") > 0)
 
-  // Not one attribute of the sender's survived, checked by name rather than by
+  // Invariant: Not one attribute of the sender's survived, checked by name rather than by
   // reading the string: `reading` walks the document and refuses anything that
   // is not a/href or img/src.
   for (const attribute of ["class=", "bgcolor=", "background=", "align=",
@@ -1111,27 +1111,26 @@ function activityMail() {
       "reading mode kept " + attribute + " from the sender")
   }
 
-  // The preheader is hidden four ways at once, and Qt honours none of them.
+  // Invariant: The preheader is hidden four ways at once, and Qt honours none of them.
   assert.ok(read.html.indexOf("Three people were busy") < 0, "the preheader stays hidden")
   assert.ok(read.html.indexOf("width:100%") < 0, "and the stylesheet is not body text")
   assert.ok(read.html.indexOf("Board activity") < 0, "nor is the <title>")
 
-  // The beacon is not a picture, so it leaves nothing behind — not even a
+  // Invariant: The beacon is not a picture, so it leaves nothing behind — not even a
   // placeholder, which would be announcing the tracker rather than removing it.
   assert.ok(read.html.indexOf("track.example.net") < 0)
   assert.ok(read.html.indexOf("open.gif") < 0)
 
-  // The call to action was a link styled as a button. It is a link.
+  // Invariant: The call to action was a link styled as a button. It is a link.
   assert.ok(read.html.indexOf("<a href=\"https://example.com/board/123\">Open the board</a>") > 0)
 
-  // Reading mode is lighter than the formatted view of the same message, which
+  // Invariant: Reading mode is lighter than the formatted view of the same message, which
   // is what lets it draw messages the formatted view refuses.
-  const formatted = html.sanitize(newsletter)
+  const formatted = sanitizeWithTestImages(newsletter)
   assert.ok(read.complexity.tags < formatted.complexity.tags)
   assert.strictEqual(read.tooHeavy, false)
 }
 
-// ------------------------------------------------------------ what is kept
 {
   const read = reading("<h1>Title</h1><h2>Second</h2><p>A <b>bold</b> word and an <i>emphasised</i> one.</p>"
     + "<ul><li>one</li><li>two &amp; three</li></ul>"
@@ -1149,34 +1148,32 @@ function activityMail() {
     + "<p><code>inline()</code></p><pre>  indented\n  lines</pre>"
     + "<hr><p>After the rule, <a href=\"https://example.com/x\">a link</a>.</p>")
 
-  // Every spelling of the same intention arrives as one element, because the
+  // Invariant: Every spelling of the same intention arrives as one element, because the
   // reader draws one thing for it.
   assert.strictEqual(reading("<strong>a</strong><em>b</em><cite>c</cite><kbd>d</kbd>").html,
     "<p><strong>a</strong><em>b</em><em>c</em><code>d</code></p>")
-  // Type the sender set is not markup the reader draws.
+  // Invariant: Type the sender set is not markup the reader draws.
   assert.strictEqual(reading("<font face=\"Arial\" color=\"#f00\"><span style=\"font-size:9px\">"
     + "small print</span></font>").html, "<p>small print</p>")
 
-  // A run of whitespace in the source is one space; the indentation a template
+  // Invariant: A run of whitespace in the source is one space; the indentation a template
   // arrives with is none.
   assert.strictEqual(reading("<div>\n  <div>\n    <p>\n      Dear Sir,\n    </p>\n  </div>\n</div>").html,
     "<p>Dear Sir,</p>")
   assert.strictEqual(reading("<p>Body <a href=\"https://example.com/a\">link</a> tail</p>").html,
     "<p>Body <a href=\"https://example.com/a\">link</a> tail</p>")
-  // Mail is padded with characters that draw nothing so the inbox preview line
+  // Invariant: Mail is padded with characters that draw nothing so the inbox preview line
   // ends where the sender wants it to.
   assert.strictEqual(reading("<p>Ends here.­​​​⁠</p>").html,
     "<p>Ends here.</p>")
-  // A block with nothing in it is not a blank line in the reader.
+  // Invariant: A block with nothing in it is not a blank line in the reader.
   assert.strictEqual(reading("<p>a</p><div>&nbsp;</div><div><br></div><p>b</p>").html,
     "<p>a</p><p>b</p>")
   assert.strictEqual(reading("").html, "")
   assert.strictEqual(reading("<div><table><tr><td>&nbsp;</td></tr></table></div>").empty, true)
 }
 
-// -------------------------------------------------------- inferred headings
-//
-// Most headings in mail are not elements. They are a cell with a font size on
+// Invariant: Most headings in mail are not elements. They are a cell with a font size on
 // it, and the size is the only honest evidence there is.
 {
   assert.strictEqual(reading("<div style=\"font-size:28px;font-weight:600\">Your week</div>").html,
@@ -1190,37 +1187,36 @@ function activityMail() {
   assert.strictEqual(reading("<div style=\"font-size:150%\">Your week</div>").html,
     "<h3>Your week</h3>")
 
-  // Never from weight. Half the lines in a newsletter are bold and none of them
+  // Invariant: Never from weight. Half the lines in a newsletter are bold and none of them
   // are headings.
   assert.strictEqual(reading("<div style=\"font-weight:bold\">Not a heading</div>").html,
     "<p>Not a heading</p>")
   assert.strictEqual(reading("<div style=\"font-size:16px;font-weight:800\">Not a heading</div>").html,
     "<p>Not a heading</p>")
-  // Nor from a long line: a paragraph the sender set large is still a paragraph,
+  // Invariant: Nor from a long line: a paragraph the sender set large is still a paragraph,
   // and promoting it puts a page of body copy in heading type.
   const paragraph = "This is a long run of body copy that the sender happened to set "
     + "in a larger size than the rest of the message, which does not make it a heading."
   assert.strictEqual(reading("<div style=\"font-size:24px\">" + paragraph + "</div>").html,
     "<p>" + paragraph + "</p>")
-  // A whole card inside one large-typed box is the card, not a heading.
+  // Invariant: A whole card inside one large-typed box is the card, not a heading.
   assert.strictEqual(
     reading("<div style=\"font-size:24px\"><p>Short.</p><p>Also short.</p></div>").html,
     "<p>Short.</p><p>Also short.</p>")
 
-  // A native heading is kept at the level the sender wrote, and rebuilt: the
+  // Invariant: A native heading is kept at the level the sender wrote, and rebuilt: the
   // size it is drawn at is the reader's.
   assert.strictEqual(reading("<h4 style=\"font-size:40px;color:#f00\">Small heading</h4>").html,
     "<h4>Small heading</h4>")
-  // A link inside a large-typed cell keeps its address rather than being
+  // Performance: A link inside a large-typed cell keeps its address rather than being
   // recursed away from it.
   assert.strictEqual(
     reading("<a href=\"https://example.com/go\"><td style=\"font-size:26px\">Go</td></a>").html,
     "<p><a href=\"https://example.com/go\">Go</a></p>")
 }
 
-// ------------------------------------------------------------------ tables
 {
-  // A grid — two rows that each hold more than one cell — is the sender saying
+  // Invariant: A grid — two rows that each hold more than one cell — is the sender saying
   // these cells line up with those, which is the one thing a stack of blocks
   // cannot say. It survives, with nothing on it.
   assert.strictEqual(
@@ -1232,21 +1228,21 @@ function activityMail() {
     + "<tr><td>Tea</td><td>&pound;4.00</td></tr>"
     + "<tr><td>Coffee</td><td>&pound;3.50</td></tr></table>")
 
-  // A statement must not become one run-together line, which is what removing
+  // Invariant: A statement must not become one run-together line, which is what removing
   // the table without replacing the boundaries does.
   const statement = reading("<table><tr><th>Period</th><th>Charge</th></tr>"
     + "<tr><td>July</td><td>12.00</td></tr><tr><td>August</td><td>13.00</td></tr></table>").html
   assert.ok(statement.indexOf("<td>July</td><td>12.00</td>") > 0)
   assert.ok(statement.indexOf("July12.00") < 0)
 
-  // Everything else is the scaffolding a card is centred with, and its cells
+  // Invariant: Everything else is the scaffolding a card is centred with, and its cells
   // are the blocks they always were, in the order they were written.
   const layout = reading("<table><tr><td><table><tr><td>"
     + "<h2>Inner</h2><p>Body</p></td></tr></table></td></tr></table>")
   assert.strictEqual(layout.html, "<h2>Inner</h2><p>Body</p>")
   assert.strictEqual(layout.complexity.tables, 0)
 
-  // One table of grid is what the reader draws. A grid inside a kept cell is
+  // Invariant: One table of grid is what the reader draws. A grid inside a kept cell is
   // the scaffolding again.
   const nested = reading("<table><tr><td>a</td><td>b</td></tr>"
     + "<tr><td><table><tr><td>x</td><td>y</td></tr><tr><td>z</td><td>w</td></tr></table></td>"
@@ -1254,7 +1250,7 @@ function activityMail() {
   assert.strictEqual(nested.complexity.tables, 1)
   assert.ok(nested.html.indexOf("x y") > 0, "and what was in it is still readable")
 
-  // A grid too wide or too long to read is not a grid worth laying out.
+  // Invariant: A grid too wide or too long to read is not a grid worth laying out.
   let manyColumns = "<table>"
   for (let row = 0; row < 2; row++) {
     manyColumns += "<tr>"
@@ -1264,9 +1260,7 @@ function activityMail() {
   assert.strictEqual(reading(manyColumns + "</table>").complexity.tables, 0)
 }
 
-// ---------------------------------------------------------------- addresses
-//
-// Reading mode is built from an allow list rather than filtered, and its list
+// Invariant: Reading mode is built from an allow list rather than filtered, and its list
 // is stricter than the formatted view's on purpose: a message must not be able
 // to put the machine this runs on, or the network behind the user's front door,
 // under the pointer.
@@ -1288,16 +1282,15 @@ function activityMail() {
       "192.168.1.1", "[::1]", "printer", "nas.local"]) {
     assert.ok(links.indexOf(refused) < 0, refused + " reached the rendered document")
   }
-  // The label is still the message's words even where the address is refused.
+  // Invariant: The label is still the message's words even where the address is refused.
   assert.ok(links.indexOf("loopback") > 0 && links.indexOf("single label") > 0)
   assert.ok(links.indexOf("<a href=\"mailto:someone@example.com\">mail</a>") > 0)
   assert.ok(links.indexOf("<a href=\"https://example.com/ok\">public</a>") > 0)
   assert.strictEqual((links.match(/<a /g) || []).length, 2, "and nothing else is a link")
 }
 
-// ------------------------------------------------------------------ images
 {
-  // Nothing remote is fetched unless the reader asked. The fetch alone tells
+  // Invariant: Nothing remote is fetched unless the reader asked. The fetch alone tells
   // the sender the mail was read, from which address and at what moment.
   const blocked = reading("<p><img src=\"https://cdn.example.com/hero.png\" alt=\"The new board\">"
     + "<img src=\"https://cdn.example.com/spacer.png\" alt=\"\">"
@@ -1309,34 +1302,33 @@ function activityMail() {
   assert.ok(blocked.html.indexOf("spacer") < 0, "an empty alt is the sender saying decoration")
   assert.strictEqual(blocked.blockedImages, 3, "the beacon is not something to offer")
 
-  // Asked for, they arrive — and nothing else does.
+  // Invariant: Asked for, they arrive — and nothing else does.
   const shown = reading("<p><img src=\"https://cdn.example.com/hero.png\" alt=\"Hero\">"
     + "<img src=\"file:///etc/x.png\"><img src=\"http://127.0.0.1/a.png\">"
     + "<img src=\"//cdn.example.com/protocol.png\">"
-    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
     + "<img src=\"cid:part1\"></p>", { allowRemoteImages: true })
   assert.strictEqual(shown.html,
-    "<p><img src=\"https://cdn.example.com/hero.png\">"
-    + "<img src=\"//cdn.example.com/protocol.png\">"
-    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
-    + "<img src=\"cid:part1\"></p>")
+    "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "</p>")
   assert.strictEqual(shown.images, 2)
 
-  // The cap is the same one the formatted view keeps, for the same reason:
+  // Invariant: The cap is the same one the formatted view keeps, for the same reason:
   // every fetch is another layout pass.
   const many = reading("<p>" + "<img src=\"https://cdn.example.com/a.png\">".repeat(40) + "</p>",
     { allowRemoteImages: true, maxImages: 3 })
   assert.strictEqual(many.images, 3)
   assert.strictEqual(many.blockedImages, 37)
 
-  // An alt is an attribute value, not markup.
+  // Invariant: An alt is an attribute value, not markup.
   assert.strictEqual(reading("<img src=\"https://cdn.example.com/a.png\" alt=\"a<b & c\">").html,
     "<p>a&lt;b &amp; c</p>")
 }
 
-// ------------------------------------------------------------- what is gone
 {
-  // The preheader, in each of the ways it is written.
+  // Invariant: The preheader, in each of the ways it is written.
   for (const hidden of ["display:none", "visibility:hidden", "font-size:1px",
       "font-size:0", "max-height:0;overflow:hidden", "opacity:0"]) {
     assert.strictEqual(reading('<div style="' + hidden + '">SECRET</div><p>real</p>').html,
@@ -1344,7 +1336,7 @@ function activityMail() {
   }
   assert.strictEqual(reading('<div hidden>SECRET</div><p>real</p>').html, "<p>real</p>")
 
-  // And the three that look like it and are not. A cell writes "font-size:0" to
+  // Invariant: And the three that look like it and are not. A cell writes "font-size:0" to
   // take the space out from between the boxes it holds, and every box inside
   // sets a size of its own: read as hiding, it took a whole message with it. A
   // box of no height hides nothing unless what overflows it is clipped. And
@@ -1361,12 +1353,12 @@ function activityMail() {
       + "</td></tr></table>").html,
     "<p><a href=\"https://x.example.com/\">Book it</a></p>")
 
-  // Scripts, stylesheets, and the parts of a document that are not the message.
+  // Invariant: Scripts, stylesheets, and the parts of a document that are not the message.
   assert.strictEqual(reading("<script>steal()</script><style>p{color:red}</style>"
     + "<noscript>fallback</noscript><iframe src=\"https://x.example.com\"></iframe>"
     + "<object data=\"https://x.example.com/a.swf\"></object><p>real</p>").html, "<p>real</p>")
 
-  // A form is a picture of a form. Its words are the message; its controls and
+  // Invariant: A form is a picture of a form. Its words are the message; its controls and
   // its address are not. A button's label is still one of those words, so it
   // survives as plain content with no action attached.
   const form = reading("<form action=\"https://collect.example.net/\">"
@@ -1374,13 +1366,13 @@ function activityMail() {
     + "<select><option>one</option></select><button>Go</button></form>").html
   assert.strictEqual(form, "<p>Search the help centre</p><p>Go</p>")
 
-  // Handlers, ids and classes have no path into the output at all, which is
+  // Invariant: Handlers, ids and classes have no path into the output at all, which is
   // what `reading` asserts on every case in this file.
   assert.strictEqual(reading("<p id=\"x\" class=\"y\" onclick=\"steal()\" "
     + "style=\"color:red;background:url(https://x.example.com/a.png)\">text</p>").html,
     "<p>text</p>")
 
-  // An HTML `background` is an address, not a colour, whatever it is sitting
+  // Invariant: An HTML `background` is an address, not a colour, whatever it is sitting
   // beside — and Qt fetches it. The formatted view's half of this is with the
   // rest of the colour rules; here it is one more sender attribute with no path
   // into a rebuilt document.
@@ -1389,14 +1381,13 @@ function activityMail() {
     + "<tr><td>c</td><td>d</td></tr></table>").html.indexOf("static.example.net") < 0)
 }
 
-// --------------------------------------------------------------- complexity
 {
-  // Reading mode is flat by construction, so the document it produces stays
+  // Invariant: Reading mode is flat by construction, so the document it produces stays
   // inside the bounds on mail the formatted view refuses — which is the other
   // half of what it is for.
   function outlookMail(cards) {
     var out = "<html><body>"
-    for (var i = 0; i < cards; i++) {
+    for (var index = 0; index < cards; index++) {
       var open = ""
       var close = ""
       for (var depth = 0; depth < 9; depth++) {
@@ -1405,46 +1396,46 @@ function activityMail() {
         close = "</td></tr></table>" + close
       }
       out += open
-        + "<img src=\"https://cdn.example.com/hero" + i + ".png\" width=\"540\" alt=\"Hero\">"
-        + "<h2 style=\"color:#111\">Headline " + i + "</h2>"
+        + "<img src=\"https://cdn.example.com/hero" + index + ".png\" width=\"540\" alt=\"Hero\">"
+        + "<h2 style=\"color:#111\">Headline " + index + "</h2>"
         + "<p style=\"margin:0 12px\">Body copy, <a href=\"https://example.com/"
-        + i + "\">read on</a>.</p>"
-        + "<img src=\"https://track.example.net/p" + i + ".gif\" width=\"1\" height=\"1\">"
+        + index + "\">read on</a>.</p>"
+        + "<img src=\"https://track.example.net/p" + index + ".gif\" width=\"1\" height=\"1\">"
         + close
     }
     return out + "</body></html>"
   }
 
-  const heavy = html.sanitize(outlookMail(240), { withReader: true })
+  const heavy = sanitizeWithTestImages(outlookMail(240), { withReader: true })
   assert.strictEqual(heavy.tooHeavy, true, "the formatted view refuses this one")
   assert.strictEqual(heavy.reader.tooHeavy, false, "and reading mode still draws it")
   assert.ok(heavy.reader.complexity.tags < heavy.complexity.tags / 2)
   assert.strictEqual(heavy.reader.complexity.tableDepth, 0)
   assert.ok(heavy.reader.html.indexOf("Headline 239") > 0, "with the whole message in it")
 
-  // Nothing is truncated to fit. A reading that grew past what Qt can lay out
+  // Invariant: Nothing is truncated to fit. A reading that grew past what Qt can lay out
   // is refused whole and the message is shown as text, which is an answer —
   // where a reading that stopped in the middle would have looked exactly like a
   // message that ended there.
   let long = "<html><body>"
-  for (let i = 0; i < 3000; i++) long += "<p>Paragraph number " + i + " of a long message.</p>"
-  const enormous = html.sanitize(long + "</body></html>", { withReader: true }).reader
+  for (let index = 0; index < 3000; index++) long += "<p>Paragraph number " + index + " of a long message.</p>"
+  const enormous = sanitizeWithTestImages(long + "</body></html>", { withReader: true }).reader
   assert.strictEqual(enormous.tooHeavy, true)
   assert.ok(enormous.html.indexOf("number 2999") > 0, "and the whole message is in what was refused")
 
-  // An inline element left open is reopened in every block the chain crosses,
+  // Invariant: An inline element left open is reopened in every block the chain crosses,
   // so a sender holding a hundred of them open multiplies the whole message by
   // a hundred — and the multiplying happens before anything measures the result
   // and refuses it, on the thread that draws the desktop. Past a handful another
   // one changes nothing anybody can see, so it is not opened; what was inside it
   // is still there.
   let held = "<b>".repeat(126)
-  for (let i = 0; i < 400; i++) held += "<div>x</div>"
-  const stacked = html.sanitize(held, { withReader: true }).reader
+  for (let index = 0; index < 400; index++) held += "<div>x</div>"
+  const stacked = sanitizeWithTestImages(held, { withReader: true }).reader
   assert.ok(stacked.complexity.tags < 400 * (html.MAX_READER_CHAIN + 2),
     "a held-open chain multiplied the message: " + stacked.complexity.tags)
   assert.ok(stacked.html.indexOf("x") > 0, "and the message is still in it")
-  // A column of nothing but the "|" between two links is the sender drawing a
+  // Invariant: A column of nothing but the "|" between two links is the sender drawing a
   // line. Out it goes — and what is left is one column, which is not a grid at
   // all, so a footer of links becomes a list of links instead of a table with a
   // dangling pipe on every row.
@@ -1455,7 +1446,7 @@ function activityMail() {
     "<p><a href=\"https://a.example.com/\">Online kaufen</a></p>"
       + "<p><a href=\"https://b.example.com/\">Store finden</a></p>"
       + "<p>0800 2000 136</p>")
-  // A table that is data on both sides of it is untouched, and a picture is
+  // Invariant: A table that is data on both sides of it is untouched, and a picture is
   // content however few characters it weighs.
   assert.strictEqual(
     reading("<table><tr><th>Hostname</th><td>gitlab.example.com</td></tr>"
@@ -1466,29 +1457,29 @@ function activityMail() {
     reading("<table><tr><td><img src=\"https://cdn.example.com/a.png\" alt=\"A\"></td><td>Alpha</td></tr>"
       + "<tr><td><img src=\"https://cdn.example.com/b.png\" alt=\"B\"></td><td>Beta</td></tr></table>").html,
     "<table><tr><td>A</td><td>Alpha</td></tr><tr><td>B</td><td>Beta</td></tr></table>")
-  // Between two links in a sentence it is punctuation and stays.
+  // Invariant: Between two links in a sentence it is punctuation and stays.
   assert.strictEqual(
     reading("<p><a href=\"https://a.example.com/\">A</a> | <a href=\"https://b.example.com/\">B</a></p>").html,
     "<p><a href=\"https://a.example.com/\">A</a> | <a href=\"https://b.example.com/\">B</a></p>")
 
-  // A cell that breaks its own line is already two lines, and joining it to the
+  // Invariant: A cell that breaks its own line is already two lines, and joining it to the
   // cell beside it hands the bottom half of one to the top half of the next.
   assert.strictEqual(
     reading("<table><tr><td>Kundennummer<br><strong>1210617221</strong></td>"
       + "<td>Rechnung Nr.<br><strong>M26056185488</strong></td></tr></table>").html,
     "<p>Kundennummer<br><strong>1210617221</strong></p>"
       + "<p>Rechnung Nr.<br><strong>M26056185488</strong></p>")
-  // A row of whole lines still becomes one.
+  // Invariant: A row of whole lines still becomes one.
   assert.strictEqual(
     reading("<table><tr><td>Person 1</td><td>moved</td><td>4 cards</td></tr></table>").html,
     "<p>Person 1 moved 4 cards</p>")
 
-  // What a real message nests is untouched.
+  // Invariant: What a real message nests is untouched.
   assert.strictEqual(
     reading("<p><a href=\"https://x.example.com/\"><b><i>hi</i></b></a></p>").html,
     "<p><a href=\"https://x.example.com/\"><strong><em>hi</em></strong></a></p>")
 
-  // Small pictures in layout rows are inline content: avatars sit beside the
+  // Invariant: Small pictures in layout rows are inline content: avatars sit beside the
   // words they identify and social icons form one strip. Their bounded numeric
   // dimensions survive so native 256px artwork does not become body-sized.
   const icons = reading("<table>"
@@ -1496,24 +1487,24 @@ function activityMail() {
     + "<tr><td><a href=\"https://social.example.com/b\"><img src=\"https://cdn.example.com/b.png\" style=\"width:32px;height:32px\"></a></td></tr>"
     + "</table>", { allowRemoteImages: true }).html
   assert.strictEqual(icons,
-    "<p><a href=\"https://social.example.com/a\"><img src=\"https://cdn.example.com/a.png\" width=\"32\" height=\"32\"></a> "
-      + "<a href=\"https://social.example.com/b\"><img src=\"https://cdn.example.com/b.png\" width=\"32\" height=\"32\"></a></p>")
+    "<p><a href=\"https://social.example.com/a\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"32\" height=\"32\"></a> "
+      + "<a href=\"https://social.example.com/b\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"32\" height=\"32\"></a></p>")
 
-  // A standalone logo is not inline artwork, but its declared size still
+  // Invariant: A standalone logo is not inline artwork, but its declared size still
   // prevents Qt from expanding the source bitmap to its natural pixel width.
   // It keeps the bounded dimension without becoming an avatar or icon strip.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/logo.png\" width=\"120\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"https://cdn.example.com/logo.png\" width=\"120\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"120\"></p>")
 
-  // The reading column may clamp a large picture's width. Its explicit height
+  // Invariant: The reading column may clamp a large picture's width. Its explicit height
   // must not survive that clamp or Qt stretches the image instead of deriving
   // the matching height from its intrinsic aspect ratio.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/hero.jpg\" width=\"600\" height=\"375\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"https://cdn.example.com/hero.jpg\" width=\"600\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"600\"></p>")
 
-  // An avatar at the start of a line is interface-like identity content, not
+  // Invariant: An avatar at the start of a line is interface-like identity content, not
   // a picture sitting on the text baseline. Qt ignores image alignment in the
   // paragraph here, so the reader builds one compact, vertically centred row.
   const avatar = reading("<p><a href=\"https://example.com/alice\">"
@@ -1522,23 +1513,21 @@ function activityMail() {
   assert.strictEqual(avatar,
     "<table cellspacing=\"0\" cellpadding=\"0\"><tr>"
       + "<td valign=\"middle\" style=\"padding:0px;padding-right:6px\"><a href=\"https://example.com/alice\">"
-      + "<img src=\"https://cdn.example.com/alice.png\" width=\"20\" height=\"20\"></a></td>"
+      + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"20\" height=\"20\"></a></td>"
       + "<td valign=\"middle\" style=\"padding:0px\"><strong>Alice</strong> left a comment</td>"
       + "</tr></table>")
 
-  // One parse answers for all three readings, which is what makes changing mode
+  // Invariant: One parse answers for all three readings, which is what makes changing mode
   // free: the reader is built from the tree the sanitiser is about to clean,
   // and reading that tree does not change it.
-  const both = html.sanitize(activityMail(), { withReader: true, withPlainText: true })
-  assert.strictEqual(both.html, html.sanitize(activityMail()).html)
+  const both = sanitizeWithTestImages(activityMail(), { withReader: true, withPlainText: true })
+  assert.strictEqual(both.html, sanitizeWithTestImages(activityMail()).html)
   deepEqual(both.plainText, html.readPlainText(activityMail()))
-  assert.strictEqual(html.sanitize(activityMail()).reader, null,
+  assert.strictEqual(sanitizeWithTestImages(activityMail()).reader, null,
     "and nobody pays for a reading no caller asked for")
 }
 
-// -------------------------------------------------------------- the document
-//
-// What Qt is handed. Everything in the stylesheet comes from the theme or from
+// Invariant: What Qt is handed. Everything in the stylesheet comes from the theme or from
 // the size the message is read at, so the sender's contribution to how this
 // looks is exactly nothing.
 {
@@ -1557,26 +1546,24 @@ function activityMail() {
     "lists use one explicit two-character indent instead of Qt's default plus a margin")
   assert.ok(document.indexOf(read.html) > 0, "the document is the reading, unaltered")
 
-  // The rhythm follows the size it is read at rather than standing still while
+  // Invariant: The rhythm follows the size it is read at rather than standing still while
   // the type grows past it.
   const zoomed = html.readerDocumentFor(read.document, Object.assign({}, palette, { fontSize: 26 }))
   const headingAt = text => Number(/h1\{font-size:(\d+)px/.exec(text)[1])
   assert.ok(headingAt(zoomed) > headingAt(document) * 1.9)
   assert.ok(headingAt(document) > 13, "and a heading is bigger than body copy")
 
-  // A tree or a string, because a caller that only has one should not have to
+  // Performance: A tree or a string, because a caller that only has one should not have to
   // care — and the reader has the tree, so a redraw costs no parse.
   assert.strictEqual(html.readerDocumentFor(read.html, palette), document)
 
-  // Nothing in it points anywhere the document did not already point.
+  // Invariant: Nothing in it points anywhere the document did not already point.
   assert.ok(document.indexOf("url(") < 0)
   assert.ok(document.indexOf("background=") < 0)
   assert.ok(document.indexOf("src=\"http") < 0)
 }
 
-// ----------------------------------------------------------- which mode is on
-//
-// Three ways of reading and one preference across all of them, so a message
+// Invariant: Three ways of reading and one preference across all of them, so a message
 // that cannot be drawn the chosen way falls through to one that can rather than
 // leaving an empty panel.
 {
@@ -1592,34 +1579,34 @@ function activityMail() {
   assert.strictEqual(html.resolveBodyMode("plain", full), "plain")
   assert.strictEqual(html.resolveBodyMode("nonsense", full), "reader", "and reading is the default")
 
-  // A message with no markup has no readings to choose between: its text is the
+  // Invariant: A message with no markup has no readings to choose between: its text is the
   // message rather than one view of it.
   for (const wanted of ["reader", "original", "plain"]) {
     assert.strictEqual(html.resolveBodyMode(wanted, { html: false }), "plain")
     assert.strictEqual(html.bodyModeRefused(wanted, { html: false }), false)
   }
 
-  // A message whose every word was inside a picture reads as nothing, and the
+  // Invariant: A message whose every word was inside a picture reads as nothing, and the
   // sender's own formatting is the honest answer for it.
   assert.strictEqual(html.resolveBodyMode("reader", { html: true, reader: false }), "original")
 
-  // Qt lays rich text out on the GUI thread of the shell that draws the whole
+  // Invariant: Qt lays rich text out on the GUI thread of the shell that draws the whole
   // desktop, so a document past the bounds gets the text until somebody insists.
   const heavy = { html: true, reader: true, readerHeavy: true, originalHeavy: true }
   assert.strictEqual(html.resolveBodyMode("reader", heavy), "plain")
   assert.strictEqual(html.bodyModeRefused("reader", heavy), true)
   assert.strictEqual(html.resolveBodyMode("reader", Object.assign({ forced: true }, heavy)), "reader")
   assert.strictEqual(html.bodyModeRefused("reader", Object.assign({ forced: true }, heavy)), false)
-  // Each mode is heavy for its own reasons: the readings are different
+  // Invariant: Each mode is heavy for its own reasons: the readings are different
   // documents and are measured separately.
   assert.strictEqual(html.resolveBodyMode("reader",
     { html: true, reader: true, originalHeavy: true }), "reader")
   assert.strictEqual(html.resolveBodyMode("original",
     { html: true, reader: true, originalHeavy: true }), "plain")
-  // Asking for the text is never a refusal, however heavy the message is.
+  // Invariant: Asking for the text is never a refusal, however heavy the message is.
   assert.strictEqual(html.bodyModeRefused("plain", heavy), false)
 
-  // A window written before there were three ways to read a message knew only
+  // Invariant: A window written before there were three ways to read a message knew only
   // whether the text had been asked for.
   assert.strictEqual(html.bodyModeOf(undefined, "plain"), "plain")
   assert.strictEqual(html.bodyModeOf(undefined, "reader"), "reader")
@@ -1628,20 +1615,18 @@ function activityMail() {
   assert.strictEqual(html.bodyModeOf(null, "nonsense"), "reader")
 }
 
-// ------------------------------------------------------------- the measure
-//
-// Sixty-five to seventy-five characters, which is the rule a book obeys and the
+// Invariant: Sixty-five to seventy-five characters, which is the rule a book obeys and the
 // reason a browser's reading mode is a column rather than a window.
 {
-  // A wide panel gives the column what it needs and keeps the rest.
+  // Invariant: A wide panel gives the column what it needs and keeps the rest.
   assert.strictEqual(html.readingColumnWidth(1200, 640), 640)
   assert.strictEqual(html.readingColumnWidth(1600, 800), 800)
   assert.strictEqual(html.readingColumnWidth(600, 800), 600)
   assert.strictEqual(html.readingColumnOffset(1200, 640), 280)
-  // A narrow one has nothing to give up, so the column is the panel.
+  // Invariant: A narrow one has nothing to give up, so the column is the panel.
   assert.strictEqual(html.readingColumnWidth(380, 640), 380)
   assert.strictEqual(html.readingColumnOffset(380, 380), 0)
-  // The measure grows with the zoom, and the column follows it until the panel
+  // Invariant: The measure grows with the zoom, and the column follows it until the panel
   // runs out — at which point it stops rather than overflowing.
   let previous = 0
   for (const zoom of [0.8, 1.0, 1.4, 2.0, 3.0]) {
@@ -1651,46 +1636,44 @@ function activityMail() {
     assert.strictEqual(html.readingColumnOffset(900, width) * 2 + width <= 900 + 1, true)
     previous = width
   }
-  // Nothing measured yet is not a reason to draw a column one pixel wide.
+  // Invariant: Nothing measured yet is not a reason to draw a column one pixel wide.
   assert.strictEqual(html.readingColumnWidth(700, 0), 700)
   assert.strictEqual(html.readingColumnWidth(0, 0), 80)
   assert.strictEqual(html.readingColumnOffset(0, 80), 0)
 }
 
-// ------------------------------------------------------------------ direction
-//
-// Qt's rich text engine reads the `dir` attribute and ignores the CSS
+// Invariant: Qt's rich text engine reads the `dir` attribute and ignores the CSS
 // `direction` property, so a template written for a browser states its
 // direction in the one spelling that will be thrown away.
 {
-  const rtl = html.sanitize('<div style="direction:rtl">مرحبا</div>', {})
+  const rtl = sanitizeWithTestImages('<div style="direction:rtl">مرحبا</div>', {})
   assert.ok(/dir="rtl"/.test(rtl.html),
     "a CSS direction is promoted to the attribute Qt reads")
   assert.ok(/direction:\s*rtl/.test(rtl.html),
     "and the sender's own declaration is left where it was")
 
-  const ltr = html.sanitize('<div style="direction:ltr">hello</div>', {})
+  const ltr = sanitizeWithTestImages('<div style="direction:ltr">hello</div>', {})
   assert.ok(/dir="ltr"/.test(ltr.html))
 
-  // The sender's own attribute is the more specific statement of the two.
-  const both = html.sanitize('<div dir="ltr" style="direction:rtl">x</div>', {})
+  // Invariant: The sender's own attribute is the more specific statement of the two.
+  const both = sanitizeWithTestImages('<div dir="ltr" style="direction:rtl">x</div>', {})
   assert.ok(/dir="ltr"/.test(both.html), "an existing attribute is not overwritten")
   assert.ok(!/dir="rtl"/.test(both.html))
 
-  // Only the two values mean anything. `inherit` and friends are not directions
+  // Invariant: Only the two values mean anything. `inherit` and friends are not directions
   // a renderer can be handed.
-  const junk = html.sanitize('<div style="direction:inherit">x</div>', {})
+  const junk = sanitizeWithTestImages('<div style="direction:inherit">x</div>', {})
   assert.ok(!/ dir=/.test(junk.html), "an unusable value promotes nothing")
 }
 
-// The stylesheet's physical sides follow the document's direction; the `dir` on
+// Invariant: The stylesheet's physical sides follow the document's direction; the `dir` on
 // the body is written only when the reader has actually chosen one.
 {
   const reader = html.readerDocumentFor("<p>مرحبا</p>", { direction: "rtl" })
   assert.ok(/margin-right:26px/.test(reader), "a list indents from the start edge")
   assert.ok(/text-align:right/.test(reader), "a header aligns to the start edge")
   assert.ok(/padding-left:/.test(reader), "a cell's gutter follows its text")
-  // The side and the `dir` are one statement: Qt puts a list marker on the side
+  // Invariant: The side and the `dir` are one statement: Qt puts a list marker on the side
   // the block runs from, so a right-hand indent without a right-to-left block
   // loses the bullet entirely.
   assert.ok(/<body dir="rtl">/.test(reader),
@@ -1701,7 +1684,7 @@ function activityMail() {
   assert.ok(/text-align:left/.test(ltr))
   assert.ok(/<body dir="ltr">/.test(ltr))
 
-  // No answer at all leaves every side where it was.
+  // Invariant: No answer at all leaves every side where it was.
   const unknown = html.readerDocumentFor("<p>123</p>", { direction: "" })
   assert.ok(/margin-left:26px/.test(unknown))
   assert.ok(!/<body dir=/.test(unknown))
@@ -1715,11 +1698,191 @@ function activityMail() {
   const plain = html.plainTextDocument("مرحبا", { direction: "rtl" }, false)
   assert.ok(/<body dir="rtl">/.test(plain))
 
-  // A base direction is a default. A sender who states one of their own keeps
+  // Invariant: A base direction is a default. A sender who states one of their own keeps
   // it, which is why supplying one is safe.
-  const sender = html.sanitize('<div dir="ltr">hello</div>', {})
+  const sender = sanitizeWithTestImages('<div dir="ltr">hello</div>', {})
   assert.ok(/dir="ltr"/.test(sender.html),
     "the sender's own direction survives into the document it is wrapped in")
+}
+
+{
+  const source = '<img src="https://cdn.example.com/unprepared.png" width="90">'
+  for (const remoteImageData of [undefined, null, {}]) {
+    const ready = html.sanitize(source, { allowRemoteImages: true, remoteImageData, withReader: true })
+    for (const result of [ready, ready.reader]) {
+      assert.ok(!/src=["']https?:/i.test(result.html), "an unprepared source must never reach Qt")
+      assert.strictEqual(result.images, 0)
+    }
+  }
+}
+
+{
+  const source = '<img src="' + tinyPng + '"><img src="cid:part">'
+    + '<img src="' + tinyPng + '"><img src="https://cdn.example.com/ready">'
+  const ready = html.sanitize(source, { maxImages: 2, allowRemoteImages: true,
+    remoteImageData: { 'https://cdn.example.com/ready': tinyPng }, withReader: true })
+  for (const result of [ready, ready.reader]) {
+    assert.strictEqual(result.complexity.images, 2, "inline, CID and remote images share a document budget")
+    assert.strictEqual(result.blockedImages, 2)
+    assert.ok(!result.html.includes('https://cdn.example.com/ready'))
+  }
+  const empty = html.sanitize(source, { maxImages: 0, withReader: true })
+  assert.ok(!empty.html.includes('<img') && !empty.reader.html.includes('<img'))
+}
+
+{
+  const pngBytes = Buffer.from(tinyPng.split(",")[1], "base64")
+  const data = 'data:image/png;base64,' + Buffer.concat([
+    pngBytes, Buffer.alloc(3 * 1024 * 1024 - pngBytes.length)
+  ]).toString('base64')
+  const ready = html.sanitize('<p>Body</p>' + '<img src="https://cdn.example.com/large">'.repeat(4),
+    { allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/large': data }, withReader: true })
+  for (const result of [ready, ready.reader]) {
+    assert.strictEqual(result.complexity.images, 3, "data URI bytes have a separate 16 MiB document budget")
+    assert.strictEqual(result.blockedImages, 1)
+    assert.strictEqual(result.tooHeavy, false, "embedded picture bytes are not layout markup")
+    assert.ok(result.html.length < 16 * 1024 * 1024)
+  }
+  const encoded = data.replace(/^data/, "&#100;ata")
+  const embedded = html.sanitize('<p>Body</p><img src="' + encoded + '">'
+    + '<img src="https://cdn.example.com/large">'.repeat(3), { withReader: true,
+      allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/large': data } })
+  for (const result of [embedded, embedded.reader]) {
+    assert.strictEqual(result.complexity.images, 3, "encoded data schemes cannot bypass the byte budget")
+    assert.strictEqual(result.blockedImages, 1)
+    assert.strictEqual(result.tooHeavy, false)
+  }
+}
+
+{
+  for (const attributes of ['style="display:none"', 'style="visibility:hidden"', 'hidden']) {
+    const ready = html.sanitize('<img src="https://cdn.example.com/hidden" width="90" ' + attributes + '>',
+      { allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/hidden': tinyPng }, withReader: true })
+    deepEqual(ready.remoteImageSources, [], "hidden images must not become fetch candidates")
+    assert.ok(!ready.html.includes('<img') && !ready.reader.html.includes('<img'))
+  }
+  const inlineTracker = html.sanitize('<img src="' + tinyPng + '" width="1">', { withReader: true })
+  assert.ok(!inlineTracker.html.includes('<img') && !inlineTracker.reader.html.includes('<img'))
+}
+
+{
+  assert.strictEqual(reading('<constructor>Visible</constructor>').html, '<p>Visible</p>',
+    "an inherited Object member is not an allowed reader element")
+  assert.strictEqual(html.readPlainText('<p>&constructor; &#128512; &#x1F642;</p>').text,
+    '&constructor; 😀 🙂', "references preserve unknown names and supplementary Unicode characters")
+  assert.strictEqual(reading('<img src="https://cdn.example.com/blocked" alt="&#x1F642;">').html,
+    '<p>🙂</p>')
+}
+
+{
+  const source = '<div a"src="https://cdn.example.com/attribute" href="https://cdn.example.com/nonlink">Body</div>'
+    + '<svg><image xlink:href="https://cdn.example.com/svg"></image></svg>'
+  const ready = html.sanitize(source, { keepColors: true, withReader: true })
+  assert.ok(!ready.html.includes('https://cdn.example.com/'),
+    "malformed attribute names and non-anchor references must not reach Qt")
+  assert.ok(ready.html.includes('Body'))
+}
+
+
+{
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=", "base64")
+  function pngDimensions(width, height) {
+    const image = Buffer.from(bytes)
+    image.writeUInt32BE(width, 16)
+    image.writeUInt32BE(height, 20)
+    let checksum = 0xffffffff
+    for (const byte of image.subarray(12, 29)) {
+      checksum ^= byte
+      for (let bit = 0; bit < 8; bit++) checksum = (checksum >>> 1) ^ ((checksum & 1) ? 0xedb88320 : 0)
+    }
+    image.writeUInt32BE((checksum ^ 0xffffffff) >>> 0, 29)
+    return "data:image/png;base64," + image.toString("base64")
+  }
+  const oversized = pngDimensions(4096, 4096)
+  assert.strictEqual(html.isRasterDataImage(oversized), false, "decoded image allocation is bounded")
+  assert.strictEqual(html.isDisplayableImageUrl(oversized), false, "popovers use the same decoded bound")
+  const large = pngDimensions(4096, 2048)
+  assert.strictEqual(html.isRasterDataImage(large), true, "the exact per-image boundary is allowed")
+  for (const prepared of [false, true]) {
+    const source = prepared ? "https://cdn.example.com/decoded" : large
+    const result = html.sanitize(('<img src="' + source + '">').repeat(3), {
+      withReader: true, allowRemoteImages: true, remoteImageData: { [source]: large }
+    })
+    for (const view of [result, result.reader]) {
+      assert.strictEqual(view.complexity.images, 2, "decoded bytes share a document-wide budget")
+      assert.strictEqual(view.blockedImages, 1)
+    }
+  }
+  for (const render of [html.documentFor, html.readerDocumentFor]) {
+    const cached = '<p>Text</p><img src="' + oversized + '">'
+      + '<img src="cid:unresolved"><img src="https://cdn.example.com/unprepared">'
+      + ('<img src="' + large + '">').repeat(3)
+    for (const document of [cached, html.parse(cached)]) {
+      const before = typeof document === "string" ? document : JSON.stringify(document)
+      const output = render(document, {})
+      assert.ok(!output.includes(oversized), "old backend oversized data never reaches Qt")
+      assert.ok(!output.includes("cid:") && !output.includes("cdn.example.com"))
+      assert.strictEqual((output.match(/<img /g) || []).length, 2, "the final serializer enforces the decoded budget")
+      assert.strictEqual(typeof document === "string" ? document : JSON.stringify(document), before,
+        "rendering does not mutate cached documents")
+    }
+  }
+  const unresolved = html.sanitize('<img src="cid:unknown" alt="Inline picture">', { withReader: true })
+  for (const view of [unresolved, unresolved.reader]) {
+    assert.ok(!view.html.includes('<img'), "unresolved CID data never reaches Qt")
+    assert.strictEqual(view.blockedImages, 1)
+  }
+}
+
+
+for (const fixture of require("../../tests/fixtures/raster.json")) {
+  const value = "data:" + fixture.mime + ";base64," + fixture.data
+  assert.strictEqual(html.rasterDecodedBytes(value), fixture.decodedBytes || 0, fixture.name)
+  assert.strictEqual(html.isRasterDataImage(value), fixture.decodedBytes !== null, fixture.name)
+}
+
+
+{
+  const header = Buffer.from(tinyPng.split(",")[1], "base64")
+  const bytes = Buffer.concat([header, Buffer.alloc(6 * 1024 * 1024 - header.length)])
+  const exact = "data:image/png;base64," + bytes.toString("base64")
+  const over = "data:image/png;base64," + Buffer.concat([bytes, Buffer.from([0])]).toString("base64")
+  assert.strictEqual(html.isRasterDataImage(exact), true, "the exact encoded payload bound is allowed")
+  assert.strictEqual(html.isRasterDataImage(over), false, "cached encoded payloads remain individually bounded")
+  assert.strictEqual(html.isDisplayableImageUrl(over), false)
+}
+
+for (const source of [
+  '<ul><li hidden>SECRET</li><li>Visible</li></ul>',
+  '<ul><div style="display:none"><li>SECRET</li></div><li>Visible</li></ul>',
+  '<pre>A<span style="visibility:hidden">SECRET</span>B</pre>',
+  '<table><tr><td hidden>SECRET</td><td>Visible</td></tr></table>',
+  '<table><tr hidden><td>SECRET</td><td>SECRET</td></tr><tr><td>A</td><td>B</td></tr></table>',
+  '<table><tbody hidden><tr><td>SECRET</td><td>SECRET</td></tr></tbody><tr><td>A</td><td>B</td></tr></table>',
+  '<table><tr><td hidden>SECRET</td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>'
+]) {
+  const result = html.sanitize(source, { withReader: true })
+  assert.ok(!result.reader.html.includes("SECRET"), "hidden descendants must remain absent: " + source)
+  assert.ok(/Visible|A/.test(result.reader.html), "visible content remains")
+}
+assert.strictEqual(reading('<pre>A<span hidden>SECRET</span>B</pre>').html, '<pre>AB</pre>')
+assert.strictEqual(reading('<table><tr><td hidden>SECRET</td><td>Visible</td></tr>'
+  + '<tr><td>A</td><td>B</td></tr></table>').html,
+  '<table><tr><td></td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>',
+  "hidden cells retain their column positions")
+
+for (const hidden of ['hidden', 'hidden="until-found"', 'style="display:none"']) {
+  const url = "https://cdn.example.com/hidden-parent"
+  const source = '<div ' + hidden + '><span><img src="' + url + '">SECRET</span></div><p>Visible</p>'
+  for (const allowRemoteImages of [false, true]) {
+    const result = html.sanitize(source, { withReader: true, allowRemoteImages,
+      remoteImageData: { [url]: tinyPng } })
+    assert.strictEqual(result.remoteImageSources.length, 0, "hidden ancestors cannot trigger resource discovery")
+    for (const view of [result, result.reader]) {
+      assert.ok(!view.html.includes("SECRET") && !view.html.includes("<img"))
+      assert.ok(view.html.includes("Visible"))
+    }
+  }
 }
 
 console.log("test_html.js ok")

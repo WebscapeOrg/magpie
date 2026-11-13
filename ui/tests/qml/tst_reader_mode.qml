@@ -1,17 +1,9 @@
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// Three ways of reading one message, and the two things that must stay true
-// while moving between them: nothing is asked of the network, and the message
-// on screen is still the message that was open.
-//
-// The reading column is here too, because how wide it is and where it sits are
-// decided against a font Qt measures — which is the half of that decision no
-// node test can make.
 Item {
   width: MailStyle.space(900)
   height: 600
@@ -28,9 +20,6 @@ Item {
   QtObject {
     id: mailService
 
-    // Every trip to the network a body could cause. Reading mode is built
-    // beside the other two off one parse, so choosing between them must move
-    // none of these.
     property int fetches: 0
     property int renders: 0
 
@@ -51,6 +40,7 @@ Item {
     property bool selectedReaderTooHeavy: rendered.reader.tooHeavy
     property bool selectedReaderEmpty: rendered.reader.empty
     property int selectedRemoteImages: rendered.remoteImages
+    property int selectedReaderRemoteImages: rendered.reader.blockedImages
     property bool remoteImagesAllowed: false
     property bool selectedTooHeavy: rendered.tooHeavy
     property string unsubscribeLabel: ""
@@ -66,13 +56,15 @@ Item {
     property bool canOpenOnWeb: false
     property var selectedAttachments: []
 
+    property int calendarOpens: 0
+    function openInvitationInMagpieCalendar() { calendarOpens++; return true }
     function getMessage() { fetches++ }
     function showRemoteImages() { renders++ }
   }
 
   Omamail.MessageReader {
     id: reader
-    // Sized rather than anchored: the panel's width is what these tests move.
+    // Invariant: explicit width lets each case resize the reader independently of its parent.
     width: MailStyle.space(900)
     height: 600
     service: mailService
@@ -94,35 +86,43 @@ Item {
     name: "ReaderMode"
     when: windowShown
 
-    function found(item, type) {
+    function findByType(item, typeName) {
       if (!item) return null
-      if (item.toString().indexOf(type) === 0) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = found(values[i], type)
-        if (hit) return hit
+      if (item.toString().indexOf(typeName) === 0) return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findByType(children[index], typeName)
+        if (match) return match
       }
       return null
     }
 
-    function named(item, name) {
+    function findButton(item, label) {
       if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
+      if (item.text === label && typeof item.clicked === "function") return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findButton(children[index], label)
+        if (match) return match
       }
       return null
     }
 
-    function body() {
-      var edit = found(reader, "QQuickTextEdit")
-      verify(edit, "the reader draws its message in a TextEdit")
-      return edit
+    function bodyEditor() {
+      var editor = findByType(reader, "QQuickTextEdit")
+      verify(editor, "the reader draws its message in a TextEdit")
+      return editor
     }
 
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
+      reader.width = MailStyle.space(900)
+      reader.zoom = 1.0
+      mailService.canOpenOnWeb = false
+      mailService.selectedInvite = null
+      mailService.selectedReaderTooHeavy = rendered.reader.tooHeavy
+      mailService.selectedTooHeavy = rendered.tooHeavy
+      mailService.selectedReaderEmpty = rendered.reader.empty
       reader.bodyMode = "reader"
       reader.forceRichAnyway = false
       reader.alwaysRenderHeavyMessages = false
@@ -132,16 +132,12 @@ Item {
 
     function test_reading_is_what_a_message_opens_as() {
       compare(reader.shownMode, "reader")
-      var text = body().text
+      var text = bodyEditor().text
       verify(text.indexOf("Activity on Sprint board") > 0, "the message is in it")
       verify(text.indexOf("https://example.com/board") > 0, "and so is its link")
       verify(text.indexOf("<h2") > 0, "the sender's big type is the reader's heading")
 
-      // Read back off the document Qt built rather than off the string handed
-      // to it: the document is the thing that would have made the fetch, and
-      // what it does not contain it cannot ask for. Everything below is the
-      // sender's presentation, and none of it is in there — the ground, the
-      // ink, the face, the class, and the address the background pointed at.
+      // Invariant: inspect the Qt document text, not only the sanitizer input, for forbidden sender resources.
       verify(text.indexOf("static.example.net") < 0, "a sender resource reached the renderer")
       verify(text.indexOf("#ffeedd") < 0, "the sender's ground reached the renderer")
       verify(text.indexOf("#123456") < 0, "the sender's ink reached the renderer")
@@ -151,24 +147,24 @@ Item {
     }
 
     function test_the_body_is_separated_from_the_header() {
-      verify(body().y >= 20,
+      verify(bodyEditor().y >= 20,
         "mail content has its own section gap below the sender metadata")
     }
 
     function test_changing_mode_asks_nothing_of_the_network() {
-      var readerText = body().text
+      var readerText = bodyEditor().text
       reader.bodyModeRequested("original")
       compare(reader.bodyMode, "original")
       compare(reader.shownMode, "original")
-      verify(body().text !== readerText, "a different document is on screen")
-      verify(body().text.indexOf("Person 1 moved 4 cards") > 0)
+      verify(bodyEditor().text !== readerText, "a different document is on screen")
+      verify(bodyEditor().text.indexOf("Person 1 moved 4 cards") > 0)
 
       reader.bodyModeRequested("plain")
       compare(reader.shownMode, "plain")
-      verify(body().text.indexOf("Activity on Sprint board") > 0)
+      verify(bodyEditor().text.indexOf("Activity on Sprint board") > 0)
 
       reader.bodyModeRequested("reader")
-      compare(body().text, readerText, "and back is the same document, not a new one")
+      compare(bodyEditor().text, readerText, "and back is the same document, not a new one")
 
       compare(mailService.fetches, 0, "no message was read again")
       compare(mailService.renders, 0, "and nothing was rendered again")
@@ -178,18 +174,16 @@ Item {
 
     function test_the_reading_column_is_bounded_and_centred() {
       compare(reader.shownMode, "reader")
-      var edit = body()
-      verify(edit.width < reader.bodyWidth,
+      var editor = bodyEditor()
+      verify(editor.width < reader.bodyWidth,
         "a wide panel does not become a wide line of text")
       verify(reader.bodyOffset > 0, "and the column is centred in what is left")
-      verify(edit.width >= MailStyle.space(800), "a wide reader uses at least 800 logical pixels")
+      verify(editor.width >= MailStyle.space(800), "a wide reader uses at least 800 logical pixels")
       reader.width = MailStyle.space(1600)
-      verify(body().width >= MailStyle.space(800), "fullscreen keeps a usable content width")
-      verify(body().width <= reader.bodyWidth, "content remains inside the panel")
+      verify(bodyEditor().width >= MailStyle.space(800), "fullscreen keeps a usable content width")
+      verify(bodyEditor().width <= reader.bodyWidth, "content remains inside the panel")
       reader.width = MailStyle.space(900)
 
-      // The other two start at the page inset, because a sender's own layout
-      // and a plain-text body both begin at the left edge.
       reader.bodyMode = "original"
       compare(reader.bodyOffset, 0)
       reader.bodyMode = "plain"
@@ -199,19 +193,19 @@ Item {
     function test_a_narrow_panel_gives_the_column_everything() {
       reader.width = MailStyle.space(420)
       compare(reader.bodyOffset, 0, "there is nothing spare to centre in")
-      compare(body().width, reader.bodyWidth)
-      verify(body().x + body().width <= reader.width, "and nothing runs off the panel")
+      compare(bodyEditor().width, reader.bodyWidth)
+      verify(bodyEditor().x + bodyEditor().width <= reader.width, "and nothing runs off the panel")
       reader.width = MailStyle.space(900)
       verify(reader.bodyOffset > 0, "and the column comes back when there is room again")
     }
 
     function test_view_modes_are_one_segmented_toolbar_control() {
       mailService.canOpenOnWeb = true
-      var toolbar = named(reader, "readerToolbar")
-      var viewTools = named(reader, "readerViewTools")
-      var track = named(reader, "bodyModeTrack")
-      var segments = named(reader, "bodyModeSegments")
-      var web = named(reader, "openWebButton")
+      var toolbar = findChild(reader, "readerToolbar")
+      var viewTools = findChild(reader, "readerViewTools")
+      var track = findChild(reader, "bodyModeTrack")
+      var segments = findChild(reader, "bodyModeSegments")
+      var web = findChild(reader, "openWebButton")
       verify(toolbar && viewTools && track && segments && web)
       compare(segments.spacing, 0, "segments share edges instead of reading as loose buttons")
       compare(track.border.width, 1, "the modes share one enclosing border")
@@ -234,7 +228,7 @@ Item {
 
     function test_event_card_keeps_the_interface_width_in_reader_mode() {
       mailService.selectedInvite = ({ summary: "Planning", attendees: [] })
-      var card = named(reader, "eventCard")
+      var card = findChild(reader, "eventCard")
       verify(card && card.visible)
       compare(card.x, reader.bodyInset)
       compare(card.width, reader.bodyWidth,
@@ -245,24 +239,34 @@ Item {
       mailService.selectedInvite = null
     }
 
+    function test_the_invitation_button_opens_it_in_magpie_calendar() {
+      mailService.calendarOpens = 0
+      mailService.selectedInvite = ({ summary: "Planning", attendees: [] })
+      var button = findButton(findChild(reader, "eventCard"), "Open invitation in Magpie Calendar...")
+      verify(button && button.visible, "the card offers Magpie Calendar")
+      button.clicked()
+      compare(mailService.calendarOpens, 1)
+      mailService.selectedInvite = null
+    }
+
     function test_all_modes_keep_the_content_limit_when_zooming() {
-      var wasFont = body().font.pixelSize
+      var fontSizeBeforePixels = bodyEditor().font.pixelSize
       reader.width = MailStyle.space(1600)
       var modes = ["reader", "original", "plain"]
-      for (var i = 0; i < modes.length; i++) {
-        reader.bodyMode = modes[i]
+      for (var index = 0; index < modes.length; index++) {
+        reader.bodyMode = modes[index]
         reader.zoom = 2.0
-        verify(body().font.pixelSize > wasFont)
-        verify(body().width <= MailStyle.space(800), modes[i] + " keeps its maximum width")
+        verify(bodyEditor().font.pixelSize > fontSizeBeforePixels)
+        verify(bodyEditor().width <= MailStyle.space(800), modes[index] + " keeps its maximum width")
         reader.width = MailStyle.space(420)
-        verify(body().width <= reader.bodyWidth, modes[i] + " fits a narrow panel")
+        verify(bodyEditor().width <= reader.bodyWidth, modes[index] + " fits a narrow panel")
         reader.width = MailStyle.space(1600)
       }
       reader.zoom = 1.0
       reader.width = MailStyle.space(900)
       reader.bodyMode = "reader"
-      compare(body().font.pixelSize, wasFont)
-      compare(body().width, MailStyle.space(800))
+      compare(bodyEditor().font.pixelSize, fontSizeBeforePixels)
+      compare(bodyEditor().width, MailStyle.space(800))
     }
 
     function test_a_message_too_heavy_to_draw_says_so_rather_than_showing_nothing() {

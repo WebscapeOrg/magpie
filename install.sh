@@ -64,16 +64,17 @@ esac
 
 bin_dir=${OMAMAIL_BIN_DIR:-"$HOME/.local/bin"}
 bin_link="$bin_dir/omamail"
+magpie_link="$bin_dir/magpie-mail"
 desktop_dir=${OMAMAIL_DESKTOP_DIR:-"$HOME/.local/share/applications"}
 desktop_file="$desktop_dir/omamail.desktop"
 
 if [ "$uninstall" -eq 1 ]; then
   rm -rf "$install_dir" "$install_dir.previous"
   if [ "$os" = Linux ]; then
-    rm -f "$bin_link" "$desktop_file"
+    rm -f "$bin_link" "$magpie_link" "$desktop_file"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$desktop_dir" || true
   fi
-  printf 'Omamail removed; user data was preserved.\n'
+  printf 'Magpie Mail removed; user data was preserved.\n'
   exit 0
 fi
 
@@ -172,6 +173,7 @@ install_parent_created=0
 bin_dir_created=0
 desktop_dir_created=0
 link_temp=
+magpie_temp=
 desktop_temp=
 cleanup() {
   status=$?
@@ -181,6 +183,7 @@ cleanup() {
     rollback
   fi
   [ -z "$link_temp" ] || rm -f "$link_temp"
+  [ -z "$magpie_temp" ] || rm -f "$magpie_temp"
   [ -z "$desktop_temp" ] || rm -f "$desktop_temp"
   rm -rf "$temp" "$candidate"
   if [ "$committed" -eq 0 ]; then
@@ -323,6 +326,8 @@ try:
     metadata = strict_json(metadata_path)
 except Exception as error:
     raise SystemExit(f"release metadata is missing or invalid: {error}")
+if not isinstance(metadata, dict) or type(metadata.get("schemaVersion")) is not int:
+    raise SystemExit("release metadata has invalid fields")
 if metadata != {"schemaVersion": 1, "name": "omamail", "version": metadata.get("version"), "target": expected_target, "topLevel": expected_top}:
     raise SystemExit("release metadata has invalid fields")
 release_version = metadata.get("version")
@@ -335,15 +340,23 @@ if expected_target == "macos-aarch64":
     required = [
         "Contents/MacOS/omamail-app", "Contents/MacOS/omamail",
         "Contents/Resources/qml/Main.qml", "Contents/Resources/ui/Service.qml",
-        "Contents/Resources/manifest.json", "Contents/PlugIns/platforms/libqcocoa.dylib",
-        "Contents/Resources/omamail.icns", "Contents/Info.plist",
+        "Contents/Resources/ui/assets/magpie-mail.png", "Contents/Resources/manifest.json", "Contents/PlugIns/platforms/libqcocoa.dylib",
+        "Contents/Resources/omamail.icns", "Contents/Resources/backend-api.json", "Contents/Resources/backend-version",
+        "Contents/Resources/scripts/attachment.sh", "Contents/Resources/scripts/default-mail.sh",
+        "Contents/Resources/scripts/register-mailto.sh", "Contents/Resources/scripts/mailto.sh",
+        "Contents/Resources/scripts/diagnostics.py", "Contents/Resources/scripts/open-link-window.py",
+        "Contents/Resources/scripts/link-window.html", "Contents/Resources/scripts/open-magpie-calendar.py",
+        "Contents/Info.plist",
     ]
     executable = required[:2]
 else:
     required = [
         "bin/omamail-app", "bin/omamail", "bin/qt.conf", "qml/Main.qml", "ui/Service.qml",
-        "manifest.json", "plugins/platforms/libqxcb.so",
-        "share/applications/omamail.desktop", "share/icons/hicolor/scalable/apps/omamail.svg",
+        "ui/assets/magpie-mail.png", "manifest.json", "plugins/platforms/libqxcb.so", "backend-api.json", "backend-version",
+        "scripts/attachment.sh", "scripts/default-mail.sh", "scripts/register-mailto.sh",
+        "scripts/mailto.sh", "scripts/diagnostics.py", "scripts/open-link-window.py",
+        "scripts/link-window.html", "scripts/open-magpie-calendar.py",
+        "share/applications/omamail.desktop", "share/icons/hicolor/256x256/apps/omamail.png",
     ]
     executable = required[:2]
 for relative in required:
@@ -400,8 +413,10 @@ if expected_target == "linux-x86_64":
         desktop_text = desktop_path.read_text(encoding="utf-8", errors="strict")
     except Exception as error:
         raise SystemExit(f"Linux desktop entry is invalid: {error}")
-    if re.search(r"mailto", desktop_text, re.IGNORECASE):
-        raise SystemExit("Linux release must not register mailto handling")
+    if desktop_text.count("MimeType=x-scheme-handler/mailto;") != 1:
+        raise SystemExit("Linux release must register exactly one mailto handler")
+    if not re.search(r"(?m)^Exec=\S+ %u$", desktop_text):
+        raise SystemExit("Linux release must preserve one mailto URL argument")
 if expected_target == "macos-aarch64":
     plist_path = base / "Contents/Info.plist"
     try:
@@ -416,8 +431,13 @@ if expected_target == "macos-aarch64":
             or info.get("CFBundleShortVersionString") != release_version
             or info.get("CFBundleVersion") != release_version):
         raise SystemExit("macOS Info.plist does not match the release")
-    if "CFBundleURLTypes" in info or "CFBundleDocumentTypes" in info:
-        raise SystemExit("macOS release must not register URL or document handlers")
+    url_types = info.get("CFBundleURLTypes")
+    if (not isinstance(url_types, list) or len(url_types) != 1
+            or not isinstance(url_types[0], dict)
+            or url_types[0].get("CFBundleURLSchemes") != ["mailto"]):
+        raise SystemExit("macOS release must register exactly the mailto URL scheme")
+    if "CFBundleDocumentTypes" in info:
+        raise SystemExit("macOS release must not register document handlers")
 PY
 
 source_dir="$staging/$top_level"
@@ -441,23 +461,27 @@ fi
 backup="$install_dir.previous"
 had_install=0
 had_bin=0
+had_magpie=0
 had_desktop=0
 if [ -e "$install_dir" ] || [ -L "$install_dir" ]; then had_install=1; fi
 if [ "$os" = Linux ]; then
   if [ ! -d "$bin_dir" ]; then bin_dir_created=1; fi
   if [ ! -d "$desktop_dir" ]; then desktop_dir_created=1; fi
   if [ -e "$bin_link" ] || [ -L "$bin_link" ]; then had_bin=1; cp -P "$bin_link" "$temp/bin.previous"; fi
+  if [ -e "$magpie_link" ] || [ -L "$magpie_link" ]; then had_magpie=1; cp -P "$magpie_link" "$temp/magpie.previous"; fi
   if [ -e "$desktop_file" ] || [ -L "$desktop_file" ]; then had_desktop=1; cp -P "$desktop_file" "$temp/desktop.previous"; fi
 fi
 
 rollback() {
   [ -z "$link_temp" ] || rm -f "$link_temp"
+  [ -z "$magpie_temp" ] || rm -f "$magpie_temp"
   [ -z "$desktop_temp" ] || rm -f "$desktop_temp"
   if [ "$new_moved" -eq 1 ]; then rm -rf "$install_dir"; fi
   if [ "$old_moved" -eq 1 ] && { [ -e "$backup" ] || [ -L "$backup" ]; }; then mv "$backup" "$install_dir"; fi
   if [ "$os" = Linux ] && [ "$registration_started" -eq 1 ]; then
-    rm -f "$bin_link" "$desktop_file"
+    rm -f "$bin_link" "$magpie_link" "$desktop_file"
     if [ "$had_bin" -eq 1 ]; then cp -P "$temp/bin.previous" "$bin_link"; fi
+    if [ "$had_magpie" -eq 1 ]; then cp -P "$temp/magpie.previous" "$magpie_link"; fi
     if [ "$had_desktop" -eq 1 ]; then cp -P "$temp/desktop.previous" "$desktop_file"; fi
   fi
 }
@@ -473,25 +497,32 @@ install_transaction() {
   if [ "$os" = Linux ]; then
     registration_started=1
     mkdir -p "$bin_dir" "$desktop_dir" || return 1
+    magpie_temp="$magpie_link.new.$$"
+    rm -f "$magpie_temp"
+    ln -s "$install_dir/bin/omamail-app" "$magpie_temp" || return 1
+    mv -f "$magpie_temp" "$magpie_link" || return 1
     link_temp="$bin_link.new.$$"
     rm -f "$link_temp"
     ln -s "$install_dir/bin/omamail-app" "$link_temp" || return 1
     mv -f "$link_temp" "$bin_link" || return 1
     desktop_temp="$desktop_file.new.$$"
     python3 - "$install_dir/share/applications/omamail.desktop" "$desktop_temp" \
-      "$install_dir/bin/omamail-app" "$install_dir/share/icons/hicolor/scalable/apps/omamail.svg" <<'PY' || return 1
+      "$install_dir/bin/omamail-app" "$install_dir/share/icons/hicolor/256x256/apps/omamail.png" <<'PY' || return 1
 import pathlib, sys
 source, destination, executable, icon = sys.argv[1:]
+def entry_value(value):
+    return value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
 def quoted(value):
-    return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$') + '"'
+    escaped = ''.join('\\' + character if character in '\\"`$' else character for character in value)
+    return entry_value('"' + escaped.replace('%', '%%') + '"')
 lines = pathlib.Path(source).read_text(encoding="utf-8").splitlines()
 output = []
 seen_exec = seen_icon = False
 for line in lines:
     if line.startswith("Exec="):
-        output.append("Exec=" + quoted(executable)); seen_exec = True
+        output.append("Exec=/bin/sh -c " + quoted('exec "$0" "$@"') + " " + quoted(executable) + " %u"); seen_exec = True
     elif line.startswith("Icon="):
-        output.append("Icon=" + icon.replace('\\', '\\\\')); seen_icon = True
+        output.append("Icon=" + entry_value(icon)); seen_icon = True
     else:
         output.append(line)
 if not seen_exec or not seen_icon:
@@ -520,4 +551,4 @@ fi
 if [ "$os" = Linux ]; then
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$desktop_dir" || true
 fi
-printf 'Omamail installed at %s\n' "$install_dir"
+printf 'Magpie Mail installed at %s\n' "$install_dir"

@@ -7,116 +7,82 @@ import qs.Ui
 import "../message/Direction.js" as Direction
 import "../settings/Appearance.js" as Appearance
 import "../message/Html.js" as Html
-import "../account/Accounts.js" as Accounts
 
-// Where mailboxes are managed.
-//
-// Adding one used to drop the user on the first-run walkthrough, which by then
-// had nothing left to ask: the client was connected and an account was already
-// signed in, so the page showed a finished setup for the *other* mailbox and
-// there was no way forward. Adding a mailbox belongs here, next to the ones
-// that already exist, and signing it in happens on its own row rather than by
-// sending the window somewhere else.
 Column {
   id: root
 
   required property var service
-  required property var calendarController
   required property color textColor
   required property color dimColor
   required property color accentColor
   required property color urgentColor
   required property string panelFontFamily
 
+  function beginInterview() { aboutYouSettings.beginInterview() }
+  readonly property real interviewY: aboutYouSettings.y
+
   signal clientSetupRequested()
   signal addRequested()
   signal editRequested(int index)
   signal openCalendarRequested()
-  signal calendarSignInRequested(int index)
+  signal restartRequested()
+  property bool restartBusy: false
+  property string restartStatus: ""
+  property bool restartFailed: false
 
   readonly property var accounts: service ? service.accountSummaries : []
-  // A separate list on purpose: accountSummaries carries live mailbox state and
-  // is replaced on a poll, which would rebuild the field being typed in.
+  // Invariant: live account summaries change during polling; a stable signature list preserves the
+  // field being edited.
   readonly property var signatureAccounts: service
     && Array.isArray(service.accountSignatures) ? service.accountSignatures : []
   property string selectedSignatureAccountId: ""
 
-  // The page's sections and where each begins, for the rail beside it. Read
-  // off the headings themselves, so a section that grows moves the ones
-  // below it in the rail's map as well as on screen. The calendars section
-  // is a component with its own heading, so its top stands in.
   readonly property var sections: {
-    var values = [{ key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
+    var values = [{ key: "restart", title: "Restart", y: restartSection.y }, { key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
     if (!root.service || root.service.hasTray !== false)
       values.push({ key: "bar", title: "Bar", y: barHeading.y })
-    if (root.service && root.service.hasMailto === true)
+    if (root.service && root.service.hasDefaultMailClient === true)
       values.push({ key: "mailClient", title: "Default mail client", y: mailClientHeading.y })
     values.push({ key: "reading", title: "Reading", y: readingHeading.y })
     if (!root.service || root.service.hasNotifications !== false
         || String(root.service.notificationError || "") !== "")
       values.push({ key: "notifications", title: "Notifications", y: notificationsHeading.y })
     values.push({ key: "writing", title: "Writing", y: writingHeading.y })
+    if (aboutYouSettings.visible) values.push({ key: "aboutYou", title: "About you", y: aboutYouSettings.y })
+    if (approvedSenders.visible) values.push({ key: "approvedSenders", title: "Approved senders", y: approvedSenders.y })
     values.push({ key: "mailboxes", title: "Mailboxes", y: mailboxesHeading.y })
-    values.push({ key: "calendars", title: "Calendars", y: calendarsSection.y })
     values.push({ key: "oauth", title: "Google OAuth client", y: oauthHeading.y })
     return values
   }
   readonly property var auth: service ? service.auth : null
 
   function signatureAccount(id) {
-    for (var i = 0; i < signatureAccounts.length; i++)
-      if (String(signatureAccounts[i].id || "") === String(id || ""))
-        return signatureAccounts[i]
+    for (var entryIndex = 0; entryIndex < signatureAccounts.length; entryIndex++)
+      if (String(signatureAccounts[entryIndex].id || "") === String(id || ""))
+        return signatureAccounts[entryIndex]
     return null
   }
 
-  function signatureOptions() {
-    var out = []
-    for (var i = 0; i < signatureAccounts.length; i++)
-      out.push({ value: signatureAccounts[i].id, label: signatureAccounts[i].email })
-    return out
-  }
+  readonly property var accountOptions: signatureAccounts.map(function(account) {
+    return { value: account.id, label: account.email }
+  })
 
   property string selectedNameAccountId: ""
-
-  function nameOptions() {
-    var out = []
-    for (var i = 0; i < signatureAccounts.length; i++)
-      out.push({ value: signatureAccounts[i].id, label: signatureAccounts[i].email })
-    return out
-  }
 
   function saveName() {
     if (service && selectedNameAccountId !== "")
       service.setAccountLabel(selectedNameAccountId, nameEdit.text)
   }
 
-  // Whether the selected mailbox takes its From name from here. The others
-  // are named by their server, and a field that changed nothing on the sent
-  // message would be a promise the page could not keep. So would one on a
-  // backend too old to write the name.
-  readonly property bool senderNameEditable: {
-    var entry = signatureAccount(selectedNameAccountId)
-    return !!(service && service.backendCanNameSender && entry
-      && Accounts.namesSender(entry.provider))
-  }
-
-  function saveSenderName() {
-    if (service && senderNameEditable)
-      service.setAccountSenderName(selectedNameAccountId, senderNameEdit.text)
-  }
-
   function showNameAccount(next) {
     selectedNameAccountId = next ? String(next.id || "") : ""
     nameEdit.text = next ? String(next.label || "") : ""
-    senderNameEdit.text = next ? String(next.senderName || "") : ""
   }
 
   function selectNameAccount(id) {
     var next = signatureAccount(id)
     if (!next || String(next.id || "") === selectedNameAccountId) return
     saveName()
-    saveSenderName()
     showNameAccount(next)
   }
 
@@ -130,7 +96,6 @@ Column {
     showNameAccount(signatureAccount(activeId) || signatureAccounts[0])
   }
 
-  // The imported markup for the selected mailbox, and the import in flight.
   readonly property string selectedSignatureHtml: {
     var entry = signatureAccount(selectedSignatureAccountId)
     return entry ? String(entry.signatureHtml || "") : ""
@@ -149,6 +114,7 @@ Column {
     })
   }
   property bool importing: false
+  property string importingAccountId: ""
   property string importNote: ""
   property bool importFailed: false
   property string importStage: ""
@@ -163,7 +129,8 @@ Column {
   }
 
   function importSignature() {
-    if (importing || !service) return
+    if (importing || !service || selectedSignatureAccountId === "") return
+    importingAccountId = selectedSignatureAccountId
     importing = true
     importNote = ""
     importFailed = false
@@ -177,7 +144,7 @@ Column {
 
   function finishImport(text) {
     var result = null
-    try { result = JSON.parse(String(text || "")) } catch (e) { result = null }
+    try { result = JSON.parse(String(text || "")) } catch (parseError) { result = null }
     if (!result || result.ok !== true) {
       var reason = result && result.error ? String(result.error) : ""
       importing = false
@@ -213,7 +180,7 @@ Column {
       importFailed = true
       return
     }
-    var accountId = selectedSignatureAccountId
+    var accountId = importingAccountId
     service.backend.call("message.signatureImport", { kind: kind,
       data: kind === "html" ? Qt.atob(String(result.data || "")) : String(result.data || "")
     }, function(imported, error) {
@@ -240,6 +207,11 @@ Column {
       service.setAccountSignature(selectedSignatureAccountId, signatureEdit.text)
   }
 
+  function flushEdits() {
+    saveName()
+    saveSignature()
+  }
+
   function selectSignatureAccount(id) {
     var next = signatureAccount(id)
     if (!next || String(next.id || "") === selectedSignatureAccountId) return
@@ -262,18 +234,26 @@ Column {
   }
 
   onSignatureAccountsChanged: {
-    ensureSignatureAccount()
-    ensureNameAccount()
+    Qt.callLater(ensureSignatureAccount)
+    Qt.callLater(ensureNameAccount)
   }
-  // The page is built with the window, before `service` is bound, and either
-  // half of the answer can change from a terminal while the window is open —
-  // so ask whenever the page comes into view, not once.
+  // Invariant: the service is bound after construction and default-mail settings can change
+  // externally; refresh when the page becomes visible.
   function refreshDefaultMailClient() {
     if (visible && service && typeof service.refreshDefaultMailClient === "function")
       service.refreshDefaultMailClient()
   }
   onServiceChanged: refreshDefaultMailClient()
-  onVisibleChanged: refreshDefaultMailClient()
+  // The page is shown and hidden, not rebuilt, so the picture counts, any keyring problem, the
+  // spending and the saved bio are read again each time it opens.
+  onVisibleChanged: {
+    refreshDefaultMailClient()
+    if (visible) {
+      aboutYouSettings.load()
+      pictureSettings.load()
+      spendingSettings.load()
+    }
+  }
   Component.onCompleted: {
     refreshDefaultMailClient()
     renderSignaturePreview()
@@ -282,6 +262,51 @@ Column {
   }
 
   spacing: MailStyle.space(16)
+
+  Column {
+    id: restartSection
+    objectName: "restart-settings"
+    width: parent.width
+    spacing: MailStyle.space(8)
+
+    Widgets.Button {
+      objectName: "restart-button"
+      text: root.restartBusy ? "Restarting" : "Restart"
+      enabled: !root.restartBusy
+      focusable: true
+      bordered: true
+      foreground: root.textColor
+      accent: root.accentColor
+      fontFamily: root.panelFontFamily
+      onClicked: root.restartRequested()
+    }
+
+    Text {
+      width: parent.width
+      text: "Restart the installed mail engine. Your window, workspace, layout and draft stay in place."
+      textFormat: Text.PlainText
+      color: root.dimColor
+      font.family: root.panelFontFamily
+      font.pixelSize: MailStyle.bodySmall
+      wrapMode: Text.WordWrap
+    }
+
+    Text {
+      objectName: "restart-status"
+      visible: text !== ""
+      width: parent.width
+      text: root.restartStatus
+      textFormat: Text.PlainText
+      color: root.restartFailed ? root.urgentColor : root.textColor
+      font.family: root.panelFontFamily
+      font.pixelSize: MailStyle.bodySmall
+      wrapMode: Text.WordWrap
+      Accessible.role: Accessible.StaticText
+      Accessible.name: text
+    }
+  }
+
+
 
   DisplaySettings {
     id: displaySettings
@@ -296,7 +321,7 @@ Column {
     id: backendSetup
     width: parent.width
     runtime: root.service ? root.service.backendRuntime || null : null
-    backendError: root.service && root.service.backend ? root.service.backend.failure : ""
+    backendError: root.service && root.service.backend && !root.service.backend.reconnecting ? root.service.backend.failure : ""
     diagnosisAvailable: !!root.service && root.service.hasAgent === true
       && typeof root.service.diagnoseError === "function"
     diagnosing: !!root.service && !!root.service.diagnosing
@@ -315,10 +340,6 @@ Column {
     font.bold: true
   }
 
-  // ------------------------------------------------------------ appearance
-  //
-  // Standalone only. The plugin's palette is the shell's, and the row would
-  // have nothing to change.
 
   Text {
     id: appearanceHeading
@@ -390,7 +411,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------------- bar
 
   Text {
     id: barHeading
@@ -429,15 +449,10 @@ Column {
         textFormat: Text.PlainText
       }
 
-      // Says what turning it off costs, and what it does not: mail is still
-      // checked and still notifies. The keybinding is the part worth naming,
-      // because without one the window is only reachable from a terminal —
-      // which is true, and is why this does not claim there is no way back.
       Text {
         width: parent.width
         text: "Mail is still checked and still notifies; only the envelope goes. "
-          + "With it off the window opens from a keybinding or a terminal and "
-          + "nowhere else, so bind a key before turning this off:"
+          + "Open Magpie Mail from its app launcher or mail keyboard shortcut."
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -445,21 +460,12 @@ Column {
         textFormat: Text.PlainText
       }
 
-      Text {
-        width: parent.width
-        text: "o.bind(\"SUPER + SHIFT + G\", \"Magpie\", "
-          + "\"omarchy shell shell toggle omamail '\{}'\")"
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.caption
-        wrapMode: Text.WrapAnywhere
-        textFormat: Text.PlainText
-      }
     }
 
     ToggleSwitch {
       id: barIconSwitch
       objectName: "showBarIconSwitch"
+      Accessible.name: "Show the icon in the bar"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -470,15 +476,10 @@ Column {
     }
   }
 
-  // --------------------------------------------------- default mail client
-  //
-  // Omarchy opens HEY's web app on SUPER+SHIFT+E, and mailto: links go to
-  // whatever claimed them. scripts/default-mail.sh moves both, and undoing it
-  // gives the key back to Omarchy.
 
   Text {
     id: mailClientHeading
-    visible: !!root.service && root.service.hasMailto === true
+    visible: !!root.service && root.service.hasDefaultMailClient === true
     text: "DEFAULT MAIL CLIENT"
     color: root.dimColor
     font.family: root.panelFontFamily
@@ -489,7 +490,7 @@ Column {
   Rectangle {
     id: mailClientRow
     objectName: "default-mail-client-settings"
-    visible: !!root.service && root.service.hasMailto === true
+    visible: !!root.service && root.service.hasDefaultMailClient === true
     width: parent.width
     implicitHeight: Math.max(mailClientText.implicitHeight, mailClientButton.implicitHeight)
       + MailStyle.space(16)
@@ -511,8 +512,8 @@ Column {
       Text {
         width: parent.width
         text: mailClientRow.isDefault
-          ? "Magpie is the default mail client"
-          : "Set up Magpie as the default mail client"
+          ? "Magpie Mail is the default mail client"
+          : "Set up Magpie Mail as the default mail client"
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
@@ -553,14 +554,13 @@ Column {
       text: mailClientRow.isDefault ? "Undo" : "Set as default"
       tooltipText: mailClientRow.isDefault
         ? "Give SUPER+SHIFT+E back to Omarchy's own email binding"
-        : "Make Magpie open mailto: links and SUPER+SHIFT+E"
+        : "Make Magpie Mail open mailto: links and SUPER+SHIFT+E"
       foreground: root.textColor
       fontFamily: root.panelFontFamily
       onClicked: root.service.setDefaultMailClient(!mailClientRow.isDefault)
     }
   }
 
-  // --------------------------------------------------------------- reading
 
   Text {
     id: readingHeading
@@ -597,8 +597,6 @@ Column {
 
       Text {
         width: parent.width
-        // The cost, in the words of what it actually tells whom. Off, the
-        // reader asks about each message and the answer covers that one.
         text: "Loading an image tells its host that this address opened the "
           + "message, and when"
         color: root.dimColor
@@ -610,6 +608,8 @@ Column {
 
     ToggleSwitch {
       id: imagesSwitch
+      objectName: "imagesSwitch"
+      Accessible.name: "Always show remote images"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -620,8 +620,6 @@ Column {
     }
   }
 
-  // Showing a message as the cursor reaches it, and the dwell that keeps that
-  // from reading a mailbox by holding an arrow key down.
   Rectangle {
     width: parent.width
     implicitHeight: Math.max(heavyText.implicitHeight, heavySwitch.implicitHeight)
@@ -658,6 +656,8 @@ Column {
 
     ToggleSwitch {
       id: heavySwitch
+      objectName: "heavySwitch"
+      Accessible.name: "Always render heavy messages"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -695,9 +695,6 @@ Column {
 
       Text {
         width: parent.width
-        // Says what Auto does rather than only naming it: a reader whose mail
-        // is already laid out correctly has no way to tell whether that is the
-        // setting working or the setting being unnecessary.
         text: "Auto reads it from the message's own text. The interface is unaffected."
         color: root.dimColor
         font.family: root.panelFontFamily
@@ -706,8 +703,6 @@ Column {
       }
     }
 
-    // Three names for one setting, sharing a track and the seams between them,
-    // the way the reader's own view modes do.
     Rectangle {
       id: directionTrack
       objectName: "contentDirectionTrack"
@@ -725,9 +720,8 @@ Column {
         id: directionSegments
         spacing: 0
 
-        // The labels are the stored values: the shell hands a plugin the words
-        // the schema lists rather than a key behind them, so spelling them
-        // anywhere but Direction.js would be a second place to keep them right.
+        // Invariant: the shell persists direction labels as values, so use the canonical Direction
+        // constants.
         DirectionButton {
           text: Direction.AUTO; mode: Direction.AUTO; firstSegment: true
         }
@@ -748,9 +742,72 @@ Column {
     panelFontFamily: root.panelFontFamily
   }
 
-  // A look at every message opened, on the owner's behalf. Off until it is
-  // turned on, because the message text leaves the window for the system
-  // AI; the switch says in a word which way it stands.
+  AboutYouSettings {
+    id: aboutYouSettings
+    objectName: "settings-about-you-section"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  CalendarSettings {
+    objectName: "settings-calendar-section"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  TodoSettings {
+    objectName: "settings-todos-section"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  PictureSettings {
+    id: pictureSettings
+    objectName: "settings-pictures"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  ApprovedSenders {
+    id: approvedSenders
+    objectName: "settings-approved-senders"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  SpendingSettings {
+    id: spendingSettings
+    objectName: "settings-spending"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  // Invariant: event suggestions send message text to the selected AI, so they require explicit
+  // opt-in.
   Rectangle {
     objectName: "settings-suggest-events"
     visible: !!root.service && root.service.hasAgent !== false
@@ -790,7 +847,6 @@ Column {
         textFormat: Text.PlainText
       }
 
-      // Availability follows the connected backend's API, not release labels.
       Text {
         objectName: "suggestEventsNeedsUpdate"
         width: parent.width
@@ -819,6 +875,7 @@ Column {
     ToggleSwitch {
       id: suggestSwitch
       objectName: "suggestEventsSwitch"
+      Accessible.name: "Suggest calendar events from mail"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -831,7 +888,6 @@ Column {
     }
   }
 
-  // -------------------------------------------------------- notifications
 
   Text {
     id: notificationsHeading
@@ -882,6 +938,8 @@ Column {
 
     ToggleSwitch {
       id: notifySwitch
+      objectName: "notifySwitch"
+      Accessible.name: "New mail notifications"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -905,7 +963,6 @@ Column {
     textFormat: Text.PlainText
   }
 
-  // --------------------------------------------------------------- writing
 
   Text {
     id: writingHeading
@@ -942,7 +999,7 @@ Column {
 
       Text {
         width: parent.width
-        text: "Magpie waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
+        text: "Magpie Mail waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -970,16 +1027,10 @@ Column {
     }
   }
 
-  // A signature signs a mailbox, not a window. Only the selected mailbox is
-  // expanded here: a long account list should not turn Writing into a stack of
-  // editors, and switching is an explicit answer to which identity is edited.
   Column {
     objectName: "settings-signature-section"
     width: parent.width
     spacing: MailStyle.space(2)
-    // The heading and the note below belong to the fields. With no mailbox
-    // signed in there are none, and first run would otherwise show an
-    // explanation with nothing between it and the heading.
     visible: root.signatureAccounts.length > 0
 
     Text {
@@ -996,7 +1047,7 @@ Column {
       width: parent.width
       showLabel: false
       value: root.selectedSignatureAccountId
-      options: root.signatureOptions()
+      options: root.accountOptions
       foreground: root.textColor
       accent: root.accentColor
       fontFamily: root.panelFontFamily
@@ -1010,9 +1061,8 @@ Column {
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
 
-      // The padding is part of the field visually, so it is part of its click
-      // target too. Kept behind the editor so clicks on text still place the
-      // cursor normally.
+      // Invariant: place the padding click target behind the editor to preserve normal cursor
+      // placement.
       MouseArea {
         anchors.fill: parent
         onClicked: signatureEdit.forceActiveFocus()
@@ -1033,8 +1083,7 @@ Column {
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
 
-        // The editor survives account-list updates and routine mailbox polls.
-        // Its text changes only when the selected identity changes.
+        // Invariant: polling must not replace the selected signature editor’s text.
         onActiveFocusChanged: if (!activeFocus) root.saveSignature()
       }
 
@@ -1050,11 +1099,8 @@ Column {
       }
     }
 
-    // A signature from a file: a picture, or markup another tool wrote. What
-    // is imported is rebuilt by Signature.js — scripts, styles, handlers,
-    // frames, forms, remote images and unknown attributes do not survive —
-    // and the preview draws what was stored, so it is the sent thing that is
-    // shown. The words go into the plain editor above for text-only clients.
+    // Invariant: signature previews use the backend-sanitized document; sender markup must not
+    // reach Qt directly.
     Row {
       width: parent.width
       spacing: MailStyle.space(8)
@@ -1120,7 +1166,6 @@ Column {
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
-        // The stored markup, and nothing else: the same string that is sent.
         text: root.selectedSignatureDocument ? Html.documentFor(root.selectedSignatureDocument, {
           foreground: root.textColor, background: "transparent", link: root.accentColor }) : ""
       }
@@ -1139,7 +1184,6 @@ Column {
     Component.onDestruction: root.saveSignature()
   }
 
-  // ------------------------------------------------------------- mailboxes
 
   Text {
     id: mailboxesHeading
@@ -1150,24 +1194,12 @@ Column {
     font.letterSpacing: 1
   }
 
-  // What to call a mailbox, which the list below draws and the switcher and
-  // every merged row draw too. Two of these can differ only in their domain
-  // and elide to the same handful of characters, so a name is the one thing
-  // that tells them apart at a glance.
-  //
-  // A picker and one field rather than a field on each row: the rows carry
-  // live mailbox state and are rebuilt whenever a poll changes an unread
-  // count, which would take the field apart while it was being typed into.
-  // This is the same reason the signature editor is shaped this way.
+  // Invariant: editable account names must outlive live mailbox-summary rows rebuilt by polling.
   Column {
     width: parent.width
     spacing: MailStyle.space(6)
     visible: root.signatureAccounts.length > 0
 
-    // Two questions, one under the other, each with its own label: which
-    // mailbox, and what to call it. They were one block under a single "Name"
-    // heading, which read as though the address in the picker *was* the name
-    // and left nothing that looked like somewhere to type.
     Text {
       width: parent.width
       visible: root.signatureAccounts.length > 1
@@ -1183,7 +1215,7 @@ Column {
       width: parent.width
       showLabel: false
       value: root.selectedNameAccountId
-      options: root.nameOptions()
+      options: root.accountOptions
       foreground: root.textColor
       accent: root.accentColor
       fontFamily: root.panelFontFamily
@@ -1204,11 +1236,8 @@ Column {
       font.pixelSize: MailStyle.bodySmall
     }
 
-    // The kit's own single-line input, which is what every other field on
-    // this page is: it carries the focus ring, the selection colours and a
-    // real placeholder, and it takes a click without one being arranged for
-    // it. A hand-built Rectangle around a bare TextInput drew the same box
-    // and could not be typed into.
+    // Invariant: use the native field; a Rectangle around a bare TextInput previously drew a box
+    // that could not receive typing.
     Widgets.TextField {
       id: nameEdit
       objectName: "settings-name-editor"
@@ -1218,9 +1247,8 @@ Column {
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.bodySmall
 
-      // Saved on the way out rather than on every keystroke, so the account
-      // file is written once per edit and the field is never rebuilt from
-      // under the cursor.
+      // Performance: persist the completed name edit on focus loss or acceptance, not on each
+      // keystroke.
       onActiveFocusChanged: if (!activeFocus) root.saveName()
       onAccepted: root.saveName()
     }
@@ -1228,7 +1256,7 @@ Column {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: "What this mailbox is called in Magpie — in the switcher, in this "
+      text: "What this mailbox is called in Magpie Mail — in the switcher, in this "
         + "list, and beside every message in a combined view. Leave it empty "
         + "to use the address. It is not sent to anyone."
       color: root.dimColor
@@ -1239,43 +1267,25 @@ Column {
 
     Item {
       width: parent.width
-      implicitHeight: MailStyle.space(4)
-      visible: root.senderNameEditable
+      implicitHeight: MailStyle.space(6)
+      visible: syncSettings.visible
     }
 
-    Text {
+    // Reads root.accounts so the lookup runs again when mailboxes are added or removed.
+    SyncSettings {
+      id: syncSettings
+      objectName: "settings-sync"
       width: parent.width
-      visible: root.senderNameEditable
-      text: "Your name"
-      color: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-    }
-
-    Widgets.TextField {
-      id: senderNameEdit
-      objectName: "settings-sender-name-editor"
-      visible: root.senderNameEditable
-      width: parent.width
-      foreground: root.textColor
-      accent: root.accentColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-
-      onActiveFocusChanged: if (!activeFocus) root.saveSenderName()
-      onAccepted: root.saveSenderName()
-    }
-
-    Text {
-      width: parent.width
-      visible: root.senderNameEditable
-      textFormat: Text.PlainText
-      text: "Who your mail is from, as recipients see it beside this mailbox's "
-        + "address. Leave it empty to send the address alone."
-      color: root.dimColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.caption
-      wrapMode: Text.WordWrap
+      mailbox: {
+        var known = root.accounts.length
+        var host = known > 0 && root.service && typeof root.service.findAccount === "function"
+          ? root.service.findAccount(root.selectedNameAccountId) : null
+        return host && host.local ? host.local : null
+      }
+      textColor: root.textColor
+      dimColor: root.dimColor
+      accentColor: root.accentColor
+      panelFontFamily: root.panelFontFamily
     }
   }
 
@@ -1295,11 +1305,6 @@ Column {
         implicitHeight: Math.max(rowText.implicitHeight, rowActions.implicitHeight)
           + MailStyle.space(16)
         radius: Style.cornerRadius
-        // Which mailbox the window is showing is not a fact about this page.
-        // Nothing here acts on it — `Edit...` acts on its own row, and the
-        // signature section names the mailbox it signs — and the row answers
-        // no click, so marking it borrowed the switcher's "you are here, click
-        // another" fill for a row that switches nothing.
         color: Style.normalFillFor(root.textColor, root.accentColor)
 
         Column {
@@ -1314,9 +1319,6 @@ Column {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            // The name if one was given, so this list and the switcher agree
-            // about what each mailbox is called. The address is on the line
-            // below either way, which keeps the row identifiable.
             text: {
               var named = row.modelData.name !== undefined
                 && String(row.modelData.name) !== ""
@@ -1331,8 +1333,8 @@ Column {
 
           Text {
             width: parent.width
-            // The address and whatever a server had to say are both in here,
-            // and Qt's default would run the rich text engine over either.
+            // Invariant: server errors and account addresses must remain plain text to prevent Qt
+            // resource loading.
             textFormat: Text.PlainText
             text: {
               if (row.modelData.error !== undefined && row.modelData.error !== "")
@@ -1341,9 +1343,6 @@ Column {
               var count = row.modelData.unread
               var unread = count === 0 ? "No unread mail"
                 : (count === 1 ? "1 unread message" : count + " unread messages")
-              // A named row has put its name on the line above, so the address
-              // belongs here — otherwise nothing on the row says which mailbox
-              // it is.
               var named = row.modelData.name !== undefined
                 && String(row.modelData.name) !== ""
               return named ? String(row.modelData.email) + " · " + unread : unread
@@ -1355,9 +1354,6 @@ Column {
             elide: Text.ElideRight
           }
 
-          // What kind of mailbox this is, where the kind is not obvious from
-          // the address. Only the providers with something to add answer here,
-          // so the row gains a line rather than every row gaining a blank one.
           Text {
             width: parent.width
             visible: text !== ""
@@ -1403,33 +1399,6 @@ Column {
     foreground: root.textColor
   }
 
-  CalendarSettings {
-    id: calendarsSection
-    width: parent.width
-    service: root.service
-    controller: root.calendarController
-    textColor: root.textColor
-    dimColor: root.dimColor
-    accentColor: root.accentColor
-    urgentColor: root.urgentColor
-    panelFontFamily: root.panelFontFamily
-    onAccountSetupRequested: function(index) {
-      if (index < 0) return
-      if (root.accounts[index].calendarProvider === "google") root.calendarSignInRequested(index)
-      else root.editRequested(index)
-    }
-    onClientSetupRequested: root.clientSetupRequested()
-    onAddAccountRequested: root.addRequested()
-    onOpenCalendarRequested: root.openCalendarRequested()
-  }
-
-  PanelSeparator {
-    width: parent.width
-    foreground: root.textColor
-  }
-
-  // ---------------------------------------------------------- oauth client
-
   Text {
     id: oauthHeading
     text: "GOOGLE OAUTH CLIENT"
@@ -1463,9 +1432,7 @@ Column {
 
       Text {
         width: parent.width
-        // Every mailbox signs in through this one client, which is why adding
-        // an account never asks for another.
-        text: "Advanced setup · shared by Gmail and Google Calendar accounts"
+        text: "Advanced Gmail setup"
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -1484,7 +1451,6 @@ Column {
     }
   }
 
-  // One of the three palettes the standalone window can draw with.
   component AppearanceButton: Widgets.Button {
     required property string mode
     property bool firstSegment: false
@@ -1507,7 +1473,6 @@ Column {
     }
   }
 
-  // One of the three ways a message's direction is arrived at.
   component DirectionButton: Widgets.Button {
     required property string mode
     property bool firstSegment: false

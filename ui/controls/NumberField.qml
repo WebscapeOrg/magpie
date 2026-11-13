@@ -3,6 +3,7 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
+import qs.Commons as Commons
 
 Column {
   id: root
@@ -12,8 +13,8 @@ Column {
   property int from: 0
   property int to: 100
   property int stepSize: 1
-  property color foreground: Color.foreground
-  property color accent: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accent: Commons.Color.accent
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.body
   property real fieldWidth: Style.spacing.numberFieldWidth
@@ -31,7 +32,7 @@ Column {
     textFormat: Text.PlainText
     visible: root.label !== ""
     text: root.label
-    color: MailStyle.muted(root.foreground, Color.background)
+    color: MailStyle.muted(root.foreground, Commons.Color.background)
     font.family: root.fontFamily
     font.pixelSize: MailStyle.bodySmall
   }

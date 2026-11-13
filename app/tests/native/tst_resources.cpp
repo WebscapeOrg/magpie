@@ -1,13 +1,16 @@
 #include "app_icon.h"
 #include "resource_check.h"
+#include "backend_contract.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLibraryInfo>
+#include <QRawFont>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTextStream>
@@ -30,7 +33,7 @@ private:
         paths.standaloneQml = directory.filePath(QStringLiteral("qml/Main.qml"));
         paths.sharedUi = directory.filePath(QStringLiteral("ui/Service.qml"));
         paths.platformPlugin = directory.filePath(QStringLiteral("plugins/platforms/platform.fixture"));
-        // Windows judges a file executable by its extension, so the fixture
+        // Invariant: Windows judges a file executable by its extension, so the fixture
         // backend is named the way the packaged one is there.
 #ifdef Q_OS_WIN
         paths.backend = directory.filePath(QStringLiteral("bin/omamail.exe"));
@@ -41,7 +44,7 @@ private:
         writeFile(paths.standaloneQml, "import QtQuick\nItem {}\n");
         writeFile(paths.sharedUi, "import QtQuick\nItem {}\n");
         writeFile(paths.platformPlugin);
-        writeFile(paths.manifest, QByteArrayLiteral("{\"id\":\"omamail\",\"name\":\"Omamail\",\"version\":\"")
+        writeFile(paths.manifest, QByteArrayLiteral("{\"id\":\"omamail\",\"name\":\"Magpie Mail\",\"version\":\"")
             + QByteArrayLiteral(OMAMAIL_APP_VERSION) + QByteArrayLiteral("\"}"));
         writeFile(paths.backend, "#!/bin/sh\nexit 0\n");
         QFile backend(paths.backend);
@@ -51,7 +54,8 @@ private:
     }
 
 private slots:
-    void platedIconReadsEveryPngInTheIcns();
+    void bundledIconFontCoversMaintainedPrivateUseGlyphs();
+    void appleEnvelopeIconReadsEveryPngInTheIcns();
     void acceptsCompleteReadableLayout();
     void reportsEachMissingComponent_data();
     void reportsEachMissingComponent();
@@ -59,6 +63,7 @@ private slots:
     void rejectsInvalidManifest();
     void smokeTestLoadsQmlHandshakesAndWritesReadyFile();
     void smokeRejectsMismatchedBackendApi();
+    void smokeRejectsMismatchedBackendContract();
     void smokeRejectsOversizedStdoutFrame();
     void smokeDrainsLargeStderr();
     void smokeBoundsBothChannelsAfterQuitReply();
@@ -66,9 +71,36 @@ private slots:
     void bundleDiscoveryDoesNotUseDevelopmentFallbacks();
     void developmentDiscoveryUsesExplicitSourceAndBackend();
     void bundleDiscoveryAcceptsPortableRootLayout();
+    void resourceRootMatchesPackagedLayouts();
 };
 
-void ResourcesTest::platedIconReadsEveryPngInTheIcns()
+void ResourcesTest::bundledIconFontCoversMaintainedPrivateUseGlyphs()
+{
+    const QDir source(QStringLiteral(OMAMAIL_SOURCE_ROOT));
+    const QString fontPath = source.filePath(QStringLiteral("app/assets/fonts/SymbolsNerdFontMono-Regular.ttf"));
+    QVERIFY(QFileInfo(fontPath).size() < 128 * 1024);
+    const QRawFont font(fontPath, 16);
+    QVERIFY(font.isValid());
+    QCOMPARE(font.familyName(), QStringLiteral("Magpie Symbols"));
+    for (const QString &directory : {QStringLiteral("app/qml"), QStringLiteral("ui")}) {
+        QDirIterator files(source.filePath(directory), {QStringLiteral("*.qml"), QStringLiteral("*.js")},
+                           QDir::Files, QDirIterator::Subdirectories);
+        while (files.hasNext()) {
+            QFile file(files.next());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto characters = QString::fromUtf8(file.readAll()).toUcs4();
+            for (const char32_t character : characters) {
+                const bool privateUse = (character >= 0xe000 && character <= 0xf8ff)
+                    || (character >= 0xf0000 && character <= 0xffffd)
+                    || (character >= 0x100000 && character <= 0x10fffd);
+                if (privateUse)
+                    QVERIFY2(font.supportsCharacter(character), qPrintable(file.fileName()));
+            }
+        }
+    }
+}
+
+void ResourcesTest::appleEnvelopeIconReadsEveryPngInTheIcns()
 {
     const QIcon icon = iconFromIcnsFile(QDir(QStringLiteral(OMAMAIL_SOURCE_ROOT))
         .filePath(QStringLiteral("app/resources/macos/omamail.icns")));
@@ -76,9 +108,10 @@ void ResourcesTest::platedIconReadsEveryPngInTheIcns()
     const QList<QSize> sizes = icon.availableSizes();
     for (int dimension : {32, 64, 128, 256, 512, 1024})
         QVERIFY2(sizes.contains(QSize(dimension, dimension)), qPrintable(QString::number(dimension)));
-    // The plate is the Omarchy background, not the bare logo's transparency.
+    // Invariant: The icon is the reviewed Apple envelope, with artwork inside and
+    // transparency outside, not a substituted plate or another mail logo.
     const QImage image = icon.pixmap(QSize(64, 64)).toImage();
-    QCOMPARE(image.pixelColor(32, 16).name(), QStringLiteral("#1a1b26"));
+    QVERIFY(image.pixelColor(32, 16).alpha() > 0);
     QCOMPARE(image.pixelColor(2, 2).alpha(), 0);
 
     QVERIFY(iconFromIcns(QByteArray()).isNull());
@@ -127,7 +160,7 @@ void ResourcesTest::rejectsInvalidManifest()
 {
     QTemporaryDir directory;
     ResourcePaths paths = completeLayout(directory);
-    QVERIFY(writeFile(paths.manifest, "{\"id\":\"other\",\"name\":\"Omamail\",\"version\":\"0.10.1\"}"));
+    QVERIFY(writeFile(paths.manifest, "{\"id\":\"other\",\"name\":\"Magpie Mail\",\"version\":\"0.10.1\"}"));
     const ResourceCheck result = checkResources(paths);
     QVERIFY(!result.ok);
     QVERIFY(result.errors.join(QStringLiteral("\n")).contains(QStringLiteral("Invalid standalone manifest")));
@@ -138,7 +171,7 @@ void ResourcesTest::rejectsBackendWithoutExecutePermission()
     QTemporaryDir directory;
     ResourcePaths paths = completeLayout(directory);
 #ifdef Q_OS_WIN
-    // No execute bit to take away: a backend that is not executable on
+    // Invariant: No execute bit to take away: a backend that is not executable on
     // Windows is one without an executable extension.
     const QString renamed = directory.filePath(QStringLiteral("bin/omamail"));
     QVERIFY(QFile::rename(paths.backend, renamed));
@@ -164,7 +197,7 @@ void ResourcesTest::smokeTestLoadsQmlHandshakesAndWritesReadyFile()
     QVERIFY(ready.open(QIODevice::ReadOnly));
     const QJsonObject value = QJsonDocument::fromJson(ready.readAll()).object();
     QCOMPARE(value.value(QStringLiteral("version")).toString(), QStringLiteral(OMAMAIL_APP_VERSION));
-    QCOMPARE(value.value(QStringLiteral("apiVersion")).toInt(), 7);
+    QCOMPARE(value.value(QStringLiteral("apiVersion")).toInt(), OMAMAIL_BACKEND_API_VERSION);
 }
 
 void ResourcesTest::smokeRejectsMismatchedBackendApi()
@@ -178,6 +211,23 @@ void ResourcesTest::smokeRejectsMismatchedBackendApi()
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("does not match")));
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("ready.json"))));
+}
+
+void ResourcesTest::smokeRejectsMismatchedBackendContract()
+{
+    if (OMAMAIL_BACKEND_API_VERSION == OMAMAIL_RELEASED_API_VERSION)
+        QSKIP("Released API compatibility uses the stable revision");
+    QTemporaryDir directory;
+    ResourcePaths paths = completeLayout(directory);
+    paths.backend = QCoreApplication::applicationFilePath();
+    const QString readyPath = directory.filePath(QStringLiteral("ready.json"));
+    qputenv("OMAMAIL_SMOKE_FIXTURE", "stale-contract");
+    QString error;
+    const bool ready = runSmokeTest(paths, readyPath, &error);
+    qunsetenv("OMAMAIL_SMOKE_FIXTURE");
+    QVERIFY(!ready);
+    QVERIFY(!QFileInfo::exists(readyPath));
+    QVERIFY(error.contains(QStringLiteral("does not match")));
 }
 
 void ResourcesTest::smokeRejectsOversizedStdoutFrame()
@@ -219,7 +269,7 @@ void ResourcesTest::smokeBoundsBothChannelsAfterQuitReply()
                           100, &metrics));
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("timed out")));
-    // The fixture floods without end, so any finite bound is the point. The
+    // Invariant: The fixture floods without end, so any finite bound is the point. The
     // wall time is QML loading, a process spawn and a kill-wait of up to a
     // second, which a busy runner has stretched past three seconds.
     QVERIFY(elapsed.elapsed() < 10000);
@@ -240,7 +290,7 @@ void ResourcesTest::smokeDeadlineCrossedDuringDrainDoesNotWaitForever()
     QVERIFY(!runSmokeTest(paths, directory.filePath(QStringLiteral("ready.json")), &error, 1));
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("timed out")));
-    // The 1ms argument is only the post-quit drain. runSmokeTest still loads
+    // Invariant: The 1ms argument is only the post-quit drain. runSmokeTest still loads
     // QML, spawns the fixture, and kill-waits up to 1000ms, the same wall
     // budget the flood-after-quit bound uses.
     QVERIFY(elapsed.elapsed() < 10000);
@@ -318,6 +368,32 @@ void ResourcesTest::bundleDiscoveryAcceptsPortableRootLayout()
     QCOMPARE(paths.backend, backend);
 }
 
+void ResourcesTest::resourceRootMatchesPackagedLayouts()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString package = directory.filePath(QStringLiteral("omamail.app"));
+    const QStringList helpers{
+        QStringLiteral("attachment.sh"), QStringLiteral("default-mail.sh"),
+        QStringLiteral("register-mailto.sh"), QStringLiteral("mailto.sh"),
+        QStringLiteral("diagnostics.py"), QStringLiteral("open-link-window.py"),
+        QStringLiteral("link-window.html"), QStringLiteral("open-magpie-calendar.py")};
+    for (const QString &helper : helpers)
+        QVERIFY(writeFile(package + QStringLiteral("/scripts/") + helper));
+    QVERIFY(writeFile(package + QStringLiteral("/backend-api.json"), "{}"));
+    QVERIFY(writeFile(package + QStringLiteral("/backend-version"), "0.11.0"));
+    const QString resolved = applicationResourceRoot(package + QStringLiteral("/bin/omamail-app"));
+    QCOMPARE(resolved, package);
+    for (const QString &helper : helpers)
+        QVERIFY2(QFileInfo(resolved + QStringLiteral("/scripts/") + helper).isFile(),
+                 qPrintable(helper));
+    QVERIFY(QFileInfo(resolved + QStringLiteral("/backend-api.json")).isFile());
+    QVERIFY(QFileInfo(resolved + QStringLiteral("/backend-version")).isFile());
+
+    const QString direct = directory.filePath(QStringLiteral("enterprise/omamail-app"));
+    QCOMPARE(applicationResourceRoot(direct), directory.filePath(QStringLiteral("enterprise")));
+}
+
 int main(int argc, char *argv[])
 {
     if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("serve")) {
@@ -344,7 +420,9 @@ int main(int argc, char *argv[])
                 result = {{QStringLiteral("name"), QStringLiteral("omamail")},
                           {QStringLiteral("version"), QStringLiteral(OMAMAIL_APP_VERSION)},
                           {QStringLiteral("protocol"), 1},
-                          {QStringLiteral("apiVersion"), fixture == QByteArrayLiteral("stale-api") ? 6 : 7}};
+                          {QStringLiteral("apiVersion"), fixture == QByteArrayLiteral("stale-api") ? 6 : OMAMAIL_BACKEND_API_VERSION},
+                          {QStringLiteral("contractHash"), fixture == QByteArrayLiteral("stale-contract")
+                              ? QString(64, QLatin1Char('0')) : QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH)}};
             } else {
                 result = {{QStringLiteral("quitReady"), true}};
             }

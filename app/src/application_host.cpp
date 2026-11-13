@@ -1,20 +1,33 @@
 #include "application_host.h"
+#include "activation.h"
+#include "backend_contract.h"
+#include "status_file.h"
 
 #include "resource_check.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QProcess>
 #include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QWindow>
+
+namespace {
+bool migrationNotificationsDisabled()
+{
+    return qgetenv("OMAMAIL_DISABLE_NOTIFICATIONS") == QByteArrayLiteral("1");
+}
+}
 
 ApplicationHost::ApplicationHost(QObject *parent)
     : ApplicationHost(defaultResourcePaths({}, developmentResourcesEnabled()).manifest,
@@ -33,31 +46,45 @@ ApplicationHost::ApplicationHost(
     std::unique_ptr<NotificationPlatform> notificationPlatform, QObject *parent)
     : QObject(parent), m_backendPath(std::move(backendPath)),
       m_store(std::move(settingsPath)),
-      m_notifications(std::make_unique<NotificationService>(
+      m_notifications(std::make_unique<Notifications>(
           std::move(notificationPlatform),
           QFileInfo(m_store.path()).dir().filePath(
               QStringLiteral("notification-routes.json"))))
 {
+    if (auto *application = QCoreApplication::instance()) {
+        const QString initial = application->property("magpieMailInitialActivation").toString();
+        if (validActivationPayload(initial)) m_initialActivation = initial;
+        m_startInBackground = application->property(
+            "magpieMailStartInBackground").toBool();
+    }
     m_capabilities = {
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
         {QStringLiteral("agent"), true},
+        {QStringLiteral("mailto"), true},
 #else
         {QStringLiteral("agent"), false},
+        {QStringLiteral("mailto"), false},
+#endif
+#ifdef Q_OS_LINUX
+        {QStringLiteral("defaultMailClient"), true},
+#else
+        {QStringLiteral("defaultMailClient"), false},
 #endif
         {QStringLiteral("systemTray"), false},
-        {QStringLiteral("notifications"), m_notifications->available()},
-        // The Dock keeps a running application reachable after its window is
+        {QStringLiteral("notifications"), !migrationNotificationsDisabled()
+         && m_notifications->available()},
+        // Invariant: The Dock keeps a running application reachable after its window is
         // shut; elsewhere a windowless process has no such door.
 #ifdef Q_OS_MACOS
         {QStringLiteral("reopen"), true}};
 #else
         {QStringLiteral("reopen"), false}};
 #endif
-    connect(m_notifications.get(), &NotificationService::errorChanged, this,
+    connect(m_notifications.get(), &Notifications::errorChanged, this,
             &ApplicationHost::notificationErrorChanged);
-    connect(m_notifications.get(), &NotificationService::activated, this,
+    connect(m_notifications.get(), &Notifications::activated, this,
             &ApplicationHost::activateFromNotification);
-    // A window shut with the close chord leaves the process running for its
+    // Invariant: A window shut with the close chord leaves the process running for its
     // notifications. Activating the application again with nothing on screen
     // is the desktop's way of asking for the window back; on macOS Qt reports
     // a Dock click as exactly that, even when the process was already active.
@@ -70,9 +97,52 @@ ApplicationHost::ApplicationHost(
     defaults.insert(QStringLiteral("unifiedMailboxes"), false);
     QString error;
     const QVariantMap saved = m_store.load(&error);
-    for (auto it = saved.cbegin(); it != saved.cend(); ++it)
-        defaults.insert(it.key(), it.value());
+    for (auto setting = saved.cbegin(); setting != saved.cend(); ++setting)
+        defaults.insert(setting.key(), setting.value());
     m_settings = defaults;
+}
+
+ApplicationHost::~ApplicationHost()
+{
+    shutdownStatus();
+}
+
+bool ApplicationHost::configureStatusWriter(const QString &runtimeDirectory, QString *error)
+{
+    auto statusFile = std::make_unique<StatusFile>(runtimeDirectory);
+    if (!statusFile->write(BarStatus{}, error)) {
+        statusFile->shutdown(nullptr);
+        return false;
+    }
+    m_statusFile = std::move(statusFile);
+    m_statusShutdown = false;
+    if (auto *application = QCoreApplication::instance()) {
+        connect(application, &QCoreApplication::aboutToQuit, this,
+                &ApplicationHost::shutdownStatus, Qt::UniqueConnection);
+    }
+    return true;
+}
+
+void ApplicationHost::activate(const QString &payload)
+{
+    if (validActivationPayload(payload)) emit activationRequested(payload);
+}
+
+bool ApplicationHost::updateBarStatus(const QVariantMap &snapshot)
+{
+    if (!m_statusFile || m_statusShutdown) return false;
+    // Invariant: The shell envelope receives counters and visibility only. Snapshots also
+    // contain account and message fields for the in-process bar; none cross this boundary.
+    return m_statusFile->write(sanitizedBarStatus(snapshot));
+}
+
+void ApplicationHost::shutdownStatus()
+{
+    if (!m_statusFile || m_statusShutdown) return;
+    m_statusShutdown = true;
+    QString error;
+    if (!m_statusFile->shutdown(&error))
+        qWarning() << "Could not publish native shutdown status";
 }
 
 void ApplicationHost::loadManifest(const QString &path)
@@ -81,6 +151,21 @@ void ApplicationHost::loadManifest(const QString &path)
     if (!file.open(QIODevice::ReadOnly)) return;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     if (document.isObject()) m_manifest = document.object().toVariantMap();
+}
+
+QString ApplicationHost::resourceRoot() const
+{
+    if (developmentResourcesEnabled()) return QStringLiteral(OMAMAIL_SOURCE_ROOT);
+    return applicationResourceRoot();
+}
+
+QVariantMap ApplicationHost::backendContract() const
+{
+    return {{QStringLiteral("apiVersion"), OMAMAIL_BACKEND_API_VERSION},
+            {QStringLiteral("releasedApiVersion"), OMAMAIL_RELEASED_API_VERSION},
+            {QStringLiteral("contractHash"), QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH)},
+            {QStringLiteral("unreleasedMethods"), QJsonDocument::fromJson(
+                OMAMAIL_UNRELEASED_METHODS).array().toVariantList()}};
 }
 
 bool ApplicationHost::openExternal(const QString &urlOrPath)
@@ -94,6 +179,17 @@ bool ApplicationHost::openExternal(const QString &urlOrPath)
                                        QStringLiteral("mailto"), QStringLiteral("file")};
     if (!url.isValid() || !allowed.contains(url.scheme().toLower())) return false;
     return QDesktopServices::openUrl(url);
+}
+
+bool ApplicationHost::openMessageLink(const QString &url, const QString &accountEmail)
+{
+    if (url.contains(QChar::Null) || accountEmail.contains(QChar::Null)) return false;
+    const QString helper = QDir(resourceRoot()).filePath(
+        QStringLiteral("scripts/open-link-window.py"));
+    const QFileInfo helperInfo(helper);
+    if (resourceRoot().isEmpty() || !helperInfo.isFile() || helperInfo.isSymLink()) return false;
+    return QProcess::startDetached(QStringLiteral("python3"),
+                                   {QStringLiteral("-I"), helper, url, accountEmail});
 }
 
 bool ApplicationHost::setClipboard(const QString &text)
@@ -112,6 +208,7 @@ bool ApplicationHost::showNotification(const QString &id, const QString &title,
                                        const QString &body, const QString &accountId,
                                        const QString &messageId)
 {
+    if (migrationNotificationsDisabled()) return false;
     return m_notifications
         && m_notifications->show(id, title, body, accountId, messageId);
 }
@@ -162,6 +259,7 @@ void ApplicationHost::requestClose()
 
 void ApplicationHost::quit()
 {
+    shutdownStatus();
     QCoreApplication::quit();
 }
 
@@ -179,7 +277,8 @@ QString ApplicationHost::environment(const QString &name) const
 {
     static const QSet<QString> allowed{
         QStringLiteral("HOME"), QStringLiteral("XDG_CONFIG_HOME"),
-        QStringLiteral("XDG_CACHE_HOME"), QStringLiteral("OMAMAIL_BIN"),
+        QStringLiteral("XDG_CACHE_HOME"), QStringLiteral("XDG_DATA_HOME"),
+        QStringLiteral("OMAMAIL_BIN"),
         QStringLiteral("OMAMAIL_SMOKE_TEST")};
     if (!allowed.contains(name)) return {};
     return QString::fromLocal8Bit(qgetenv(name.toLocal8Bit().constData()));

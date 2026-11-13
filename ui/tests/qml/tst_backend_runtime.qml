@@ -30,12 +30,11 @@ Item {
       bundledExecutable: "/synthetic/app/omamail"
       bundledVersion: "0.10.7"
       bundledApiVersion: 5
+      bundledContract: ({apiVersion:6, releasedApiVersion:5, contractHash:"", unreleasedMethods:[]})
     }
   }
   TestCase {
     name: "PrivateRuntime"
-    // `make app-run` bundles the backend this checkout builds, which answers
-    // with the unreleased step; a release bundle answers with the pin.
     function test_bundle_accepts_the_pin_and_one_step_past_it() {
       var runtime = createTemporaryObject(bundledFactory, parent)
       runtime.refresh()
@@ -50,10 +49,17 @@ Item {
       }
     }
 
+    function test_bundle_never_invents_an_unreleased_step() {
+      var runtime = createTemporaryObject(bundledFactory, parent)
+      runtime.bundledContract = ({})
+      runtime.refresh()
+      compare(runtime.latestApiVersion, 5)
+    }
+
     function make() { return createTemporaryObject(factory, parent) }
     function processOf(runtime) {
-      for (var i = 0; i < runtime.children.length; i++)
-        if (runtime.children[i].command) return runtime.children[i]
+      for (var childIndex = 0; childIndex < runtime.children.length; childIndex++)
+        if (runtime.children[childIndex].command) return runtime.children[childIndex]
       fail("Missing runtime process")
     }
     function reply(runtime, state, version, error, cliInstalled) {
@@ -146,7 +152,7 @@ Item {
       var handshake = JSON.parse(process.written.trim())
       backend.receive(JSON.stringify({ jsonrpc: "2.0", id: handshake.id,
         result: { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
-          methods: ["system.info", "system.quit"] } }))
+          methods: ["system.info", "system.quit", "gmail.modify", "reader.render"] } }))
       verify(backend.ready)
       return backend
     }
@@ -254,7 +260,7 @@ Item {
       var request = JSON.parse(processOf(backend).written.trim().split("\n").pop())
       backend.receive(JSON.stringify({ jsonrpc: "2.0", id: request.id,
         result: { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
-          methods: ["system.info", "system.quit"] } }))
+          methods: ["system.info", "system.quit", "gmail.modify", "reader.render"] } }))
       verify(!backend.ready)
       verify(!processOf(backend).running)
     }

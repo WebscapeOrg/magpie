@@ -1,0 +1,23 @@
+{
+  "note": "Synthetic owner and context shared by every case in cases.json. Nobody here is real; every address is under example.test.",
+  "currentDate": "2026-11-04",
+  "currentTime": "2026-11-04T09:00:00+00:00",
+  "owner": "sam@example.test",
+  "context": {
+    "aboutYou": "Sam Example, 47, Irish. Lives in Cork with partner Alex Example and their children Ada (16, plays hockey) and Ben (19, studying at the University of Galway). Works freelance as a web developer; main client Northwind Ltd, where Priya Shah is the project lead and Tom Lee works with Priya. Has type 2 diabetes, looked after at Cork Clinic. Selling the family's old Ford Focus this month. Renewing an Irish passport.",
+    "sent": [
+      {"id": "s-base-1", "account": "sam@example.test", "from": {"name": "Sam Example", "email": "sam@example.test"}, "to": [{"name": "Alex Example", "email": "alex@example.test"}], "cc": [], "date": "2026-11-02T18:10:00Z", "subject": "Groceries", "snippet": "Got the groceries, back by 7.", "threadId": "t-base-1", "hasAttachments": false},
+      {"id": "s-base-2", "account": "sam@example.test", "from": {"name": "Sam Example", "email": "sam@example.test"}, "to": [{"name": "Garage", "email": "service@garage.example.test"}], "cc": [], "date": "2026-10-30T08:00:00Z", "subject": "Car service booking", "snippet": "Please book the Focus in for its service before the sale.", "threadId": "t-base-2", "hasAttachments": false}
+    ],
+    "inbox": [
+      {"id": "i-base-1", "account": "sam@example.test", "from": {"name": "Cork Library", "email": "news@library.example.test"}, "to": [{"email": "sam@example.test"}], "cc": [], "date": "2026-11-03T07:00:00Z", "subject": "November events", "snippet": "Author talks and children's workshops at Cork Library this month.", "threadId": "t-base-3", "hasAttachments": false},
+      {"id": "i-base-2", "account": "sam@example.test", "from": {"name": "Hockey Club", "email": "club@hockey.example.test"}, "to": [{"email": "sam@example.test"}], "cc": [], "date": "2026-11-02T12:00:00Z", "subject": "Training times", "snippet": "Under-17 training stays on Wednesdays at 6pm.", "threadId": "t-base-4", "hasAttachments": false}
+    ],
+    "todos": [
+      {"id": "td-base-1", "title": "Renew car insurance", "status": "open", "side": "dave", "list": "next", "deadline_on": "2026-11-20"}
+    ],
+    "calendar": [
+      {"id": "ev-base-1", "title": "Ada hockey match", "start": "2026-11-07T10:00:00Z", "end": "2026-11-07T11:30:00Z", "location": "Mardyke", "organizer": "club@hockey.example.test", "response": "accepted"}
+    ]
+  }
+}

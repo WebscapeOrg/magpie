@@ -8,13 +8,13 @@ compile_error!("integration-test-credentials must never be enabled in a release 
 
 pub mod rpc;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod keychain;
 #[cfg(target_os = "linux")]
 mod secret_service;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use keychain as platform;
 #[cfg(target_os = "linux")]
 use secret_service as platform;
@@ -24,16 +24,20 @@ use windows as platform;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CredentialKind {
     GoogleRefreshToken { client_id: String },
-    OutlookRefreshToken { client_id: String },
-    ImapPassword,
-    JmapSecret,
-    CalendarPassword,
+    /// The phone's own Claude API key. One per installation: provider "anthropic", account "default".
+    ClaudeApiKey,
+    /// The OpenAI API key that paints sender pictures. One per installation: provider "openai",
+    /// account "default".
+    OpenAiApiKey,
+    /// The key that reads the owner's todos from Magpie To Do (Atlas's Magpie feed, nothing else).
+    /// One per installation: provider "atlas", account "default".
+    AtlasKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CredentialKey {
     pub provider: String,
-    /// Stable mailbox id, or the stable CalDAV source id for CalendarPassword.
+    /// Stable Gmail account id.
     pub account_id: String,
     pub kind: CredentialKind,
 }
@@ -138,7 +142,7 @@ fn validate_secret(bytes: &[u8]) -> Result<(), Error> {
 }
 
 impl CredentialKey {
-    /// Keep Linux's historical libsecret attributes: a provider's credential
+    /// Invariant: Keep Linux's historical libsecret attributes: a provider's credential
     /// kind is its namespace, OAuth also binds the client and current grant.
     fn attributes(&self) -> Result<BTreeMap<String, String>, Error> {
         fn metadata(value: &str) -> Result<(), Error> {
@@ -148,49 +152,60 @@ impl CredentialKey {
             Ok(())
         }
         metadata(&self.account_id)?;
-        let (provider, kind) = match self.kind {
-            CredentialKind::GoogleRefreshToken { .. } => ("gmail", "refresh-token"),
-            CredentialKind::OutlookRefreshToken { .. } => ("outlook", "outlook-refresh-token"),
-            CredentialKind::ImapPassword => ("imap", "imap-password"),
-            CredentialKind::JmapSecret => ("jmap", "jmap-secret"),
-            CredentialKind::CalendarPassword => ("caldav", "calendar-password"),
+        let client_id = match &self.kind {
+            CredentialKind::ClaudeApiKey => {
+                if self.provider != "anthropic" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "claude-api-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::OpenAiApiKey => {
+                if self.provider != "openai" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "openai-api-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::AtlasKey => {
+                if self.provider != "atlas" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "atlas-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::GoogleRefreshToken { client_id } => client_id,
         };
-        if self.provider != provider {
+        if self.provider != "gmail"
+            || self.account_id.chars().any(char::is_whitespace)
+            || (self.account_id != "default"
+                && (!self.account_id.contains('@') || self.account_id.contains(':')))
+        {
             return Err(Error::InvalidKey);
         }
-        let mut attrs = BTreeMap::from([
+        metadata(client_id)?;
+        let attributes = BTreeMap::from([
             ("service".into(), "omamail".into()),
-            ("kind".into(), kind.into()),
+            ("kind".into(), "refresh-token".into()),
+            ("account".into(), self.account_id.to_lowercase()),
+            ("client-id".into(), client_id.clone()),
+            ("grant".into(), "calendar-events-v1".into()),
         ]);
-        if provider == "caldav" {
-            attrs.insert("source".into(), self.account_id.clone());
-        } else {
-            if self.account_id.chars().any(char::is_whitespace)
-                || (provider != "gmail" && !self.account_id.starts_with(&format!("{provider}:")))
-                || (provider != "gmail" && !self.account_id.contains('@'))
-                || (provider == "gmail"
-                    && self.account_id != "default"
-                    && (!self.account_id.contains('@') || self.account_id.contains(':')))
-            {
-                return Err(Error::InvalidKey);
-            }
-            attrs.insert("account".into(), self.account_id.to_lowercase());
-        }
-        if let CredentialKind::GoogleRefreshToken { client_id }
-        | CredentialKind::OutlookRefreshToken { client_id } = &self.kind
-        {
-            metadata(client_id)?;
-            attrs.insert("client-id".into(), client_id.clone());
-        }
-        if matches!(self.kind, CredentialKind::GoogleRefreshToken { .. }) {
-            attrs.insert("grant".into(), "calendar-events-v1".into());
-        }
-        Ok(attrs)
+        Ok(attributes)
     }
 
-    /// Length-delimited fields prevent delimiter collisions. Hashing also keeps
+    /// Invariant: Length-delimited fields prevent delimiter collisions. Hashing also keeps
     /// Windows target names below its limit without putting secrets in metadata.
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows", test))]
     fn native_id(&self) -> Result<String, Error> {
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
@@ -221,7 +236,12 @@ pub async fn delete(key: CredentialKey) -> Result<(), Error> {
         .map_err(|_| Error::Unavailable)?
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+)))]
 mod platform {
     use super::*;
     pub fn get(_: &CredentialKey) -> Result<Secret, Error> {

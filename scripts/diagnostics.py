@@ -14,12 +14,33 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-LIMIT = 65536
-# An exact, reviewed vocabulary, never a pattern that could admit a credential or
+MAX_RECORD_BYTES = 65536
+# Invariant: this exact, reviewed vocabulary cannot admit a credential or
 # server text. tests/test_diagnostics.py flags new static backend identifiers;
 # review their source before adding them here, never derive this set at runtime.
-MESSAGES = set('''permission_required contacts_invalid contacts_permission_required contacts_response_limit contacts_unavailable inbox_gmail_required inbox_storage_invalid inbox_storage_unavailable inbox_unavailable overview_ai_unavailable overview_input_invalid overview_invalid_response overview_start_failed overview_unsupported_claim snooze_invalid_folder snooze_invalid_thread snooze_invalid_time snooze_limit snooze_missing snooze_pending_retry
-accounts_busy accounts_conflict accounts_invalid accounts_setup_replacement accounts_too_large
+MESSAGES = set('''attachment_handle_invalid attachment_handle_unavailable attachment_provider_unsupported
+agent_cancelled agent_submission_conflict agent_unavailable attachment_copy_cleanup_failed attachment_copy_target_exists
+calendar_gone calendar_request_rejected engine_storage_unavailable local_busy local_response_too_large
+local_snapshot_incomplete local_snapshot_too_large local_suspended mobile_suspended mobile_request_failed mobile_storage_already_initialized
+mobile_storage_invalid mobile_storage_uninitialized outbox_account_pending outbox_message_invalid
+outbox_not_unknown outbox_send_cancelled outbox_send_unknown
+notification_not_found
+snooze_conflict snooze_storage_failed bundle_not_found bundle_not_proven
+calendar_busy calendar_recurrence_too_large calendar_recurrence_unsupported gmail_not_found
+local_account_unknown local_content_invalid local_content_missing local_content_too_large
+local_disk_full local_disk_low local_edit_already_started local_edit_id_conflict local_edit_not_confirmed
+local_message_unavailable local_owner_unavailable local_schema_newer local_search_unsupported local_search_invalid local_search_too_long
+local_backup_backend_needs_update local_backup_busy local_backup_completion_unknown
+local_backup_export_failed local_backup_failed local_backup_incomplete local_backup_no_store
+local_backup_owner_unavailable local_backup_publish_failed local_backup_stores_changed
+local_backup_timed_out local_backup_unknown_store local_backup_unsafe_staging
+local_sqlite_update_required local_storage_corrupt local_storage_unavailable local_text_incomplete local_text_unreadable
+outbox_awaiting_connection outbox_connection_unavailable
+ai_billing ai_key_format ai_key_invalid ai_key_missing ai_key_refused ai_key_storage ai_key_workspace ai_model_unavailable ai_rate_limited ai_unavailable ai_unreachable ai_daily_limit
+pictures_billing pictures_key_format pictures_key_invalid pictures_key_refused pictures_key_storage pictures_model_unavailable pictures_rate_limited pictures_reference_unavailable pictures_refused pictures_request_rejected pictures_storage_full pictures_storage_unavailable pictures_unreachable
+ai_answer_cut ai_context_full ai_interrupted ai_invalid_response ai_refused ai_request_expired ai_request_rejected ai_turn_limit agent_cancel_limit
+permission_required contacts_invalid contacts_permission_required contacts_response_limit contacts_unavailable calendar_invalid calendar_permission_required calendar_response_limit calendar_unavailable todos_invalid todos_link_invalid todos_response_limit todos_unauthorized todos_unavailable interview_busy interview_invalid_response interview_no_answers inbox_gmail_required inbox_storage_invalid inbox_storage_unavailable inbox_unavailable overview_ai_unavailable overview_ai_paused overview_waits_for_app overview_ai_refused overview_account_changed overview_input_invalid overview_media_invalid overview_media_limit overview_media_missing overview_media_unavailable overview_invalid_response overview_start_failed overview_unsupported_claim snooze_invalid_folder snooze_invalid_thread snooze_invalid_time snooze_limit snooze_missing snooze_pending_retry snooze_undo_unavailable
+accounts_busy accounts_conflict accounts_provider_unsupported accounts_invalid accounts_setup_replacement accounts_too_large
 accounts_unexpected_removal accounts_unreadable accounts_version_unsupported accounts_write_failed
 agent_active_limit agent_cancel_failed agent_choose_claude
 agent_config_invalid agent_config_unavailable agent_context_owner_mismatch agent_conversation_busy
@@ -66,7 +87,7 @@ gmail_account_unknown gmail_client_invalid gmail_client_missing gmail_client_per
 gmail_client_too_large gmail_client_unreadable gmail_draft_missing gmail_forbidden
 gmail_http_failed gmail_invalid_input gmail_invalid_response gmail_invalid_token
 gmail_keyring_failed gmail_length_required gmail_queue_dropped gmail_queue_full
-gmail_rate_limited gmail_response_too_large gmail_session_invalidated gmail_session_limit
+gmail_rate_limited gmail_request_deferred gmail_server_rate_limited gmail_response_too_large gmail_session_invalidated gmail_session_limit
 gmail_timeout gmail_token_account_invalid gmail_token_invalid gmail_token_missing
 gmail_unauthorized
 hey_account_mismatch hey_invalid_response hey_program_mismatch hey_unavailable
@@ -166,13 +187,34 @@ def clean(event, existing=False):
             'message': message if isinstance(message, str) and message in MESSAGES else 'unknown_error'}
 
 
-GMAIL_OPERATIONS = set('''getProfile labels.list labels.get settings.sendAs.list
+GMAIL_OPERATIONS = set('''history.list getProfile labels.list labels.get settings.sendAs.list
 messages.list messages.get.full messages.get.metadata messages.attachments.get
 threads.get.full threads.get.metadata drafts.list messages.send messages.batchModify
 messages.modify messages.trash messages.untrash labels.create labels.update labels.delete
 drafts.create drafts.update drafts.delete oauth.refresh gmail.request'''.split())
-GMAIL_REASONS = {'unknown', 'localBudget', 'rateLimitExceeded', 'userRateLimitExceeded',
+GMAIL_REASONS = {'unknown', 'localBudget', 'serverCooldown', 'rateLimitExceeded', 'userRateLimitExceeded',
                  'dailyLimitExceeded', 'insufficientPermissions', 'domainPolicy', 'authError', 'sessionInvalidated'}
+
+
+def clean_rpc(event):
+    if (not isinstance(event, dict) or not isinstance(event.get('method'), str)
+            or event['method'] not in METHODS or type(event.get('success')) is not bool):
+        return None
+    result = {'method': event['method'], 'success': event['success']}
+    for key in ('process', 'request', 'queueUs', 'elapsedUs', 'requestBytes'):
+        value = event.get(key)
+        if type(value) is not int or not 0 <= value < 2**64:
+            return None
+        result[key] = value
+    if 'timeMs' in event:
+        value = event['timeMs']
+        if type(value) is not int or not 0 <= value < 2**64:
+            return None
+        result['timeMs'] = value
+    error = event.get('error')
+    if error is not None:
+        result['error'] = error if isinstance(error, str) and error in MESSAGES else 'unknown_error'
+    return result
 
 
 def clean_gmail(event):
@@ -182,7 +224,7 @@ def clean_gmail(event):
     vocabularies = {'operation': GMAIL_OPERATIONS,
                     'reason': GMAIL_REASONS,
                     'lane': {'interactive', 'background', 'poll', 'queue', 'auth'},
-                    'outcome': {'ok', 'gmail_rate_limited', 'gmail_unauthorized',
+                    'outcome': {'ok', 'gmail_not_found', 'gmail_rate_limited', 'gmail_request_deferred', 'gmail_server_rate_limited', 'gmail_unauthorized',
                                 'gmail_forbidden', 'gmail_length_required', 'gmail_http_failed',
                                 'gmail_timeout', 'gmail_response_too_large', 'gmail_invalid_response', 'gmail_session_invalidated'}}
     for key, allowed in vocabularies.items():
@@ -206,6 +248,8 @@ def clean_gmail(event):
         if value is not None and (type(value) is not int or not 0 <= value <= maximum):
             return None
         result[key] = value
+    if type(event.get('rpc')) is int and 0 <= event['rpc'] < 2**64:
+        result['rpc'] = event['rpc']
     return result
 
 
@@ -255,16 +299,17 @@ def read(fd, name):
         return b''
     with os.fdopen(handle, 'rb') as file:
         check(file.fileno())
-        data = file.read(LIMIT + 1)
-        if len(data) > LIMIT:
+        data = file.read(MAX_RECORD_BYTES + 1)
+        if len(data) > MAX_RECORD_BYTES:
             raise ValueError('Diagnostic file too large')
         return data
 
 
 def write(fd, name, data):
-    read(fd, name)  # Refuse unsafe existing files before creating a replacement.
+    # Invariant: refuse unsafe existing files before creating a replacement.
+    read(fd, name)
     data = data.encode('utf-8')
-    if len(data) > LIMIT:
+    if len(data) > MAX_RECORD_BYTES:
         raise ValueError('Diagnostic file too large')
     temp = '.write-' + secrets.token_hex(12)
     handle = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
@@ -284,8 +329,8 @@ def write(fd, name, data):
 def main(mode):
     incoming = []
     if mode == 'record':
-        raw = sys.stdin.buffer.readline(LIMIT + 1)
-        if len(raw) > LIMIT:
+        raw = sys.stdin.buffer.readline(MAX_RECORD_BYTES + 1)
+        if len(raw) > MAX_RECORD_BYTES:
             raise ValueError('Input too large')
         incoming = json.loads(raw)
         if not isinstance(incoming, list) or len(incoming) > 32:
@@ -301,9 +346,9 @@ def main(mode):
         if mode == 'record':
             write(fd, 'errors.json', json.dumps(entries, ensure_ascii=True) + '\n')
             return
-        # No task contents, configuration, URLs, stderr or environment values.
+        # Invariant: reports exclude task contents, configuration, URLs, stderr and environment values.
         manifest = json.loads((ROOT / 'manifest.json').read_text())
-        report = 'Omamail diagnostics\n'
+        report = 'Magpie Mail diagnostics\n'
         report += 'plugin: ' + str(manifest['version']) + '\n'
         report += 'pinned backend: ' + (ROOT / 'backend-version').read_text().strip() + '\n'
         report += 'API revision: ' + str(json.loads((ROOT / 'backend-api.json').read_text())['apiVersion']) + '\n'
@@ -318,8 +363,25 @@ def main(mode):
             if gmail:
                 report += '\n\nRecent Gmail attempts (session numbers are process-local, not addresses):\n'
                 report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in gmail)
-        # Preserve the existing bounded report when the transport history is full.
-        while len(report.encode('utf-8')) + 1 > LIMIT:
+        try:
+            timings = json.loads(read(fd, 'rpc.json') or b'[]')
+        except (ValueError, OSError):
+            timings = []
+        if isinstance(timings, list):
+            timings = [safe for event in timings[-256:] if (safe := clean_rpc(event)) is not None]
+            if timings:
+                report += '\n\nRecent RPC timings (microseconds; generated request numbers):\n'
+                report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in timings)
+        for filename in ('gmail-writer.json', 'rpc-writer.json'):
+            try:
+                writer = json.loads(read(fd, filename) or b'{}')
+                dropped = writer.get('dropped') if isinstance(writer, dict) else None
+                if type(dropped) is int and 0 <= dropped < 2**64:
+                    report += '\n' + filename + ': dropped records=' + str(dropped)
+            except (ValueError, OSError):
+                pass
+        # Invariant: transport history cannot exceed the existing report size bound.
+        while len(report.encode('utf-8')) + 1 > MAX_RECORD_BYTES:
             lines = report.splitlines()
             first = next((i for i, line in enumerate(lines) if line.startswith('{')), None)
             if first is None:
@@ -334,7 +396,7 @@ def main(mode):
                 'An unknown error means the original text was omitted for privacy. '
                 'agent_invalid_state can indicate AI history written by an incompatible backend version. '
                 'The source checkout or installed plugin is at ' + str(ROOT) + '.')
-    # omarchy-agent execs the terminal and can stay in the foreground for the
+    # Invariant: omarchy-agent execs the terminal and can stay in the foreground for the
     # whole TUI session. Waiting with a timeout kills that window (SIGKILL).
     proc = subprocess.Popen(
         ['omarchy-agent', '--prompt', prompt],

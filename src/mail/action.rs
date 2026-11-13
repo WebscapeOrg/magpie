@@ -1,4 +1,4 @@
-//! Normalize once, then preview or consume that exact plan for execution.
+//! Invariant: Normalize once, then preview or consume that exact plan for execution.
 use super::types::opaque_id;
 use super::{Account, ActRequest, Provider};
 use serde_json::{Value, json};
@@ -15,24 +15,15 @@ pub(crate) struct ActionPlan {
     pub target_ids: Vec<String>,
     pub add_label_ids: Vec<String>,
     pub remove_label_ids: Vec<String>,
-    /// Opaque provider facts reviewed by the planner, such as destination IDs.
-    pub provider_context: Value,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActionAvailability {
     pub refusals: Value,
-    /// Canonical destination names whose live account state permits planning.
-    pub mailboxes: Value,
-    /// A provider action may be direct (for example HEY spam) rather than a
-    /// move to a listable mailbox. Missing entries retain mailbox semantics.
-    pub mailbox_required: Value,
-    /// Opaque, freshly-read provider context for the matching `rows` lookup.
-    pub rows_context: Value,
 }
 
-/// Supplies only bounded, read-only action context. Implementations must not
-/// call provider mutation adapters or change cache/account/outbox state.
+/// Invariant: Supplies only bounded, read-only action context. Implementations must not call
+/// provider mutation adapters or change cache/account/outbox state.
 pub(crate) trait ActionLookup: Send + Sync {
     fn availability<'a>(
         &'a self,
@@ -44,13 +35,12 @@ pub(crate) trait ActionLookup: Send + Sync {
         &'a self,
         account: &'a Account,
         ids: &'a [String],
-        availability: &'a ActionAvailability,
         operation: &'a str,
     ) -> LookupFuture<'a, Vec<Value>>;
 }
 
-/// Returns only confirmed successful IDs. Unknown outcomes are failures for
-/// reporting purposes; they must never trigger an automatic retry.
+/// Invariant: Returns only confirmed successful IDs. Unknown outcomes are failures for reporting
+/// purposes; they must never trigger an automatic retry.
 pub(crate) trait ActionMutation: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -77,17 +67,11 @@ fn label_ids(change: &Value, name: &str) -> Result<Vec<String>, &'static str> {
         .collect()
 }
 
-/// Validation only: retain the exact opaque spelling used in the request and
-/// provider acknowledgements. Reuse the same pure parsers as native execution.
-pub(crate) fn validate_message_id(provider: Provider, id: &str) -> Result<(), &'static str> {
+/// Invariant: Validation only: retain the exact opaque spelling used in the request and provider
+/// acknowledgements. Reuse the same pure parsers as native execution.
+pub(crate) fn validate_message_id(_provider: Provider, id: &str) -> Result<(), &'static str> {
     opaque_id(id)?;
-    match provider {
-        Provider::Gmail => crate::providers::gmail::validate_message_id(id),
-        Provider::Jmap => crate::providers::jmap::validate_action_id(id),
-        Provider::Hey => crate::providers::hey_actions::message_id(id).map(|_| ()),
-        Provider::Imap | Provider::Outlook => crate::providers::imap::message_id(id).map(|_| ()),
-    }
-    .map_err(|_| "invalid_params")
+    crate::providers::gmail::validate_message_id(id).map_err(|_| "invalid_params")
 }
 
 fn requested_ids(provider: Provider, ids: &[String]) -> Result<Vec<String>, &'static str> {
@@ -152,22 +136,11 @@ pub(crate) async fn plan_action(
     {
         return Err("mail_action_unavailable");
     }
-    if let Some(mailbox) = crate::account::model::action_mailbox(action)
-        && availability.mailbox_required[&request.operation] != false
-        && !availability.mailboxes[mailbox].as_bool().unwrap_or(false)
-    {
-        return Err("mail_action_destination_unavailable");
-    }
     let change = crate::account::model::action_changes(action);
     let add_label_ids = label_ids(&change, "add")?;
     let remove_label_ids = label_ids(&change, "remove")?;
     let rows = lookup
-        .rows(
-            &request.account,
-            &unique_requested,
-            &availability,
-            &request.operation,
-        )
+        .rows(&request.account, &unique_requested, &request.operation)
         .await?;
     let mut target_ids = Vec::new();
     let mut seen = HashSet::new();
@@ -190,7 +163,6 @@ pub(crate) async fn plan_action(
         target_ids,
         add_label_ids,
         remove_label_ids,
-        provider_context: availability.rows_context,
     })
 }
 

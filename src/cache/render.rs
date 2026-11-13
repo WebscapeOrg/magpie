@@ -1,10 +1,10 @@
-//! Bounded in-process render results. Source and every sanitization option form the key.
+//! Invariant: Bounded in-process render results. Source and every sanitization option form the key.
 //! Only trusted Rust renderer code inserts results; there is deliberately no RPC put.
 use serde_json::Value;
 use std::collections::VecDeque;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PER_ACCOUNT: usize = 12;
-const MAX_ENTRIES: usize = 96;
+const MAX_ENTRIES: usize = 32;
 #[derive(Default)]
 pub struct RenderCache {
     entries: VecDeque<Entry>,

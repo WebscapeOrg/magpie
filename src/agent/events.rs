@@ -74,7 +74,11 @@ pub fn parse(output: &str) -> Vec<Value> {
             continue;
         }
         let mut all_day = item.get("allDay") == Some(&Value::Bool(true));
-        let Some((start_ms, day_only)) = parse_when(item.get("start"), all_day) else {
+        // Invariant: what `parse` keeps passes `validate`, which refuses a start at or before
+        // 1970 began, so a job never writes events it would drop when read back.
+        let Some((start_ms, day_only)) = parse_when(item.get("start"), all_day)
+            .filter(|(start_ms, _)| *start_ms > 0)
+        else {
             continue;
         };
         all_day = all_day || day_only;
@@ -167,8 +171,6 @@ pub fn validate(value: &Value) -> Result<()> {
     Ok(())
 }
 
-// A string the agent handed back, fit to draw: control characters gone, a
-// title on one line, notes keeping their line breaks, and cut to size.
 fn clean(value: Option<&Value>, keep_lines: bool, limit: usize) -> String {
     let text = match value {
         Some(Value::String(s)) => s.clone(),
@@ -195,7 +197,7 @@ fn clean(value: Option<&Value>, keep_lines: bool, limit: usize) -> String {
         .to_owned()
 }
 
-// The last array in the text that JSON will decode, tried from every `[`
+// Algorithm: The last array in the text that JSON will decode, tried from every `[`
 // working back from the end: a `]` inside a title is a character, not a
 // bracket, and text after the array is only text.
 fn last_json_array(text: &str) -> Vec<Value> {
@@ -216,7 +218,7 @@ fn last_json_array(text: &str) -> Vec<Value> {
     Vec::new()
 }
 
-// An ISO date or date-time as (epoch milliseconds, was a whole day). A bare
+// Invariant: An ISO date or date-time as (epoch milliseconds, was a whole day). A bare
 // day is midnight in this machine's zone; a time with no offset is read in
 // it too; and a time on an all-day event is only its day.
 fn parse_when(value: Option<&Value>, all_day: bool) -> Option<(i64, bool)> {
@@ -258,7 +260,7 @@ fn in_years(year: i32) -> bool {
     (YEARS.0..=YEARS.1).contains(&year)
 }
 
-// Midnight at the start of a civil day in this machine's zone, and the day
+// Invariant: Midnight at the start of a civil day in this machine's zone, and the day
 // after it: a whole day is the day, not 86400000 milliseconds, which on a
 // clock-change day is an hour too many or too few.
 fn local_midnight_ms(day: NaiveDate) -> i64 {
@@ -362,8 +364,6 @@ mod tests {
             events[1]["endMs"].as_i64().unwrap() - events[1]["startMs"].as_i64().unwrap(),
             3_600_000
         );
-        // A day with a time but marked whole is its day; an end before the
-        // start is no end.
         let odd = parse(
             "[{\"title\":\"T\",\"start\":\"2026-10-02T15:00:00Z\",\"end\":\"2026-10-01T15:00:00Z\",\"allDay\":true}]",
         );
@@ -385,6 +385,15 @@ mod tests {
             NOTES_MAX
         );
         assert_eq!(events[0]["confidence"], 1.0);
+        validate(&json!(events)).unwrap();
+    }
+
+    #[test]
+    fn an_event_at_or_before_1970_began_is_left_out_so_the_job_reads_back() {
+        let answer = r#"[{"title":"Epoch","start":"1970-01-01T00:00:00Z"},{"title":"Before","start":"1969-12-31T23:00:00Z"},{"title":"Later","start":"1970-01-02T00:00:00Z"}]"#;
+        let events = parse(answer);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["title"], "Later");
         validate(&json!(events)).unwrap();
     }
 

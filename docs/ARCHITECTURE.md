@@ -1,6 +1,6 @@
-# Omamail Architecture
+# Magpie Mail Architecture
 
-This document describes how Omamail is divided, where state belongs, and how components communicate. It is an engineering guide rather than a product specification. `SPEC.md` says what the product promises; `DESIGN.md` says how the interface behaves and is laid out; this document says which part of the program owns each decision.
+This document describes how Magpie Mail is divided, where state belongs, and how components communicate. It is an engineering guide rather than a product specification. `SPEC.md` says what the product promises; `DESIGN.md` says how the interface behaves and is laid out; this document says which part of the program owns each decision.
 
 Except for visual styling, GPUI and GPUI Component provide the default architectural model for Omamail. Their principles of stable identity, explicit state ownership, contextual actions, controlled values, semantic events, composable parts, behavior/presentation separation, lifecycle safety, precise vocabulary, and testable decisions apply here unless a Qt or shell constraint proves otherwise. Omamail translates those principles into QML properties, signals, JavaScript libraries, and Qt lifecycle rather than reproducing Rust APIs.
 
@@ -8,7 +8,7 @@ Use the [GPUI Component Coding Guides](http://longbridge.github.io/gpui-componen
 
 ## Architectural position
 
-Omamail is one stateful mail and calendar application with two desktop hosts: an Omarchy shell plugin and a standalone Qt executable. Its architecture has five layers:
+Magpie Mail is one stateful mail application with a native Qt host and an envelope-only Omarchy shell plugin. Its architecture has five layers:
 
 1. Host entry points connect Omarchy or the native Qt process to the application.
 2. The window composition owns window state, navigation, action dispatch, and top-level layout.
@@ -16,26 +16,23 @@ Omamail is one stateful mail and calendar application with two desktop hosts: an
 4. Interaction and layout primitives implement reusable UI behavior.
 5. Feature views compose those primitives and render data they are given.
 
-Dependencies point down this list. A view may ask the application to perform an action, but it does not acquire provider knowledge or mutate storage on its own. A provider may normalize mail into the shared message resource, but it does not know which row, popup, or page is visible.
+Dependencies point down this list. A view may ask the application to perform an action, but it does not acquire provider knowledge or mutate storage on its own. The Gmail adapter supplies message resources without knowing which row, popup, or page is visible.
 
-The visual system is separate from all five layers. In the plugin, colors come from the active Omarchy theme; in the standalone app, the compatibility imports derive the same semantic roles from Qt's active system palette. `App.qml` passes those semantic values to components in either host. GPUI Component supplies the architectural and interaction baseline, not the visual language.
+The visual system is separate from all five layers. The native app and the small envelope follow the active Omarchy theme through their respective hosts. `App.qml` passes semantic values to components in the native window. GPUI Component supplies the architectural and interaction baseline, not the visual language.
 
 ## Entry points and window composition
 
-The Omarchy shell loads the QML entry points under `ui/`, as named by the root manifest:
+The Omarchy shell loads only `ui/BarWidget.qml`, as named by the root manifest. The envelope reads the native app's small freshness-checked status snapshot and launches it through the stable `magpie-mail` command. It has no account registry, backend, message preview, window toggle, credentials, or full Service. Its only shell setting is whether the envelope is visible.
 
-- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties beyond what the shell supplies. It owns state that must survive the window.
-- `BarWidget.qml` is the shell-facing trigger and settings bridge.
-- `App.qml` composes the application window. It owns visible navigation, action dispatch, focus context, non-popup surfaces, and the arrangement of the major panes.
+The native executable under `app/` is a host rather than a second implementation:
 
-The standalone executable under `app/` is a host rather than a second implementation:
+- `app/src/main.cpp` resolves packaged resources, validates them, acquires the single-instance activation channel, and loads `app/qml/Main.qml`.
+- `app/qml/Main.qml` constructs the only full `Service.qml` and `App.qml`, then supplies `StandaloneShell` and `StandaloneManifest`. Closing the window hides it; explicit Quit exits.
+- `Service.qml` owns account and background state and publishes only readiness, window visibility, bar visibility and unread count. The native host adds the timestamp and writes the private status file.
+- `app/qml/imports/` implements only the Quickshell and `qs.*` contracts used by the shared UI. It does not copy mail, provider, or navigation behavior.
+- `app/src/` owns native process containment, bounded activation and line transport, private settings migration and writes, file watching, external URL dispatch, clipboard access, and notifications. These capabilities are exposed through `Omamail.Native`; QML does not branch by operating system.
 
-- `app/src/main.cpp` resolves packaged resources, validates them, and loads `app/qml/Main.qml`.
-- `app/qml/Main.qml` constructs the same `Service.qml` and `App.qml`, then supplies `StandaloneShell` and `StandaloneManifest` in place of the Omarchy objects.
-- `app/qml/imports/` implements only the Quickshell and `qs.*` contracts used by the shared UI. It does not copy mail, calendar, provider, or navigation behavior.
-- `app/src/` owns native process containment, bounded line transport, private settings writes, file watching, external URL dispatch, clipboard access, and notifications. These capabilities are exposed through `Omamail.Native`; QML does not branch by operating system.
-
-The standalone capability object is the product boundary: mail, calendar, and native notifications are enabled, as is native AI on Linux and macOS. Windows AI, the system tray, and operating-system `mailto:` registration remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity.
+The standalone capability object is the product boundary: mail and native notifications are enabled, as are native AI and `mailto:` on Linux and macOS. The default-mail-client settings action is Linux-only; macOS uses its bundle's URL declaration without XDG or Hyprland controls. Windows AI, Windows `mailto:`, and the system tray remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity. See [Normal app](NORMAL-APP.md) for activation, migration and the status contract.
 
 This composition boundary is shaped by the shell entry-point contract and Qt's focus and popup behavior. `App.qml` coordinates:
 
@@ -50,11 +47,11 @@ This composition boundary is shaped by the shell entry-point contract and Qt's f
 
 ## Native and backend boundaries
 
-Both hosts keep one persistent `omamail serve` process and communicate with newline-delimited JSON-RPC over stdin/stdout. `ui/backend/Backend.qml` owns correlation, protocol/API compatibility, cancellation, and frame assembly. The plugin resolves its exact private backend pin; a packaged standalone host resolves the exact backend beside its own executable. Only the explicit development mode used by `make app-run` accepts a source build through `OMAMAIL_BIN`.
+The native app starts `omamail serve` and communicates with newline-delimited JSON-RPC over stdin/stdout. `ui/backend/Backend.qml` owns correlation, protocol/API compatibility, cancellation, and frame assembly. A packaged host resolves the exact backend beside its own executable and uses the managed-engine proxy when its existing marker is present. The shell envelope starts no backend. Only the explicit development mode used by `make app-run` accepts a source build through `OMAMAIL_BIN`.
 
-The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`; agent worker commands and RPC methods are absent rather than hidden only in QML.
+The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`, which also enables `agent`. Agent worker commands and RPC methods require a Unix target, so Linux and macOS include them and Windows omits them at compilation as well as in its UI capabilities.
 
-Credentials cross the UI/backend boundary through typed `credential.get`, `credential.put`, and `credential.delete` RPC methods. Rust validates the provider-specific key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
+Credentials cross the UI/backend boundary through typed `credentials.get`, `credentials.put`, and `credentials.delete` RPC methods. Rust validates the Google credential key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
 
 Cross-platform storage is owned by `src/platform/`: `dirs` selects platform application directories, `private_fs` supplies handle-anchored private files, and `ipc` supplies Unix sockets or Windows named pipes for the outbox. Platform implementations must preserve the same refusal and deadline semantics even though their operating-system primitives differ.
 
@@ -93,7 +90,7 @@ The existing keyboard architecture is the clearest GPUI-derived part of Omamail 
 
 An action describes intent, not an input device. `archive` is the same operation whether it came from `e`, an icon, or a menu row. Components emit intent; the application decides what the intent means in the current state. This prevents parallel mouse and keyboard implementations from drifting.
 
-The context is the guard. Do not add a second collection of `enabled` tests in the key handler for conditions already expressed by the context. Capability is different: it comes from the active provider and decides whether an operation exists at all. A provider capability should remove an unavailable action from the view rather than offer an action that fails after activation.
+The context is the guard. Do not add a second collection of `enabled` tests in the key handler for conditions already expressed by the context. Gmail operations are fixed. Account authorization, backend readiness and write permissions remain separate guards and must refuse unavailable actions before optimistic updates.
 
 Qt Quick Controls popups intercept keys before window shortcuts. That is a platform fact, not an exception to the architecture. Popup-local navigation therefore lives on the popup content item, and the popup owns its own Escape dismissal. An application action may open a popup, but `goBack()` does not duplicate the popup's close policy. The tests in `ui/tests/qml/tst_popup_keys.qml` preserve this boundary.
 
@@ -101,10 +98,10 @@ Qt Quick Controls popups intercept keys before window shortcuts. That is a platf
 
 Rust lives under `src/`, shared Qt/QML and its JavaScript under `ui/`, and the standalone host under `app/`. Within each layer, modules are grouped by responsibility. `src/cli/` handles headless commands, `src/backend/` handles persistent stdio JSON-RPC communication, and shared business modules such as `src/account/` and `src/message/` serve both hosts. The migration is incomplete; `BACKEND.md` records the current boundary. The existing UI modules are:
 
-- `ui/providers/` owns service descriptions, authentication, protocol behavior, capabilities, and normalization into the shared Gmail-shaped resource.
+- `ui/providers/` owns Google authentication, Gmail transport presentation and Gmail domain facts. No provider picker or multi-protocol registry remains.
 - `ui/account/` owns accounts, a mailbox, and list behavior after actions.
 - `ui/cache/` owns stored query results and message bodies.
-- `ui/calendar/` owns event sources, the range cache, and event reads and writes.
+- Magpie Calendar owns calendar sources, range caches, event operations and reminders in its own repository and storage. Magpie only sends explicit invitation or suggested-event handoffs.
 - `ui/message/` owns parsing, sanitizing, calendar data, and other decisions about a message's content.
 - `ui/keys/` owns the action and binding declaration.
 - `ui/components/` owns views and reusable interaction primitives.
@@ -122,7 +119,7 @@ QML components own Qt lifecycle and input mechanics. Feature views supply
 Omamail composition; semantic properties supplied from `App.qml` carry the
 Omarchy presentation.
 
-Provider differences end at the provider boundary. Code above that boundary asks about capabilities and consumes the common message resource. It does not branch on provider IDs.
+All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Magpie Calendar checks calendar access permissions independently.
 
 ## Vocabulary is an interface contract
 
@@ -162,7 +159,7 @@ Required semantic properties are preferable to hidden dependencies on `App.qml`.
 
 Menus, the account switcher, the image popover, and shortcut help all draw above the mail panes, but they do not share one implementation or input model.
 
-`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, calendar, reader, event detail, settings, provider chooser, setup form) and the plain overlays (compose, event composer, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
+`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, reader, settings, Google setup form) and the plain overlays (compose, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
 
 An overlay contract includes:
 
@@ -261,54 +258,3 @@ Do not create Rust-shaped QML APIs or shadow facilities already owned by Qt. GPU
 The same distinction applies to large feature systems. Dock's pure-data layout, canonical state, stable identity, and fill-after-removal invariants apply; a Dock tree, panel registry, arbitrary tab groups, tiles, and drag-to-dock editing do not exist until Omamail offers those product operations. Virtualization's separation of model coordinates, visible range, measurement, and row rendering applies; virtual-list machinery is introduced only when the loaded-message model needs it.
 
 The visual exception is explicit. GPUI Component theme tokens, dimensions, cursor styling, animation curves, shadows, radii, and surface appearance do not transfer. Omarchy remains the visual authority.
-
-## Commit design
-
-Commits should preserve the reasoning that makes an architectural choice safe to change later. The best history in both Omamail and GPUI Component follows a consistent structure.
-
-### Subject
-
-Write an imperative, outcome-oriented subject. Describe what becomes true for the user or maintainer, not the file operation.
-
-Good:
-
-- `Keep the popup attached to the control that opened it`
-- `Restore focus after the account switcher closes`
-- `Share pane constraints between drag and restore`
-
-Weak:
-
-- `Refactor popup code`
-- `Update App.qml`
-- `Add helper`
-
-Conventional prefixes such as `fix:` or `docs:` are useful where the repository already uses them, but they do not replace a precise result.
-
-### Body
-
-Use the body to explain:
-
-1. the previous observable behavior;
-2. the cause or architectural mismatch;
-3. the invariant chosen by the change;
-4. important alternatives rejected and why;
-5. verification actually performed;
-6. known verification that could not be performed.
-
-Prefer concrete evidence over generic claims. Include measured timing, window sizes, protocol requirements, Qt behavior, or a minimal example when one of those caused the design. Explain surprising code close to the code as well; the commit records why the change happened, while the comment protects the invariant after the commit is no longer nearby.
-
-A large commit may use short sections such as `Why`, `What replaces it`, and `Verification`. A small commit should remain prose rather than imitate a pull request template. Test lists distinguish passing automated checks, manual checks, and checks unavailable in the current environment.
-
-Keep one architectural argument per commit where practical. A supporting fix belongs in the same commit when the primary change exposes it and cannot be correct without it; unrelated cleanup does not.
-
-## Pull request design
-
-A pull request title follows the GPUI Component form `<scope>: <Imperative outcome>`. The lowercase scope names the stable module or subsystem that owns the result; use `app` for one application-level change that honestly spans several UI modules. The outcome describes what the complete change makes true rather than the work performed or the file touched.
-
-Derive the title from the final `base...HEAD` diff, not from the first commit. Later review fixes can change the actual scope, and a title that remains attached to the opening implementation gives reviewers the wrong boundary.
-
-The description is a current explanation of the complete diff rather than a chronology. It covers the user-visible results, the architectural reason and invariants, and the verification actually performed. Rewrite it when later commits materially change any of those; do not append corrections to a stale description.
-
-## Documentation source
-
-Markdown prose uses one source line per paragraph. Do not hard-wrap prose to a column width. Use line breaks only for semantic structure such as headings, paragraphs, lists, tables, blockquotes, and code blocks.

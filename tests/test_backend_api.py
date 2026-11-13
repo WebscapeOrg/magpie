@@ -7,16 +7,130 @@ mail server, or external agent is configured. This is a compatibility gate, not
 an exhaustive provider/network integration suite.
 """
 import argparse
+from contextlib import contextmanager, ExitStack, nullcontext
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import signal
+import shutil
+import sqlite3
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_CREATE_NEW_PROCESS_GROUP = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
+
+
+def selected_contract(released=False):
+    spec = importlib.util.spec_from_file_location('package_backend_contract', ROOT / 'scripts/package-backend.py')
+    package = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(package)
+    contract = package.read_api(ROOT / 'backend-api.json')
+    return package.released_view(contract) if released else contract
+
+
+@contextmanager
+def redirected_folders(changes, get_path, set_path):
+    originals = []
+    try:
+        for key, path in changes:
+            original = get_path(key)
+            set_path(key, str(path))
+            originals.append((key, original))
+        yield
+    finally:
+        errors = []
+        for key, original in reversed(originals):
+            try:
+                set_path(key, original)
+            except OSError as error:
+                errors.append(error)
+        if errors:
+            raise RuntimeError('Could not restore isolated runner Known Folders') from errors[0]
+
+
+def windows_known_folders():
+    import ctypes
+    import uuid
+    shell = ctypes.WinDLL('shell32')
+    memory = ctypes.WinDLL('ole32')
+    shell.SHGetKnownFolderPath.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+                                         ctypes.POINTER(ctypes.c_void_p)]
+    shell.SHGetKnownFolderPath.restype = ctypes.c_long
+    shell.SHSetKnownFolderPath.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_wchar_p]
+    shell.SHSetKnownFolderPath.restype = ctypes.c_long
+    memory.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    memory.CoTaskMemFree.restype = None
+
+    def guid(key):
+        return ctypes.create_string_buffer(uuid.UUID(key).bytes_le)
+
+    def get_path(key):
+        pointer = ctypes.c_void_p()
+        result = shell.SHGetKnownFolderPath(guid(key), 0x4000, None, ctypes.byref(pointer))
+        if result < 0:
+            raise OSError(f'SHGetKnownFolderPath failed: {result:#x}')
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            memory.CoTaskMemFree(pointer)
+
+    def set_path(key, path):
+        result = shell.SHSetKnownFolderPath(guid(key), 0x2000, None, path)
+        if result < 0:
+            raise OSError(f'SHSetKnownFolderPath failed: {result:#x}')
+
+    return get_path, set_path
+
+
+@contextmanager
+def exclusive_fixture_directory(path):
+    path.mkdir(mode=0o700)
+    identity = path.stat(follow_symlinks=False)
+    try:
+        yield path
+    finally:
+        current = path.stat(follow_symlinks=False)
+        if path.is_symlink() or not path.is_dir() or not os.path.samestat(identity, current):
+            raise RuntimeError('Refusing to remove a replaced fixture directory')
+        shutil.rmtree(path)
+
+
+def windows_fixture_folders(home, config, get_path, set_path):
+    return redirected_folders([
+        ('3eb685db-65f9-4cf6-a03a-e3ef65729f3d', config),
+        ('374de290-123f-4565-9164-39c4925e467b', home / 'Downloads'),
+    ], get_path, set_path)
+
+
+def windows_fixture_environment(config, local, get_path):
+    return {'USERPROFILE': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'APPDATA': str(config), 'LOCALAPPDATA': str(local)}
+
+
+def windows_child_folders(env):
+    script = """
+import json, runpy, sys
+get_path, _ = runpy.run_path(sys.argv[1])['windows_known_folders']()
+print(json.dumps({
+    'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+    'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+    'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+    'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+}))
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', script, str(Path(__file__).resolve())],
+                            env=env, capture_output=True, text=True, check=True, timeout=10)
+    return json.loads(result.stdout)
+
+
+def verify_windows_fixture_folders(env, expected):
+    actual = windows_child_folders(env)
+    for name, path in expected.items():
+        if Path(actual[name]) != Path(path):
+            raise RuntimeError(f'Windows fixture {name} differs in child: {actual[name]!r} != {str(path)!r}')
 
 
 def process_group_options(platform=None):
@@ -38,6 +152,54 @@ def terminate_process_group(process, platform=None):
     else:
         os.killpg(process.pid, signal.SIGKILL)
 
+
+def make_windows_fixture_private(roots):
+    entries = [{'path': str(path), 'directory': path.is_dir()}
+               for root in roots for path in [root] + sorted(root.rglob('*'))]
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$entries = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($entry in $entries) {
+    if ($entry.directory) {
+        $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+        $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    } else {
+        $acl = [System.Security.AccessControl.FileSecurity]::new()
+        $inherit = [System.Security.AccessControl.InheritanceFlags]::None
+    }
+    $acl.SetOwner($owner)
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $owner, [System.Security.AccessControl.FileSystemRights]::FullControl,
+        $inherit, [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow)
+    $acl.AddAccessRule($rule)
+    if ($entry.directory) {
+        [System.IO.Directory]::SetAccessControl($entry.path, $acl)
+    } else {
+        [System.IO.File]::SetAccessControl($entry.path, $acl)
+    }
+}
+"""
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            input=json.dumps(entries), text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError('Could not set private fixture permissions: ' + result.stderr[:8192])
+
+
+def run_fixture_process(command, env, home):
+    process = subprocess.Popen(command, env=env, cwd=home, **process_group_options())
+    try:
+        return process.wait(timeout=60)
+    finally:
+        try:
+            terminate_process_group(process)
+        except (OSError, ProcessLookupError):
+            pass
+        process.wait(timeout=10)
+
+
 HARNESS = r"""
 const fs = require('fs');
 const path = require('path');
@@ -52,20 +214,31 @@ const whole = JSON.parse(fs.readFileSync(process.env.CONTRACT_ROOT + '/backend-a
 const released = process.env.CONTRACT_RELEASED === '1';
 const standalone = process.env.CONTRACT_STANDALONE === '1';
 const unreleased = whole.unreleased || {methods: [], cases: []};
-const selected = released ? {
+const selected = released ? (whole.releasedContract || {
   apiVersion: whole.releasedApiVersion, protocolVersion: whole.protocolVersion,
   methods: whole.methods.filter(m => !unreleased.methods.includes(m)),
   contractCases: whole.contractCases.filter(c => !unreleased.cases.includes(c.name))
-} : whole;
+}) : whole;
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-const unavailable = agentUnavailable ? selected.methods.filter(m => m.startsWith('agent.')) : [];
-const contract = agentUnavailable ? {
+// Sender pictures, the owner's bio, Points and AI spending are built with the assistant, so Windows has none. Reading
+// the picture status opens the keyring, which the Linux fixture leaves unreachable (no session
+// bus); macOS would open the runner's real keychain.
+const picturesUnavailable = process.platform === 'win32';
+const agentBackedMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'inbox.aboutYou', 'inbox.interview', 'inbox.calendarAccess', 'inbox.todoConnection', 'inbox.bundles', 'inbox.approveBundle', 'inbox.refuseBundle', 'inbox.approvedSenders', 'inbox.removeApprovedSender', 'ai.spending'];
+const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
+  (picturesUnavailable && agentBackedMethods.includes(method)) ||
+  (process.platform !== 'linux' && method === 'backup.export');
+const caseUnavailable = fixture => methodUnavailable(fixture.method) ||
+  (picturesUnavailable && fixture.name === 'Inbox snapshot reports the sender picture revision') ||
+  (process.platform !== 'linux' && fixture.name === 'Inbox picture status reports the counts Settings shows');
+const unavailable = selected.methods.filter(methodUnavailable);
+const contract = {
   ...selected,
-  methods: selected.methods.filter(m => !m.startsWith('agent.')),
-  contractCases: selected.contractCases.filter(c => !c.method.startsWith('agent.'))
-} : selected;
+  methods: selected.methods.filter(m => !methodUnavailable(m)),
+  contractCases: selected.contractCases.filter(c => !caseUnavailable(c))
+};
 const child = spawn(process.env.CONTRACT_BINARY, ['serve'], {stdio:['pipe','pipe','pipe']});
 let buffer = '', state = null, serial = 0, finished = false;
 const pending = new Map();
@@ -111,7 +284,7 @@ function safeDocument(value) {
   assert.ok(value && typeof value === 'object');
   assert.ok(!JSON.stringify(value).includes('forbiddenScript'));
 }
-function storageSnapshot(directory = process.env.HOME) {
+function storageSnapshot() {
   const snapshot = {};
   function visit(path) {
     const stat = fs.lstatSync(path, {bigint:true});
@@ -119,7 +292,7 @@ function storageSnapshot(directory = process.env.HOME) {
       stat.isFile() ? fs.readFileSync(path).toString('base64') : null];
     if (stat.isDirectory()) for (const name of fs.readdirSync(path).sort()) visit(path + '/' + name);
   }
-  visit(directory);
+  for (const directory of JSON.parse(process.env.CONTRACT_STORAGE_ROOTS)) visit(directory);
   return snapshot;
 }
 (async () => {
@@ -140,11 +313,15 @@ function storageSnapshot(directory = process.env.HOME) {
     assert.deepEqual(storageSnapshot(), before, method + ': disabled method has no effects');
   }
   if (!released) {
-    for (const method of ['jmap.actionAvailability', 'jmap.actionRows']) {
-      assert.ok(!info.methods.includes(method), 'internal planner is not advertised');
+    assert.equal(info.contractHash, require('crypto').createHash('sha256').update(fs.readFileSync(process.env.CONTRACT_ROOT + '/backend-api.json')).digest('hex'), 'compiled API contract matches the UI contract');
+    assert.deepEqual([...info.methods].sort(), [...contract.methods].sort(), 'current inventory has no removed methods');
+    const removed = (whole.releasedContract ? whole.releasedContract.methods : [])
+      .filter(method => !whole.methods.includes(method));
+    for (const method of [...removed, 'jmap.actionAvailability', 'jmap.actionRows']) {
+      assert.ok(!info.methods.includes(method), 'removed or internal method is not advertised');
       const before = storageSnapshot();
-      const error = await call(method, {}, -32000, false);
-      assert.equal(error.message, 'method_not_found');
+      const error = await call(method, {}, -32601, false);
+      assert.equal(error.message, 'Method not found');
       assert.deepEqual(storageSnapshot(), before, 'unknown method has no account or provider effects');
     }
   }
@@ -175,14 +352,41 @@ function storageSnapshot(directory = process.env.HOME) {
           fs.writeFileSync(directory+'/'+name,JSON.stringify(value),{mode:0o600});
       }
     }
+    if (fixture.name === 'AI spending answers each period by feature') {
+      // The engine takes only starts from the last month and a day, so they are made now.
+      const now = Date.now();
+      fixture.params = {day: now - 3600000, week: now - 3 * 86400000, month: now - 20 * 86400000};
+    }
+    const attachmentRecovery = fixture.name.startsWith('Attachment recovery ');
+    if (attachmentRecovery) {
+      // The stored path is a description, never authority to open or remove a file.
+      const fixturePath = path.join(process.env.HOME, 'attachment-recovery-sentinel');
+      if (!fs.existsSync(fixturePath)) fs.writeFileSync(fixturePath, 'synthetic-attachment-preserve', {mode:0o600});
+      const drafts = fixture.params.record
+        ? [fixture.params.record.draft, ...(fixture.params.record.parked || [])] : [];
+      for (const draft of drafts) {
+        for (const job of [...(draft.attachJobs || []), ...(draft.pendingAttachment ? [draft.pendingAttachment] : [])]) {
+          if (job.path === '/synthetic/contract-attachment.bin') job.path = fixturePath;
+        }
+      }
+      const jobCount = fixture.name === 'Attachment recovery preserves the bounded maximum job queue' ? 1000
+        : fixture.name === 'Attachment recovery rejects an oversized pending queue' ? 1001 : 0;
+      if (jobCount) {
+        const job = fixture.params.record.draft.attachJobs[0];
+        fixture.params.record.draft.attachJobs = Array.from({length:jobCount}, () => ({...job}));
+      }
+      if (fixture.method === 'compose.recoverySave' && fixture.errorCode === undefined)
+        fixture.params.expectedRevision = (await call('compose.recoveryRead', {})).revision;
+    }
     const registryPath = process.env.CONTRACT_REGISTRY_PATH;
     const emptyRegistry = fixture.name === 'mail list requires an account';
     const registryBefore = emptyRegistry ? fs.readFileSync(registryPath) : null;
     if (emptyRegistry) fs.writeFileSync(registryPath, JSON.stringify({version:1,accounts:[]}));
-    // The full isolated HOME includes seeded cache/config/state sentinels,
+    // All owned fixture roots include seeded cache/config/state sentinels,
     // credential helper effects and any newly created outbox/draft files.
     const noWrites = fixture.method.startsWith('mail.') || fixture.name === 'recovery rejects invalid edit history'
-      || fixture.name === 'AI recovery refuses nontext quote metadata';
+      || fixture.name === 'AI recovery refuses nontext quote metadata'
+      || (attachmentRecovery && fixture.errorCode !== undefined);
     const before = noWrites ? storageSnapshot() : null;
     if (fixture.name === 'AI recovery preserves app-owned quote metadata')
       fixture.params.expectedRevision = (await call('compose.recoveryRead', {})).revision;
@@ -200,13 +404,31 @@ function storageSnapshot(directory = process.env.HOME) {
       const type = Array.isArray(actual) ? 'array' : actual === null ? 'null' : typeof actual;
       assert.equal(type, expected, fixture.name + ': ' + path);
     }
+    if (attachmentRecovery) {
+      const fixturePath = path.join(process.env.HOME, 'attachment-recovery-sentinel');
+      assert.equal(fs.readFileSync(fixturePath, 'utf8'), 'synthetic-attachment-preserve', fixture.name + ': attachment bytes are untouched');
+      if (!fixture.errorCode) {
+        const drafts = [value.record.draft, ...(value.record.parked || [])].filter(Boolean);
+        for (const draft of drafts) {
+          for (const job of [...(draft.attachJobs || []), ...(draft.pendingAttachment ? [draft.pendingAttachment] : [])]) {
+            assert.equal(job.path, fixturePath, fixture.name + ': pending path is preserved as metadata');
+            assert.equal(job.owner, draft.draftKey, fixture.name + ': pending owner matches its draft');
+            assert.equal(job.accountId, draft.accountId, fixture.name + ': pending account matches its draft');
+            assert.deepEqual(Object.keys(job).sort(), ['accountId','mode','owner','path']);
+          }
+        }
+        assert.ok(!JSON.stringify(value).includes('synthetic-attachment-preserve'), fixture.name + ': recovery never imports file bytes');
+      }
+    }
     if (fixture.name === 'recovery reads edit history')
       assert.equal(value.record.parked[1].userModified, undefined, 'legacy edit history remains absent');
   }
 
   await call('message.parse', {raw:17}, -32602);
   const providers = await call('providers.snapshot');
-  for (const id of ['gmail','outlook','hey','jmap','imap']) {
+  const providerIds = released && contract.apiVersion < 8 ? ['gmail','outlook','hey','jmap','imap'] : ['gmail'];
+  assert.deepEqual(Object.keys(providers).sort(), [...providerIds].sort());
+  for (const id of providerIds) {
     assert.ok(providers[id] && providers[id].queries && providers[id].capabilities);
     assert.equal(typeof providers[id].nativeSync, 'boolean');
   }
@@ -263,35 +485,48 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--expected-version')
+    parser.add_argument('--smoke-host', type=Path, help='exercise a packaged host inside the same isolated data roots')
+    parser.add_argument('--smoke-ready', type=Path, help='write the host readiness result to this new file')
     parser.add_argument('--released', action='store_true',
                         help='check only the released API, as the pinned published binary speaks it')
     parser.add_argument('--standalone', action='store_true',
                         help='check standalone capabilities, including native agents on Linux/macOS')
+    parser.add_argument('--isolated-windows-runner', action='store_true',
+                        help='use isolated app data on a disposable GitHub-hosted Windows runner')
     args = parser.parse_args()
+    if os.name == 'nt' and not (args.isolated_windows_runner
+            and os.environ.get('GITHUB_ACTIONS') == 'true'
+            and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'):
+        parser.error('Windows contract tests require --isolated-windows-runner on a disposable GitHub-hosted runner')
+    if args.smoke_ready and not args.smoke_host:
+        parser.error('--smoke-ready requires --smoke-host')
+    smoke_host = args.smoke_host.resolve(strict=True) if args.smoke_host else None
+    smoke_ready = args.smoke_ready.resolve() if args.smoke_ready else None
+    if smoke_ready and smoke_ready.exists():
+        parser.error('--smoke-ready must name a new file')
     binary = args.binary.resolve(strict=True)
-    contract = json.loads((ROOT / 'backend-api.json').read_text())
-    if (type(contract.get('apiVersion')) is not int or contract['apiVersion'] < 1
-            or type(contract.get('protocolVersion')) is not int
-            or not isinstance(contract.get('methods'), list)
-            or not all(isinstance(method, str) and method for method in contract['methods'])
-            or len(contract['methods']) != len(set(contract['methods']))):
-        raise SystemExit('Invalid backend-api.json')
-    with tempfile.TemporaryDirectory(prefix='omamail-api-contract-') as directory:
+    contract = selected_contract(args.released)
+    with tempfile.TemporaryDirectory(prefix='omamail-api-contract-') as directory, ExitStack() as cleanup:
         # macOS exposes its temporary root through /var, a symlink to
         # /private/var. The production storage boundary refuses symlinked
         # ancestors, so seed and advertise the canonical isolated root.
         home = Path(directory).resolve()
+        storage_roots = [home]
         env = {key: value for key, value in os.environ.items()
-               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT')}
+               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'QT_QPA_PLATFORM')}
         if os.name == 'nt':
             config_root = home / 'AppData/Roaming'
-            local_root = home / 'AppData/Local'
+            get_folder, set_folder = windows_known_folders()
+            local_root = Path(get_folder('f1b32785-6fba-4fcf-9d55-7b8e7f157091'))
+            # Windows forbids relocating LocalAppData. Claim only this app's absent
+            # subtree on the disposable runner; never reuse or remove existing data.
+            owned_data = cleanup.enter_context(exclusive_fixture_directory(local_root / 'OmamailData'))
+            storage_roots.append(owned_data)
             cache_root = local_root / 'OmamailData/Cache'
             state_root = local_root / 'OmamailData/State'
             data_root = local_root / 'OmamailData'
             runtime_root = local_root / 'OmamailData/Runtime'
-            env.update(USERPROFILE=str(home), APPDATA=str(config_root),
-                       LOCALAPPDATA=str(local_root))
+            env.update(windows_fixture_environment(config_root, local_root, get_folder))
         elif sys.platform == 'darwin':
             config_root = home / 'Library/Application Support'
             cache_root = home / 'Library/Caches'
@@ -311,23 +546,31 @@ def main():
         env.update(HOME=str(home), TMPDIR=str(runtime_root), TEMP=str(runtime_root),
                    TMP=str(runtime_root), CONTRACT_REGISTRY_PATH=str(registry),
                    CONTRACT_ROOT=str(ROOT), CONTRACT_BINARY=str(binary),
+                   CONTRACT_STORAGE_ROOTS=json.dumps([str(root) for root in storage_roots]),
                    CONTRACT_VERSION=args.expected_version or '',
                    CONTRACT_RELEASED='1' if args.released else '',
                    CONTRACT_STANDALONE='1' if args.standalone else '')
         runtime_root.mkdir(parents=True, mode=0o700)
+        if os.name == 'nt':
+            (home / 'Downloads').mkdir(mode=0o700)
         registry.parent.mkdir(parents=True)
         if os.name != 'nt':
             registry.parent.chmod(0o700)
-        # Every provider the contract cases name is registered in both views:
-        # a released case is the same fixture it was while unreleased.
-        accounts = [
-            {'email': 'contract@example.org'},
+        accounts = [{'email': 'contract@example.org'}]
+        if args.released and contract['apiVersion'] < 8:
+            accounts.extend([
             {'provider': 'imap', 'email': 'sender@example.org',
              'imap': {'username': 'sender@example.org'}},
             {'provider': 'imap', 'email': 'named@example.org', 'senderName': 'Jane Example',
              'imap': {'username': 'named@example.org'}},
             {'provider': 'hey', 'email': 'sender@example.org'},
-            {'provider': 'outlook', 'email': 'sender@example.org'}]
+            {'provider': 'outlook', 'email': 'sender@example.org'}])
+        gmail_status_cases = [case for case in contract['contractCases']
+                              if case['name'].startswith('Gmail request status: ')]
+        unsaved_cases = [case for case in contract['contractCases']
+                         if case['name'] == 'Local status counts mail that cannot be saved']
+        accounts.extend({'provider': 'gmail', 'email': case['params']['accountId']}
+                        for case in gmail_status_cases + unsaved_cases)
         registry.write_text(json.dumps({'version': 1, 'activeId': 'contract@example.org',
                                         'accounts': accounts}))
         registry.chmod(0o600)
@@ -338,6 +581,53 @@ def main():
                 sentinel.parent.chmod(0o700)
             sentinel.write_bytes(b'preserve existing user state\n')
         import hashlib
+        for case in gmail_status_cases:
+            account = case['params']['accountId']
+            folder = state_root / 'omamail/mail' / hashlib.sha256(account.encode()).hexdigest()
+            folder.mkdir(parents=True, mode=0o700)
+            folder.parent.chmod(0o700)
+            database = folder / 'mail.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript((ROOT / 'src/local_mail/schema.sql').read_text())
+                connection.execute('INSERT INTO state VALUES(?,?)', ('error', case['equals']['error']))
+                connection.execute('INSERT INTO jobs(id,error) VALUES(?,?)', ('synthetic-pending', case['equals']['error']))
+            connection.close()
+            database.chmod(0o600)
+        for case in unsaved_cases:
+            account = case['params']['accountId']
+            folder = state_root / 'omamail/mail' / hashlib.sha256(account.encode()).hexdigest()
+            folder.mkdir(parents=True, mode=0o700)
+            folder.parent.chmod(0o700)
+            database = folder / 'mail.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript((ROOT / 'src/local_mail/schema.sql').read_text())
+                connection.execute('INSERT INTO unsaved(id,reason) VALUES(?,?)', ('synthetic-unsaved', 'local_text_unreadable'))
+            connection.close()
+            database.chmod(0o600)
+        summary_cases = [case for case in contract['contractCases']
+                         if case['name'] == 'Local summaries return cached effective labels and query matches']
+        if summary_cases:
+            folder = state_root / 'omamail/mail' / hashlib.sha256(b'contract@example.org').hexdigest()
+            folder.mkdir(parents=True, mode=0o700)
+            folder.parent.chmod(0o700)
+            database = folder / 'mail.sqlite'
+            summary = {'id': 'search-cached', 'threadId': 'search-thread',
+                       'subject': 'Synthetic invoice', 'unread': True,
+                       'labelIds': ['INBOX', 'UNREAD']}
+            with sqlite3.connect(database) as connection:
+                connection.executescript((ROOT / 'src/local_mail/schema.sql').read_text())
+                connection.execute('INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                                   ('search-cached', 'search-thread', 1792662000000, json.dumps(summary),
+                                    '0' * 64, '["INBOX","UNREAD"]', 'sender@example.org',
+                                    'contract@example.org', '', 'Synthetic invoice', '', 0, 1))
+                connection.execute('INSERT INTO labels VALUES(?,?)', ('search-cached', 'INBOX'))
+                connection.execute('INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?,?,?,?,?)',
+                                   ('contract-search-edit', 'search-cached', '[]', '["UNREAD"]', '["INBOX","UNREAD"]'))
+                connection.execute('INSERT INTO search(id,subject,sender,recipients,copied,filenames,body) VALUES(?,?,?,?,?,?,?)',
+                                   ('search-cached', 'Synthetic invoice', 'sender@example.org',
+                                    'contract@example.org', '', '', 'Synthetic saved message'))
+            connection.close()
+            database.chmod(0o600)
         digest = hashlib.sha256()
         for part in ('overviews', 'contract@example.org'):
             encoded = part.encode()
@@ -346,7 +636,10 @@ def main():
         inbox = state_root / 'omamail/inbox'
         inbox.mkdir(mode=0o700)
         overview = inbox / (digest.hexdigest() + '.json')
-        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}}))
+        overview.write_text(json.dumps({'rewriting': {'state':'waiting', 'version':2, 'previousPoint':True, 'updated':1}, 'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}, 'ready': {'state': 'ready', 'text': 'Receipt — R780 paid', 'version': 2, 'expiresAt': 0, 'updated': 1, 'details': {'gmailMs': 125, 'decideMs': 40, 'createMs': 1500, 'requestedModel': 'sonnet', 'model': 'sonnet', 'batchSize': 2, 'choice': 'decisions', 'untrusted': '<img>'}}, 'expired': {'state': 'ready', 'text': 'Due yesterday', 'version': 2, 'expiresAt': 1, 'updated': 1}}))
+        tracked = json.loads(overview.read_text())
+        tracked['tracked'] = {'state':'ready','text':'An example Point.','version':2,'expiresAt':0,'updated':1,'details':{'contextTokens':12345,'contextTokensPartial':False,'costNanos':41200000,'costPartial':False,'decideCostNanos':40000,'passes':[{'model':'claude-sonnet-5-5','effort':'low'},{'model':'<img>','effort':'low'}],'downloadRun': {'origin': 'backgroundRefresh', 'startedAt': 100, 'finishedAt': 200, 'startedActive': False, 'finishedActive': False, 'leftApp': False}, 'createRun': {'origin': 'app', 'startedAt': 300, 'finishedAt': 400, 'startedActive': True, 'finishedActive': False, 'leftApp': True}, 'untrusted': 'not kept'}}
+        overview.write_text(json.dumps(tracked))
         overview.chmod(0o600)
         helpers = home / 'bin'
         helpers.mkdir()
@@ -355,32 +648,26 @@ def main():
         credential_helper.chmod(0o700)
         env['PATH'] = str(helpers) + os.pathsep + env.get('PATH', '')
         if os.name == 'nt':
-            # The private storage check wants what the backend itself creates:
-            # owned by this user, with a protected DACL naming nobody else.
-            # What mkdir made here inherits the runner's ACL and, from an
-            # elevated token, belongs to Administrators. The whole fixture home
-            # is made private the same way, files included.
-            #
-            # One object at a time: an inheritance flag on a file's ACE makes
-            # it inherit-only, which grants the file's own reader nothing.
-            user = os.environ['USERNAME']
-            subprocess.run(['icacls', str(home), '/setowner', user, '/T', '/Q'],
-                           check=True, capture_output=True)
-            for path in [home] + sorted(home.rglob('*')):
-                grant = user + (':(OI)(CI)F' if path.is_dir() else ':F')
-                subprocess.run(['icacls', str(path), '/inheritance:r', '/grant:r', grant, '/Q'],
-                               check=True, capture_output=True)
-        process = subprocess.Popen(['node', '-e', HARNESS], env=env, cwd=home,
-                                   **process_group_options())
-        try:
-            status = process.wait(timeout=60)
-        finally:
-            # A failed/expired harness must not leave its backend running.
-            try:
-                terminate_process_group(process)
-            except (OSError, ProcessLookupError):
-                pass
-            process.wait(timeout=10)
+            # Replace every DACL: Python 0700 directories include explicit SYSTEM,
+            # Administrators and OWNER RIGHTS grants that inheritance:r cannot remove.
+            make_windows_fixture_private(storage_roots)
+        folders = windows_fixture_folders(home, config_root, get_folder, set_folder) if os.name == 'nt' else nullcontext()
+        with folders:
+            if os.name == 'nt':
+                verify_windows_fixture_folders(env, {
+                    'profile': env['USERPROFILE'], 'config': config_root,
+                    'local': local_root, 'downloads': home / 'Downloads',
+                })
+            if smoke_host:
+                ready = smoke_ready or home / 'smoke-ready.json'
+                for command in ([str(smoke_host), '--check-resources'],
+                                [str(smoke_host), '--smoke-test', str(ready)]):
+                    status = run_fixture_process(command, env, home)
+                    if status:
+                        raise SystemExit(status)
+                if not ready.is_file():
+                    raise RuntimeError('Packaged host did not create its readiness result')
+            status = run_fixture_process(['node', '-e', HARNESS], env, home)
         if status:
             raise SystemExit(status)
 

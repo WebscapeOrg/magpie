@@ -21,11 +21,11 @@ fn prefix(data: &str, count: usize) -> Vec<u8> {
     let mut bits = 0;
     let mut value = 0u32;
     let mut bytes = Vec::new();
-    for c in clean(data).bytes() {
-        let digit = match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
+    for character in clean(data).bytes() {
+        let digit = match character {
+            b'A'..=b'Z' => character - b'A',
+            b'a'..=b'z' => character - b'a' + 26,
+            b'0'..=b'9' => character - b'0' + 52,
             b'+' => 62,
             b'/' => 63,
             _ => break,
@@ -43,26 +43,41 @@ fn prefix(data: &str, count: usize) -> Vec<u8> {
     bytes
 }
 pub fn raster_kind(data: &str) -> &'static str {
-    let b = prefix(data, 16);
-    if b.starts_with(b"\x89PNG") {
+    let bytes = prefix(data, 16);
+    if bytes.starts_with(b"\x89PNG") {
         "image/png"
-    } else if b.starts_with(b"\xff\xd8\xff") {
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
         "image/jpeg"
-    } else if b.starts_with(b"GIF8") {
+    } else if bytes.starts_with(b"GIF8") {
         "image/gif"
-    } else if b.len() >= 16 && b.starts_with(b"RIFF") && b.get(8..12) == Some(b"WEBP") {
+    } else if bytes.len() >= 16 && bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
         "image/webp"
     } else {
         ""
     }
 }
 fn base64_bytes(data: &str) -> usize {
-    let s = clean(data);
-    (s.len() * 3 / 4).saturating_sub(if s.ends_with("==") {
+    let encoded = clean(data);
+    (encoded.len() * 3 / 4).saturating_sub(if encoded.ends_with("==") {
         2
     } else {
-        usize::from(s.ends_with('='))
+        usize::from(encoded.ends_with('='))
     })
+}
+fn displayable_image(data: &str) -> bool {
+    use base64::{
+        Engine, alphabet,
+        engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+    };
+    let decoder = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    decoder
+        .decode(clean(data))
+        .ok()
+        .and_then(|bytes| crate::raster::decoded_bytes(&bytes))
+        .is_some()
 }
 pub fn import_image(data: &str, options: &Value) -> Value {
     let mime = raster_kind(data);
@@ -73,20 +88,24 @@ pub fn import_image(data: &str, options: &Value) -> Value {
     if base64_bytes(data) > max {
         return json!({"html":"","plain":"","problem":format!("That image is larger than {} KB",(max as f64/1024.0).round() as usize)});
     }
+    if !displayable_image(data) {
+        return json!({"html":"","plain":"","problem":"That image cannot be safely displayed"});
+    }
     json!({"html":format!("<p><img src=\"data:{mime};base64,{}\"></p>",clean(data)),"plain":"","dropped":0,"images":1,"problem":""})
 }
 static DATA: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^data:(image/(?:png|jpe?g|gif|webp));base64,([A-Za-z0-9+/=]+)$").unwrap()
 });
 pub fn data_image_ok(value: &str, max: usize) -> bool {
-    let Some(c) = DATA.captures(value) else {
+    let Some(captures) = DATA.captures(value) else {
         return false;
     };
-    let kind = raster_kind(&c[2]);
-    base64_bytes(&c[2]) <= max
+    let kind = raster_kind(&captures[2]);
+    base64_bytes(&captures[2]) <= max
+        && displayable_image(&captures[2])
         && !kind.is_empty()
-        && (kind == c[1].to_lowercase()
-            || (kind == "image/jpeg" && c[1].eq_ignore_ascii_case("image/jpg")))
+        && (kind == captures[1].to_lowercase()
+            || (kind == "image/jpeg" && captures[1].eq_ignore_ascii_case("image/jpg")))
 }
 fn href_ok(value: &str) -> bool {
     let value = value.trim();
@@ -349,6 +368,22 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn round2_signature_import_refuses_unrenderable_image_metadata() {
+        use base64::Engine;
+        let huge = base64::engine::general_purpose::STANDARD
+            .encode(b"GIF89a\xff\xff\xff\xff\x80\x00\x00\x00\x00\x00\xff\xff\xff\x3b");
+        for data in [huge.as_str(), "iVBORw0KGgo="] {
+            let result = import_image(data, &Value::Null);
+            assert_eq!(result["html"], "");
+            assert_eq!(result["problem"], "That image cannot be safely displayed");
+            assert!(!data_image_ok(
+                &format!("data:{};base64,{data}", raster_kind(data)),
+                MAX_IMAGE_BYTES
+            ));
+        }
+    }
+
     #[test]
     fn rejects_non_raster_and_bounds_source() {
         assert!(!data_image_ok("data:image/png;base64,PHN2Zz4=", 512000));

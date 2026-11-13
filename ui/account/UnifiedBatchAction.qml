@@ -1,7 +1,6 @@
 import QtQuick
 import "Unified.js" as Unified
 
-// Account-local transactions report one result for the user's whole selection.
 QtObject {
   id: root
   required property var service
@@ -13,7 +12,9 @@ QtObject {
   property Timer noticeTimer: Timer { interval: 5000; onTriggered: root.status = "" }
   function clear() { serial++; status = ""; error = ""; noticeTimer.stop() }
 
-  function run(ids, action, completion) {
+  function run(ids, action, completion, options) {
+    var silent = !!options && options.silent === true
+    var hideFailure = !!options && options.hideFailure === true
     var groups = Unified.groupByAccount(ids)
     if (groups.length === 0) return false
     clear()
@@ -21,46 +22,50 @@ QtObject {
     var originalScope = scope
     var remaining = groups.length
     var failed = []
+    var ticketGroups = []
+    var actedRows = 0
     var notes = new Array(groups.length)
     var total = 0
     var label = "Done"
     var acted = false
-    for (var n = 0; n < groups.length; n++) total += groups[n].ids.length
-    function replyFor(group, index, host) {
+    for (var countedGroupIndex = 0; countedGroupIndex < groups.length; countedGroupIndex++) total += groups[countedGroupIndex].ids.length
+    function replyFor(group, index) {
       var answered = false
       return function(result) {
         if (answered) return
         answered = true
         var reportedFailures = result && Array.isArray(result.failedIds) ? result.failedIds : group.ids
         var localFailures = []
-        // A reply cannot name another account or a row outside this request.
-        for (var f = 0; f < reportedFailures.length; f++) {
-          var id = reportedFailures[f]
-          if (group.ids.indexOf(id) >= 0 && localFailures.indexOf(id) < 0) {
-            localFailures.push(id)
-            failed.push(Unified.unifiedId(group.accountId, id))
-          }
+        // Invariant: A reply cannot name another account or a row outside the submitted request.
+        for (var failureIndex = 0; failureIndex < reportedFailures.length; failureIndex++) {
+          var id = reportedFailures[failureIndex]
+          if (group.ids.indexOf(id) < 0 || localFailures.indexOf(id) >= 0) continue
+          localFailures.push(id)
+          failed.push(Unified.unifiedId(group.accountId, id))
         }
         var count = group.ids.length - localFailures.length
+        actedRows += result && typeof result.acted === "number" ? result.acted : group.ids.length
+        if (result && Array.isArray(result.tickets) && result.tickets.length > 0)
+          ticketGroups.push({accountId: group.accountId, tickets: result.tickets})
         var name = group.accountId
         notes[index] = name + ": " + Math.max(0, count) + " completed, " + localFailures.length + " failed"
         if (--remaining !== 0) return
-        if (generation === serial && service.unified && scope === originalScope) {
+        if ((!silent || (failed.length > 0 && !hideFailure)) && generation === serial && service.unified && scope === originalScope) {
           status = label + ": " + (total - failed.length) + " of " + total
             + " selected across " + groups.length + " mailboxes. " + notes.join("; ")
           error = failed.length > 0 ? status : ""
           service.note(status)
           noticeTimer.restart()
         }
-        if (typeof completion === "function") completion({failedIds: failed})
+        if (typeof completion === "function") completion({failedIds: failed, ticketGroups: ticketGroups, acted: actedRows})
       }
     }
-    for (var i = 0; i < groups.length; i++) {
-      var host = service.findAccount(groups[i].accountId)
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      var host = service.findAccount(groups[groupIndex].accountId)
       if (host && typeof host.actionLabel === "function") label = host.actionLabel(action)
-      var reply = replyFor(groups[i], i, host)
-      if (host && host.actMany(groups[i].ids, action, reply)) acted = true
-      else reply({failedIds: groups[i].ids})
+      var reply = replyFor(groups[groupIndex], groupIndex)
+      if (host && host.actMany(groups[groupIndex].ids, action, reply, options)) acted = true
+      else reply({failedIds: groups[groupIndex].ids})
     }
     return acted
   }

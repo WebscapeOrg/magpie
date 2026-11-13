@@ -25,6 +25,32 @@ pub(crate) fn raw_registry_readonly() -> Result<Value> {
     };
     registry(&read_readonly(&dir)?)
 }
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) fn with_incarnation<T>(
+    expected: Option<&str>,
+    run: impl FnOnce(String) -> Result<T>,
+) -> Result<T> {
+    use std::os::unix::fs::MetadataExt;
+    let dir =
+        crate::cache::directories(&home()?, &["omamail"], false)?.ok_or("accounts_unreadable")?;
+    let _lock = crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock")?;
+    let file =
+        crate::cache::regular_readonly(&dir, "accounts.json")?.ok_or("accounts_unreadable")?;
+    let meta = file.metadata().map_err(|_| "accounts_unreadable")?;
+    let token = format!(
+        "{}:{}:{}:{}:{}",
+        revision(&read_readonly(&dir)?),
+        meta.dev(),
+        meta.ino(),
+        meta.mtime(),
+        meta.mtime_nsec()
+    );
+    if expected.is_some_and(|old| old != token) {
+        return Err("overview_account_changed");
+    }
+    run(token)
+}
+
 fn read(dir: &File) -> Result<Vec<u8>> {
     let Some(file) = crate::cache::regular(dir, "accounts.json", false)? else {
         return Ok(Vec::new());
@@ -88,7 +114,7 @@ fn call_at(root: &std::path::Path, method: &str, params: &Value) -> Result<Value
     let Some(dir) = crate::cache::directories(root, &["omamail"], writing)? else {
         return Ok(json!({"registry":registry(&[])?,"revision":revision(&[])}));
     };
-    // The lock inode remains stable while accounts.json is atomically replaced.
+    // Invariant: The lock inode remains stable while accounts.json is atomically replaced.
     let _lock = if writing {
         Some(
             crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock").map_err(
@@ -108,6 +134,7 @@ fn call_at(root: &std::path::Path, method: &str, params: &Value) -> Result<Value
     if !writing {
         return Ok(json!({"registry":registry(&old)?,"revision":revision(&old)}));
     }
+    registry(&old)?;
     if params["revision"] != revision(&old) {
         return Err("accounts_conflict");
     }
@@ -190,6 +217,54 @@ mod tests {
         call_at(&root,"accounts.save",&json!({"registry":saved("b@example.org"),"revision":first["revision"],"allowDrop":true})).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn unsupported_accounts_are_never_created_coerced_or_removed() {
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "omamail-registry-unsupported-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        for provider in ["outlook", "imap", "jmap", "hey", "unknown"] {
+            let mut incompatible = saved("a@example.org");
+            incompatible["accounts"][0]["provider"] = json!(provider);
+            assert_eq!(
+                call_at(
+                    &root,
+                    "accounts.save",
+                    &json!({"registry":incompatible,"revision":revision(&[])})
+                ),
+                Err("accounts_provider_unsupported")
+            );
+            assert!(!root.exists(), "rejected account must not create files");
+        }
+        let dir = crate::cache::directories(&root, &["omamail"], true)
+            .unwrap()
+            .unwrap();
+        let incompatible = json!({"version":1,"accounts":[{"provider":"imap","email":"a@example.org","imap":{"username":"a@example.org"}}]});
+        let original = serde_json::to_vec(&incompatible).unwrap();
+        crate::platform::private_fs::atomic_replace(&dir, "accounts.json", &original).unwrap();
+        assert_eq!(
+            call_at(&root, "accounts.read", &json!({})),
+            Err("accounts_provider_unsupported")
+        );
+        for allow_drop in [false, true] {
+            assert_eq!(
+                call_at(
+                    &root,
+                    "accounts.save",
+                    &json!({"registry":saved("a@example.org"),"revision":revision(&original),"allowDrop":allow_drop,"releasedIds":["imap:a@example.org"]})
+                ),
+                Err("accounts_provider_unsupported")
+            );
+            assert_eq!(
+                read(&dir).unwrap(),
+                original,
+                "unsupported stored record must remain byte-for-byte unchanged"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn links_at_registry_lock_and_config_directory_never_change_targets() {
@@ -328,4 +403,50 @@ mod lock_tests {
         drop(inherited);
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[cfg(feature = "mobile")]
+pub(crate) fn mobile_remove(account: &str) -> Result<()> {
+    use crate::credentials::{CredentialKey, CredentialKind, CredentialStore, Error, NativeStore};
+    let dir =
+        crate::cache::directories(&home()?, &["omamail"], false)?.ok_or("mail_account_unknown")?;
+    let _lock = crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock")?;
+    let old = read(&dir)?;
+    let mut value = registry(&old)?;
+    let entries = value["accounts"].as_array_mut().ok_or("accounts_invalid")?;
+    let index = entries
+        .iter()
+        .position(|row| {
+            row["email"]
+                .as_str()
+                .is_some_and(|email| email.trim().to_lowercase() == account)
+        })
+        .ok_or("mail_account_unknown")?;
+    let client = entries[index]["clientId"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("accounts_invalid")?;
+    let key = CredentialKey {
+        provider: "gmail".into(),
+        account_id: account.into(),
+        kind: CredentialKind::GoogleRefreshToken {
+            client_id: client.into(),
+        },
+    };
+    match NativeStore.delete(&key) {
+        Ok(()) | Err(Error::Missing) => (),
+        Err(_) => return Err("credential_store_unavailable"),
+    };
+    entries.remove(index);
+    let active = entries
+        .first()
+        .and_then(|row| row["email"].as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if value["activeId"] == account {
+        value["activeId"] = json!(active);
+    }
+    let bytes = serde_json::to_vec(&value).map_err(|_| "accounts_invalid")?;
+    crate::platform::private_fs::atomic_replace(&dir, "accounts.json", &bytes)
 }

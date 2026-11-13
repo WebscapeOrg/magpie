@@ -20,8 +20,6 @@ Column {
     if (visible && runtime && !runtime.busy && typeof runtime.refresh === "function") runtime.refresh()
   }
   MagpieLogo {
-    foreground: root.dimColor
-    accent: root.accentColor
   }
   Text {
     text: "Mail backend"
@@ -35,6 +33,7 @@ Column {
     spacing: MailStyle.space(8)
     Text {
       id: versionLabel
+      textFormat: Text.PlainText
       objectName: "backend-version-label"
       width: Math.min(implicitWidth, Math.max(0, parent.width - checkButton.width - parent.spacing))
       y: (parent.height - height) / 2
@@ -45,7 +44,7 @@ Column {
           ? "Bundled backend " + root.runtime.installedVersion + " is ready."
           : "Backend " + root.runtime.installedVersion + " is installed.")
         : root.runtime.bundled ? "The bundled mail backend could not start."
-        : "Magpie needs backend " + (root.runtime.requiredVersion || "matching this plugin")
+        : "Magpie Mail needs backend " + (root.runtime.requiredVersion || "matching this plugin")
           + (root.runtime.installedVersion ? ". Installed: " + root.runtime.installedVersion : ". It is not installed yet.")
       color: root.dimColor
       font.family: root.panelFontFamily
@@ -67,6 +66,7 @@ Column {
   Text {
     width: parent.width
     wrapMode: Text.WordWrap
+    textFormat: Text.PlainText
     text: root.runtime && root.runtime.bundled
       ? "Included with this app. Reinstall this version if the bundled backend is missing or damaged."
       : root.runtime && root.runtime.development
@@ -79,6 +79,7 @@ Column {
   Text {
     width: parent.width
     visible: text !== ""
+    textFormat: Text.PlainText
     wrapMode: Text.WordWrap
     text: root.runtime && root.runtime.error ? root.runtime.error : root.backendError
     color: root.textColor

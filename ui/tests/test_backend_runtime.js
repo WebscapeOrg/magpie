@@ -29,10 +29,7 @@ assert.strictEqual(runtime.canInstall("error", false, false), true)
 assert.strictEqual(runtime.canInstall("missing", true, false), false)
 assert.strictEqual(runtime.canInstall("missing", false, true), false)
 assert.strictEqual(runtime.canInstall("unsupported", false, false), false)
-console.log("backend runtime tests passed")
 
-// The step ahead of the pin travels with the status, and only as a step:
-// absent, malformed, or more than one ahead reads as no step at all.
 assert.strictEqual(runtime.decode(status()).latestApiVersion, 1)
 assert.deepEqual(runtime.decode(status()).unreleasedMethods, [])
 assert.strictEqual(runtime.decode(status({ latestApiVersion: 2, unreleasedMethods: ["message.new"] })).latestApiVersion, 2)
@@ -42,3 +39,10 @@ for (const latestApiVersion of [undefined, "2", 3, 0, 1.5])
 assert.deepEqual(runtime.decode(status({ latestApiVersion: 1, unreleasedMethods: ["message.new"] })).unreleasedMethods, [],
   "no step, no unreleased methods")
 assert.strictEqual(runtime.decode("not json").latestApiVersion, 0)
+
+const hash = "a".repeat(64)
+assert.strictEqual(runtime.decode(status({contractHash:hash})).contractHash,hash)
+for (const contractHash of [undefined,null,"bad",7,"a".repeat(65)])
+  assert.strictEqual(runtime.decode(status({contractHash})).contractHash,"")
+
+console.log("backend runtime tests passed")

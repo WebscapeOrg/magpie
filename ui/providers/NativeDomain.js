@@ -31,131 +31,111 @@ var FACTS = {
       "trash": "in:trash",
       "unread": "in:inbox is:unread -category:promotions -category:social -category:forums"
     },
+    "searchOperators": [
+      {
+        "description": "Messages from a sender",
+        "example": "from:ada@example.org",
+        "operator": "from",
+        "primary": true,
+        "values": [
+          "me"
+        ]
+      },
+      {
+        "description": "Messages sent to a recipient",
+        "example": "to:me",
+        "operator": "to",
+        "primary": true,
+        "values": [
+          "me"
+        ]
+      },
+      {
+        "description": "Words in the subject",
+        "example": "subject:invoice",
+        "operator": "subject",
+        "primary": true,
+        "values": []
+      },
+      {
+        "description": "Read, unread, starred or important messages",
+        "example": "is:unread",
+        "operator": "is",
+        "primary": true,
+        "values": [
+          "read",
+          "unread",
+          "starred",
+          "important"
+        ]
+      },
+      {
+        "description": "Messages with a label",
+        "example": "label:\"Work projects\"",
+        "operator": "label",
+        "primary": true,
+        "values": []
+      },
+      {
+        "description": "Messages in a folder",
+        "example": "in:inbox",
+        "operator": "in",
+        "primary": true,
+        "values": [
+          "inbox",
+          "sent",
+          "drafts",
+          "spam",
+          "trash",
+          "anywhere"
+        ]
+      },
+      {
+        "description": "Messages with file attachments",
+        "example": "has:attachment",
+        "operator": "has",
+        "primary": true,
+        "values": [
+          "attachment"
+        ]
+      },
+      {
+        "description": "An attachment name or file type",
+        "example": "filename:pdf",
+        "operator": "filename",
+        "primary": true,
+        "values": []
+      },
+      {
+        "description": "Messages after a date in Pacific Standard Time",
+        "example": "after:2026/10/01",
+        "operator": "after",
+        "primary": true,
+        "values": []
+      },
+      {
+        "description": "Messages before a date in Pacific Standard Time",
+        "example": "before:2026/11/01",
+        "operator": "before",
+        "primary": true,
+        "values": []
+      },
+      {
+        "description": "Messages newer than days, months or years",
+        "example": "newer_than:7d",
+        "operator": "newer_than",
+        "primary": false,
+        "values": []
+      },
+      {
+        "description": "Messages older than days, months or years",
+        "example": "older_than:1y",
+        "operator": "older_than",
+        "primary": false,
+        "values": []
+      }
+    ],
+    "searchSyntax": "gmail",
     "webHomeUrl": "https://mail.google.com/mail/u/0/"
-  },
-  "hey": {
-    "addressSearch": true,
-    "capabilities": {
-      "archive": false,
-      "batch": true,
-      "conversations": true,
-      "labels": true,
-      "manageLabels": false,
-      "move": false,
-      "search": true,
-      "send": true,
-      "spam": true,
-      "star": false,
-      "threads": true,
-      "web": true,
-      "webBox": false
-    },
-    "inheritedDefault": "in:inbox",
-    "nativeSync": true,
-    "queries": {
-      "aside": "box:asidebox",
-      "drafts": "drafts:",
-      "feed": "box:feedbox",
-      "inbox": "box:imbox",
-      "later": "box:laterbox",
-      "papertrail": "box:trailbox",
-      "trash": "box:trash",
-      "unread": "box:imbox unseen"
-    },
-    "webHomeUrl": "https://app.hey.com"
-  },
-  "imap": {
-    "addressSearch": true,
-    "capabilities": {
-      "archive": true,
-      "batch": true,
-      "conversations": false,
-      "labels": false,
-      "manageLabels": true,
-      "move": true,
-      "search": true,
-      "send": true,
-      "spam": false,
-      "star": true,
-      "threads": false,
-      "web": false,
-      "webBox": false
-    },
-    "inheritedDefault": "in:inbox",
-    "nativeSync": true,
-    "queries": {
-      "all": "search:ALL",
-      "archive": "folder:\\Archive",
-      "drafts": "folder:\\Drafts",
-      "inbox": "folder:INBOX",
-      "sent": "folder:\\Sent",
-      "spam": "folder:\\Junk",
-      "starred": "folder:INBOX FLAGGED",
-      "trash": "folder:\\Trash",
-      "unread": "folder:INBOX UNSEEN"
-    },
-    "webHomeUrl": ""
-  },
-  "jmap": {
-    "addressSearch": false,
-    "capabilities": {
-      "archive": true,
-      "batch": true,
-      "conversations": true,
-      "labels": false,
-      "manageLabels": false,
-      "move": false,
-      "search": true,
-      "send": true,
-      "spam": true,
-      "star": true,
-      "threads": true,
-      "web": false,
-      "webBox": false
-    },
-    "inheritedDefault": "in:inbox",
-    "nativeSync": true,
-    "queries": {
-      "archive": "role:archive",
-      "drafts": "role:drafts",
-      "inbox": "role:inbox",
-      "sent": "role:sent",
-      "spam": "role:junk",
-      "starred": "role:inbox flagged",
-      "trash": "role:trash",
-      "unread": "role:inbox unseen"
-    },
-    "webHomeUrl": ""
-  },
-  "outlook": {
-    "addressSearch": false,
-    "capabilities": {
-      "archive": true,
-      "batch": true,
-      "conversations": false,
-      "labels": false,
-      "manageLabels": true,
-      "move": true,
-      "search": true,
-      "send": true,
-      "spam": false,
-      "star": true,
-      "threads": false,
-      "web": false,
-      "webBox": false
-    },
-    "inheritedDefault": "in:inbox",
-    "nativeSync": true,
-    "queries": {
-      "archive": "folder:\\Archive",
-      "drafts": "folder:\\Drafts",
-      "inbox": "folder:INBOX",
-      "sent": "folder:\\Sent",
-      "spam": "folder:\\Junk",
-      "starred": "folder:INBOX FLAGGED",
-      "trash": "folder:\\Trash",
-      "unread": "folder:INBOX UNSEEN"
-    },
-    "webHomeUrl": "https://outlook.live.com/mail/"
   }
 }

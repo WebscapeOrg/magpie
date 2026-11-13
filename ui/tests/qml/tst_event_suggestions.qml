@@ -8,13 +8,7 @@ import "../../account/Accounts.js" as Accounts
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
-// A message opened with the setting on and a date in its text is handed to
-// the agent once, in the background; what the agent finds is the card, and
-// the card hands Add to the calendar's composer. Every gate is asserted:
-// the setting, a date, one look per message, the owning account. The read
-// goes through the service's own backend (`agent.context`), the start is
-// recorded at the runner's RPC boundary, and the projection that says what
-// a look is runs in the real native implementation.
+// Invariant: projections use native code; mail-context reads and model starts remain controlled at their RPC boundaries.
 Item {
   width: 900
   height: 600
@@ -31,8 +25,6 @@ Item {
     manifest: ({ id: "omamail", __sourceDir: "/tmp/omamail-test" })
   }
 
-  // The runner's backend: the real projection, a listing the test sets, and
-  // every start recorded rather than run.
   QtObject {
     id: bridge
     property bool ready: true
@@ -60,7 +52,7 @@ Item {
     function release() {
       var calls = held
       held = []
-      for (var i = 0; i < calls.length; i++) calls[i]({ id: "started" }, "")
+      for (var callIndex = 0; callIndex < calls.length; callIndex++) calls[callIndex]({ id: "started" }, "")
     }
   }
 
@@ -80,16 +72,14 @@ Item {
     name: "EventSuggestions"
     when: windowShown
 
-    readonly property string ada: "imap:ada@example.com"
-    readonly property string bob: "imap:bob@example.com"
+    readonly property string ada: "ada@example.com"
+    readonly property string bob: "bob@example.com"
     property var listener: null
     property var contexts: []
 
     function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail",
         label: "", signature: ""
       }
     }
@@ -99,17 +89,17 @@ Item {
         labelIds: labels || ["INBOX"] })
     }
     function runner() {
-      var kids = mailService.children
-      for (var i = 0; i < kids.length; i++) {
-        var candidate = kids[i].item || kids[i]
+      var children = mailService.children
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var candidate = children[childIndex].item || children[childIndex]
         if (candidate.jobs !== undefined && candidate.pluginDir !== undefined) return candidate
       }
       return null
     }
     function calendarFor(email) {
       return ({ version: 1, sources: [{
-        id: "caldav:" + email, kind: "caldav", name: "Home", url: "https://calendar.example/" + email + "/",
-        username: email, enabled: true, readOnly: false, colorKey: "accent" }] })
+        id: "google:" + email, kind: "google", name: "Home", accountId: email,
+        calendarId: "primary", enabled: true, readOnly: false, colorKey: "accent" }] })
     }
     function settled() { wait(1); tryVerify(function() { return bridge.modelBridge.pending.length === 0 }) }
     function setJobs(jobs) {
@@ -124,14 +114,12 @@ Item {
     }
 
     function initTestCase() {
-      BackendFixture.markReady(mailService)
+      BackendFixture.markReady(mailService, 2)
       listener = BackendFixture.install(mailService)
-      // The read: Rust would fetch the message inside its account; here the
-      // payload is built from what was asked, and the ask is recorded.
       listener.answers["agent.context"] = function(params) {
         contexts = contexts.concat([params])
         var row = params.summaries[0]
-        return { payload: { messageId: params.ids[0], accountId: params.accountId, account: params.accountId.split(":")[1],
+        return { payload: { messageId: params.ids[0], accountId: params.accountId, account: params.accountId,
           folder: params.folder, subject: row.subject, prompt: params.prompt, message: "Subject: " + row.subject + "\n\n" + String(row.bodyText || "") } }
       }
       bridge.modelBridge = NativeIntentFixture.backend(mailService)
@@ -170,84 +158,75 @@ Item {
       tryVerify(function() { return bridge.starts.length > 0 }, 1000, "a look was started")
       return bridge.starts[bridge.starts.length - 1]
     }
-    function named(item, name, out) {
-      if (item.objectName === name) out.push(item)
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) named(kids[i], name, out)
-      return out
+    function named(item, name, output) {
+      if (item.objectName === name) output.push(item)
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) named(children[childIndex], name, output)
+      return output
     }
 
     function init() {
       if (Qt.platform.os !== "linux") { skip("The plugin agent backend is Linux-only"); return }
       added.clear(); dismissed.clear(); card.suggestions = []
-      mailService.backend.protocolInfo = { apiVersion: 2, protocol: 1, version: "0.0.0" }
-      mailService.backendRuntime.latestApiVersion = 2
+      BackendFixture.markReady(mailService, 2)
     }
 
     function test_a_dated_message_is_looked_at_once_when_asked() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
       mailService.settings = ({ suggestEvents: false })
-      open(adas, "42:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
+      open(adas, "message-42", "Dinner?", "Dinner on Thursday at 7pm?")
       wait(20)
       compare(bridge.starts.length, 0, "off is off")
       compare(contexts.length, 0, "and nothing is even read")
 
-      // Turning it on looks at the message already open, once.
       mailService.settings = ({ suggestEvents: true })
       var first = lastStart()
-      compare(first.messageId, "42:INBOX", "on looks at what is open")
+      compare(first.messageId, "message-42", "on looks at what is open")
       compare(first.events, true)
       compare(first.accountId, ada)
       compare(first.prompt, "Find the calendar events in this message.")
-      compare(contexts[0].ids[0], "42:INBOX")
+      compare(contexts[0].ids[0], "message-42")
       compare(contexts[0].accountId, ada)
       verify(first.message.indexOf("Dinner?") >= 0)
       tryCompare(agent, "starting", false)
 
       bridge.starts = []
-      open(adas, "43:INBOX", "Hello", "Just saying hi")
+      open(adas, "message-43", "Hello", "Just saying hi")
       wait(20)
       compare(bridge.starts.length, 0, "no date, no look")
 
-      open(adas, "44:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
-      compare(lastStart().messageId, "44:INBOX")
+      open(adas, "message-44", "Dinner?", "Dinner on Thursday at 7pm?")
+      compare(lastStart().messageId, "message-44")
       tryCompare(agent, "starting", false)
 
-      // A date in the subject alone is a date.
       bridge.starts = []
-      open(adas, "46:INBOX", "Dinner Thursday at 7pm at Luigi's", "see you there")
-      compare(lastStart().messageId, "46:INBOX", "the subject counts")
+      open(adas, "message-46", "Dinner Thursday at 7pm at Luigi's", "see you there")
+      compare(lastStart().messageId, "message-46", "the subject counts")
       tryCompare(agent, "starting", false)
 
-      // Mail from a machine, a Gmail category, or a list is not asked
-      // about, however many dates it carries: the filter comes before the
-      // model, and these cost nothing.
       bridge.starts = []
-      open(adas, "47:INBOX", "Run failed: nightly", "Run failed at 14:30 on Sep 12", "notifications@github.com")
-      open(adas, "48:INBOX", "Sale ends Sep 30", "Only until Sep 30 at 23:59!", "bob@example.com", ["INBOX", "CATEGORY_PROMOTIONS"])
+      open(adas, "message-47", "Run failed: nightly", "Run failed at 14:30 on Sep 12", "notifications@github.com")
+      open(adas, "message-48", "Sale ends Sep 30", "Only until Sep 30 at 23:59!", "bob@example.com", ["INBOX", "CATEGORY_PROMOTIONS"])
       adas.selectedUnsubscribe = ({ url: "https://list.example/leave" })
-      open(adas, "49:INBOX", "Meetup Thursday at 7pm", "Join us on Thursday at 7pm", "bob@example.com")
+      open(adas, "message-49", "Meetup Thursday at 7pm", "Join us on Thursday at 7pm", "bob@example.com")
       adas.selectedUnsubscribe = null
       wait(20)
       compare(bridge.starts.length, 0, "no look at a notification, a promotion or a list")
       compare(contexts.length, 3, "and none of them was read either")
 
-      // The look is on the list now; opening the message again asks nothing.
-      setJobs([look("look-44", ada, "44:INBOX", "running")])
+      setJobs([look("look-44", ada, "message-44", "running")])
       bridge.starts = []
-      open(adas, "44:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
+      open(adas, "message-44", "Dinner?", "Dinner on Thursday at 7pm?")
       wait(20)
       compare(bridge.starts.length, 0, "one look per message")
 
-      // Two looks running is the ceiling.
-      setJobs([look("look-1", ada, "1:INBOX", "running"), look("look-2", ada, "2:INBOX", "queued")])
-      open(adas, "45:INBOX", "Lunch?", "Lunch tomorrow at noon, 12:30?")
+      setJobs([look("look-1", ada, "message-1", "running"), look("look-2", ada, "message-2", "queued")])
+      open(adas, "message-45", "Lunch?", "Lunch tomorrow at noon, 12:30?")
       wait(20)
       compare(bridge.starts.length, 0, "no third look while two run")
-      // One finishing frees the slot, and the waiting look starts.
-      setJobs([look("look-1", ada, "1:INBOX", "done"), look("look-2", ada, "2:INBOX", "queued")])
-      compare(lastStart().messageId, "45:INBOX")
+      setJobs([look("look-1", ada, "message-1", "done"), look("look-2", ada, "message-2", "queued")])
+      compare(lastStart().messageId, "message-45")
     }
 
     function test_what_was_found_is_the_open_messages_and_the_accounts() {
@@ -255,134 +234,120 @@ Item {
       var adas = mailService.accountAt(0)
       mailService.settings = ({ suggestEvents: true })
       var start = new Date(2026, 8, 12, 19, 0).getTime()
+      var allDayStart = new Date(2026, 8, 13).getTime()
+      var allDayEnd = new Date(2026, 8, 15).getTime()
       setJobs([
-        look("look-44", ada, "44:INBOX", "done",
+        look("look-44", ada, "message-44", "done",
           [{ title: "Dinner with Bob", startMs: start, endMs: start + 7200000, location: "Luigi's" },
-            { title: "Offsite", startMs: start + 86400000, endMs: start + 2 * 86400000, allDay: true }]),
-        look("look-99", bob, "44:INBOX", "done", [{ title: "Bob's own", startMs: start, endMs: start + 3600000 }])
+            { title: "Offsite", startMs: allDayStart, endMs: allDayEnd, allDay: true,
+              location: "Conference centre", notes: "Bring your notebook" }]),
+        look("look-99", bob, "message-44", "done", [{ title: "Bob's own", startMs: start, endMs: start + 3600000 }])
       ])
-      adas.selectedId = "44:INBOX"
-      adas.selectedMessage = summary("44:INBOX", "Dinner?")
+      adas.selectedId = "message-44"
+      adas.selectedMessage = summary("message-44", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 2 }, 1000)
       compare(mailService.eventSuggestions[0].title, "Dinner with Bob")
       compare(mailService.eventSuggestions[0].key, "look-44:0")
-      compare(mailService.agentJobs["44:INBOX"], undefined, "a look draws no glyph")
+      compare(mailService.agentJobs["message-44"], undefined, "a look draws no glyph")
       compare(mailService.agentAttention, false, "and asks for nobody")
 
       mailService.dismissSuggestion("look-44:0")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
       compare(mailService.eventSuggestions[0].title, "Offsite")
 
-      adas.selectedId = "45:INBOX"
-      adas.selectedMessage = summary("45:INBOX", "Other")
+      adas.selectedId = "message-45"
+      adas.selectedMessage = summary("message-45", "Other")
       tryVerify(function() { return mailService.eventSuggestions.length === 0 }, 1000, "another message, nothing found for it")
 
-      // Bob's look at the same id is Bob's: on his account it shows, and
-      // Ada's dismissal does not reach it.
+      // Invariant: a dismissal belongs to one account even when another account has the same message ID.
       mailService.switchToIndex(1)
       tryCompare(mailService, "activeAccountId", bob)
       var bobs = mailService.accountAt(1)
-      bobs.selectedId = "44:INBOX"
-      bobs.selectedMessage = summary("44:INBOX", "Dinner?")
+      bobs.selectedId = "message-44"
+      bobs.selectedMessage = summary("message-44", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
       compare(mailService.eventSuggestions[0].title, "Bob's own")
       mailService.switchToIndex(0)
       tryCompare(mailService, "activeAccountId", ada)
 
-      // Add hands the composer the fields; a written event waves the
-      // suggestion away, a refused write does not.
-      adas.selectedId = "44:INBOX"
-      adas.selectedMessage = summary("44:INBOX", "Dinner?")
+      adas.selectedId = "message-44"
+      adas.selectedMessage = summary("message-44", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
       var handed = null
-      var controller = mailService.calendarController
-      controller.sourceList = calendarFor("ada@example.com")
-      tryVerify(function() { return controller.writableSourceGroups.length > 0 }, 1000)
-      controller.composeRequested.connect(function(prefill) { handed = prefill })
+      var launcher = findChild(mailService,"magpie-calendar-launcher")
+      launcher.running = false
       verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
+      var request = JSON.parse(launcher.command[2])
+      verify(String(launcher.command[1]).endsWith("/scripts/open-magpie-calendar.py"), launcher.command[1])
+      compare(request.kind,"suggestion")
+      compare(request.accountId,ada)
+      handed = request.suggestion
       verify(handed !== null)
       compare(handed.title, "Offsite")
-      verify(handed.description.indexOf("All day") >= 0)
-      controller.eventCreated(false, "refused")
-      compare(mailService.eventSuggestions.length, 1, "a refused write keeps the suggestion")
-      controller.eventCreated(true, "")
-      tryVerify(function() { return mailService.eventSuggestions.length === 0 }, 1000, "a written event is no longer a suggestion")
+      compare(handed.allDay, true, "the composer receives an all-day event")
+      compare(handed.startMs, allDayStart, "the original start date reaches the composer")
+      compare(handed.endMs, allDayEnd, "the exclusive multi-day end reaches the composer")
+      compare(handed.location, "Conference centre")
+      compare(handed.description, "Bring your notebook", "the original notes reach the composer")
+      compare(handed.accountId, ada, "the suggestion stays with the reading account")
+      compare(mailService.eventSuggestions.length,1,"handoff does not claim an event was saved")
+      launcher.running = false
     }
 
-    // A look the runner cannot start yet — a start already in flight —
-    // waits, and starts when the runner is free; a body that arrives twice
-    // asks once.
     function test_a_look_waits_for_the_runner_and_asks_once() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
       mailService.settings = ({ suggestEvents: true })
       bridge.holdStarts = true
-      open(adas, "50:INBOX", "Lunch?", "Lunch tomorrow at 12:30?")
-      compare(lastStart().messageId, "50:INBOX")
+      open(adas, "message-50", "Lunch?", "Lunch tomorrow at 12:30?")
+      compare(lastStart().messageId, "message-50")
       tryCompare(agent, "starting", true)
-      open(adas, "51:INBOX", "Coffee?", "Coffee Friday at 9am?")
+      open(adas, "message-51", "Coffee?", "Coffee Friday at 9am?")
       wait(20)
       compare(bridge.starts.length, 1, "the runner is busy, so the look waits")
       compare(contexts.length, 1, "and the message is not read for nothing")
       bridge.release()
       tryCompare(agent, "starting", false)
       tryVerify(function() { return bridge.starts.length === 2 }, 1000, "and starts when it is free")
-      compare(bridge.starts[1].messageId, "51:INBOX")
+      compare(bridge.starts[1].messageId, "message-51")
       bridge.release()
       tryCompare(agent, "starting", false)
-      // The body arrives again before the listing carries the look.
+      // Invariant: a second body arrival before projection refresh must not start the same message twice.
       adas.selectedBody = ({ text: "Coffee Friday at 9am? (live)", source: "" })
       wait(20)
       compare(bridge.starts.length, 2, "asked once")
     }
 
-    // Add is refused, with a word, while the composer holds another event
-    // or when there is no calendar to write to; closing the composer
-    // without writing forgets the suggestion it was opened on.
-    function test_add_respects_the_composer_and_the_calendars() {
-      var agent = seed(ada)
+    function test_add_refuses_stale_suggestions_and_busy_handoff() {
+      seed(ada)
       var adas = mailService.accountAt(0)
-      mailService.settings = ({ suggestEvents: true })
-      var start = new Date(2026, 8, 12, 19, 0).getTime()
-      setJobs([look("look-46", ada, "46:INBOX", "done", [{ title: "Dinner", startMs: start, endMs: start + 3600000 }])])
-      adas.selectedId = "46:INBOX"
-      adas.selectedMessage = summary("46:INBOX", "Dinner?")
-      tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
-      var controller = mailService.calendarController
-      var handed = []
-      controller.composeRequested.connect(function(prefill) { handed.push(prefill) })
-      controller.sourceList = ({ version: 1, sources: [] })
-      compare(mailService.addSuggestedEvent(mailService.eventSuggestions[0]), false, "no calendar, no composer")
-      verify(adas.lastError.indexOf("No calendar") >= 0, adas.lastError)
-      compare(handed.length, 0)
-      controller.sourceList = calendarFor("ada@example.com")
-      tryVerify(function() { return controller.writableSourceGroups.length > 0 }, 1000)
-      controller.composerHeld = true
-      compare(mailService.addSuggestedEvent(mailService.eventSuggestions[0]), false)
-      verify(adas.lastError.indexOf("Finish the event") >= 0, adas.lastError)
-      controller.composerHeld = false
-      verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
-      compare(handed.length, 1)
-      compare(handed[0].accountId, ada, "the reading mailbox's calendar")
-      controller.composeEnded()
-      controller.eventCreated(true, "")
-      compare(mailService.eventSuggestions.length, 1, "an event written after the composer closed is not this one")
+      mailService.settings = ({ suggestEvents:true })
+      setJobs([look("look-46",ada,"message-46","done",[{title:"Dinner",startMs:1,endMs:2}])])
+      adas.selectedId = "message-46"
+      adas.selectedMessage = summary("message-46","Dinner?")
+      tryVerify(function() { return mailService.eventSuggestions.length === 1 })
+      var suggestion = mailService.eventSuggestions[0]
+      var launcher = findChild(mailService,"magpie-calendar-launcher")
+      launcher.running = true
+      verify(!mailService.addSuggestedEvent(suggestion))
+      launcher.running = false
+      adas.selectedId = "different"
+      verify(!mailService.addSuggestedEvent(suggestion))
+      verify(!launcher.running)
     }
 
-    // The system AI is Codex, say: Rust refuses the look with a word, the
-    // status line stays quiet, and no other message is asked about until
-    // the setting is turned off and on again.
+    // Invariant: an unsupported system agent suppresses background checks until the selection is reset.
     function test_another_default_agent_refuses_once_and_quietly() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
       mailService.settings = ({ suggestEvents: true })
       bridge.refuse = "agent_choose_claude"
       var line = adas.lastError
-      open(adas, "60:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
-      compare(lastStart().messageId, "60:INBOX")
+      open(adas, "message-60", "Dinner?", "Dinner on Thursday at 7pm?")
+      compare(lastStart().messageId, "message-60")
       tryCompare(agent, "starting", false)
       compare(adas.lastError, line, "a refused look puts nothing on the status line")
-      open(adas, "61:INBOX", "Lunch?", "Lunch tomorrow at 12:30?")
+      open(adas, "message-61", "Lunch?", "Lunch tomorrow at 12:30?")
       wait(20)
       compare(bridge.starts.length, 1, "and nothing more is asked this session")
       compare(contexts.length, 1, "nor read")
@@ -390,18 +355,17 @@ Item {
       bridge.refuse = ""
       mailService.settings = ({ suggestEvents: true })
       tryVerify(function() { return bridge.starts.length === 2 }, 1000, "off and on asks again")
-      compare(bridge.starts[1].messageId, "61:INBOX")
+      compare(bridge.starts[1].messageId, "message-61")
     }
 
-    // API 2 is a fixed feature requirement. Moving the release labels or
-    // adding API 3 does not change what an API 2 backend can do.
+    // Invariant: API2 is the fixed suggestion feature floor; later release labels cannot raise it.
     function test_event_suggestions_require_api_two_across_releases() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
       mailService.backend.protocolInfo = { apiVersion: 1, protocol: 1, version: "0.0.0" }
       mailService.backendRuntime.latestApiVersion = 2
       mailService.settings = ({ suggestEvents: true })
-      open(adas, "70:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
+      open(adas, "message-70", "Dinner?", "Dinner on Thursday at 7pm?")
       wait(20)
       compare(bridge.starts.length, 0, "API 1 cannot run event suggestions")
       compare(contexts.length, 0, "no mail is read for an unsupported feature")
@@ -409,11 +373,11 @@ Item {
       wait(20)
       compare(bridge.starts.length, 0, "changing release labels cannot make API 1 support the feature")
       mailService.backend.protocolInfo = { apiVersion: 2, protocol: 1, version: "0.0.0" }
-      compare(lastStart().messageId, "70:INBOX", "API 2 makes the pending feature available")
+      compare(lastStart().messageId, "message-70", "API 2 makes the pending feature available")
       mailService.backendRuntime.latestApiVersion = 3
-      open(adas, "71:INBOX", "Dinner again?", "Dinner on Friday at 7pm?")
+      open(adas, "message-71", "Dinner again?", "Dinner on Friday at 7pm?")
       tryVerify(function() { return bridge.starts.length === 2 }, 1000)
-      compare(lastStart().messageId, "71:INBOX", "an unrelated API 3 does not disable API 2 features")
+      compare(lastStart().messageId, "message-71", "an unrelated API 3 does not disable API 2 features")
     }
 
     function test_the_card_draws_text_and_asks_the_reader() {
@@ -424,7 +388,6 @@ Item {
         { key: "j:1", jobId: "j", index: 1, title: "Offsite", startMs: start, endMs: start + 86400000, allDay: true, location: "", notes: "" }
       ]
       tryCompare(card, "visible", true)
-      // Folded until asked: the heading says how many, the rows wait.
       compare(named(card, "suggestionHeading", [])[0].text, "The agent found 2 events in this message")
       compare(named(card, "suggestionTitle", []).length, 0, "a guess is a line above the message, not a panel over it")
       compare(card.expanded, false)
@@ -448,7 +411,6 @@ Item {
       mouseClick(dismisses[0])
       compare(dismissed.count, 1)
       compare(dismissed.signalArguments[0][0], "j:0")
-      // Another look's findings fold again; the same look's do not.
       card.suggestions = [{ key: "j:1", jobId: "j", index: 1, title: "Offsite", startMs: start, endMs: start + 3600000, location: "", notes: "" }]
       compare(card.expanded, true, "one dismissed is still the same look")
       card.suggestions = [{ key: "k:0", jobId: "k", index: 0, title: "Other", startMs: start, endMs: start + 3600000, location: "", notes: "" }]

@@ -53,7 +53,7 @@ impl AccountSession {
         &self,
         refresh: impl FnOnce() -> F,
     ) -> Result<Arc<Token>, &'static str> {
-        // Refresh coalesces per account. Invalidation never waits on this lock.
+        // Invariant: Refresh coalesces per account. Invalidation never waits on this lock.
         let mut cached = self.token.lock().await;
         self.check()?;
         if let Some(token) = cached.as_ref().filter(|t| t.expires > Instant::now()) {
@@ -83,7 +83,7 @@ impl AccountSession {
     async fn reject(&self, rejected: &Arc<Token>) -> Result<(), &'static str> {
         let mut cached = self.token.lock().await;
         self.check()?;
-        // An old 401 cannot evict a new grant, even with identical token bytes.
+        // Invariant: An old 401 cannot evict a new grant, even with identical token bytes.
         if cached
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, rejected))
@@ -183,12 +183,137 @@ pub(crate) fn validate_message_id(id: &str) -> Result<(), &'static str> {
     super::gmail_http::validate_path_part(id).map_err(|_| "invalid_params")
 }
 
+/// Labels as Magpie shows them: snooze slot labels are Magpie's own bookkeeping and stay out of
+/// folder lists and label pickers on every device.
+pub(crate) fn normalize_labels(value: Value) -> Value {
+    shown_labels(resources::normalize("gmail.labels", value))
+}
+fn shown_labels(labels: Value) -> Value {
+    match labels {
+        Value::Array(rows) => Value::Array(
+            rows.into_iter()
+                .filter(|label| {
+                    label["system"] == true
+                        || !label["rawName"]
+                            .as_str()
+                            .is_some_and(crate::inbox::is_snooze_label)
+                })
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+pub(crate) const DOWNLOAD_MS: &str = "_magpieDownloadMs";
+pub(crate) const DOWNLOAD_RUN: &str = "_magpieDownloadRun";
+pub(crate) const DOWNLOAD_START: &str = "_magpieDownloadStart";
+
+fn downloaded(mut resource: Value, started: crate::processing::Run) -> Value {
+    if let Some(fields) = resource.as_object_mut() {
+        fields.insert(DOWNLOAD_MS.into(), json!(started.millis()));
+        fields.insert(DOWNLOAD_RUN.into(), started.finish());
+        fields.insert(DOWNLOAD_START.into(), started.token());
+    }
+    resource
+}
+
 impl Session {
+    pub(crate) async fn replica_call(
+        &self,
+        account: &str,
+        operation: &str,
+        params: &Value,
+    ) -> Result<Value, &'static str> {
+        let started = crate::processing::Run::start();
+        self.access_token(account).await?;
+        let budget = self.account(account)?.budget.clone();
+        let mut query = Vec::new();
+        let path = match operation {
+            "inventory" | "inbox" => {
+                if operation == "inbox" {
+                    query.push(("labelIds".into(), "INBOX".into()));
+                }
+                query.extend([
+                    ("maxResults".into(), "500".into()),
+                    ("includeSpamTrash".into(), "true".into()),
+                    (
+                        "pageToken".into(),
+                        params["pageToken"].as_str().unwrap_or("").into(),
+                    ),
+                ]);
+                vec!["messages"]
+            }
+            "history" => {
+                query.extend([
+                    (
+                        "startHistoryId".into(),
+                        field(params, "historyId", true)?.into(),
+                    ),
+                    (
+                        "pageToken".into(),
+                        params["pageToken"].as_str().unwrap_or("").into(),
+                    ),
+                    ("maxResults".into(), "500".into()),
+                ]);
+                vec!["history"]
+            }
+            "content" | "minimal" => {
+                query.push((
+                    "format".into(),
+                    if operation == "minimal" {
+                        "minimal"
+                    } else {
+                        "full"
+                    }
+                    .into(),
+                ));
+                vec!["messages", field(params, "id", true)?]
+            }
+            "attachment" => vec![
+                "messages",
+                field(params, "id", true)?,
+                "attachments",
+                field(params, "attachmentId", true)?,
+            ],
+            "profile" => vec!["profile"],
+            "labels" => vec!["labels"],
+            _ => return Err("invalid_params"),
+        };
+        let answer = self.get_with(
+            account,
+            || refresh_grant(account.to_owned()),
+            |token| {
+                let budget = budget.clone();
+                let path = &path;
+                let query = &query;
+                async move { gmail_http::get_replica(path, query, &token, &budget).await }
+            },
+        )
+        .await?;
+        let answer = resources::normalize("gmail.read", answer);
+        Ok(if operation == "content" { downloaded(answer, started) } else { answer })
+    }
     /// Internal, read-only thread context. Never accepts a caller-selected URL.
     pub(crate) async fn thread_resources(
         &self,
         account: &str,
         id: &str,
+    ) -> Result<Vec<Value>, &'static str> {
+        self.thread_with(account, id, "full").await
+    }
+    /// The thread's message ids and label ids only, without headers or bodies.
+    pub(crate) async fn thread_labels(
+        &self,
+        account: &str,
+        id: &str,
+    ) -> Result<Vec<Value>, &'static str> {
+        self.thread_with(account, id, "minimal").await
+    }
+    async fn thread_with(
+        &self,
+        account: &str,
+        id: &str,
+        format: &'static str,
     ) -> Result<Vec<Value>, &'static str> {
         if id.is_empty()
             || id.len() > 256
@@ -208,6 +333,7 @@ impl Session {
             return Err("gmail_account_unknown");
         }
         let budget = Arc::clone(&self.account(account)?.budget);
+        let started = crate::processing::Run::start();
         let answer = self
             .get_with(
                 account,
@@ -217,7 +343,7 @@ impl Session {
                     async move {
                         gmail_http::get_paced(
                             &["threads", id],
-                            &[("format".into(), "full".into())],
+                            &[("format".into(), format.into())],
                             &token,
                             &budget,
                             gmail_http::Lane::Interactive,
@@ -229,12 +355,17 @@ impl Session {
             .await?;
         let rows = answer["messages"]
             .as_array()
-            .filter(|rows| rows.len() <= 100)
+            // A label-only read stays small, so snooze can handle threads longer than the
+            // 100 messages a full read is limited to.
+            .filter(|rows| rows.len() <= if format == "minimal" { 1000 } else { 100 })
             .ok_or("agent_context_too_large")?;
         Ok(rows
             .iter()
             .cloned()
-            .map(|row| resources::normalize("gmail.read", row))
+            .map(|row| {
+                let row = resources::normalize("gmail.read", row);
+                if format == "full" { downloaded(row, started.clone()) } else { row }
+            })
             .collect())
     }
     fn account(&self, account: &str) -> Result<Arc<AccountSession>, &'static str> {
@@ -320,25 +451,51 @@ impl Session {
     /// The RPC surface: a message mutation answers with a ticket at once.
     /// The in-process surface: a message mutation answers when it has landed.
     pub async fn call_settled(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
-        if !queue::queued(method) {
-            return self.call(method, params).await;
-        }
-        let (_, outcome) = self.enqueue_write(method, params).await?;
-        outcome.await.map_err(|_| "gmail_queue_dropped")?
+        self.settled(method, params, false).await
     }
 
-    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
-        self.call_in_lane(method, params, gmail_http::Lane::Interactive, false)
-            .await
-    }
-
-    pub(crate) async fn background_call(
+    /// As `call_settled`, but the change is abandoned if the caller stops waiting before it is on
+    /// the wire, so a cut-off snooze change never lands later over what Dave has done since.
+    pub async fn call_withdrawable(
         &self,
         method: &str,
         params: &Value,
     ) -> Result<Value, &'static str> {
-        self.call_in_lane(method, params, gmail_http::Lane::Background, false)
-            .await
+        self.settled(method, params, true).await
+    }
+
+    async fn settled(
+        &self,
+        method: &str,
+        params: &Value,
+        withdrawable: bool,
+    ) -> Result<Value, &'static str> {
+        if !queue::queued(method) {
+            return self.call(method, params).await;
+        }
+        let (_, outcome) = self.enqueue_write(method, params, withdrawable).await?;
+        outcome.await.map_err(|_| "gmail_queue_dropped")?
+    }
+
+    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        let answer = self
+            .call_in_lane(method, params, gmail_http::Lane::Interactive, false)
+            .await?;
+        Ok(if method == "gmail.labels" {
+            shown_labels(answer)
+        } else {
+            answer
+        })
+    }
+    /// Every label of the account, snooze slot labels included, for snooze's own bookkeeping.
+    pub(crate) async fn all_labels(&self, account: &str) -> Result<Value, &'static str> {
+        self.call_in_lane(
+            "gmail.labels",
+            &json!({"accountId":account}),
+            gmail_http::Lane::Interactive,
+            false,
+        )
+        .await
     }
 
     pub(crate) async fn poll_call(
@@ -372,7 +529,7 @@ impl Session {
         metadata: bool,
     ) -> Result<Value, &'static str> {
         if queue::queued(method) {
-            let (ticket, _outcome) = self.enqueue_write(method, params).await?;
+            let (ticket, _outcome) = self.enqueue_write(method, params, false).await?;
             return Ok(json!({"queued":true,"ticket":ticket.to_string()}));
         }
         if writes::supports(method) {
@@ -382,7 +539,7 @@ impl Session {
             "gmail.invalidate" => &["accountId"],
             "gmail.labels" | "gmail.profile" | "gmail.sendAs" => &["accountId"],
             "gmail.labelCounts" => &["accountId", "id"],
-            "gmail.list" => &["accountId", "query", "pageSize", "pageToken"],
+            "gmail.list" => &["accountId", "query", "pageSize", "pageToken", "labelId"],
             "gmail.read" => &["accountId", "id", "full"],
             "gmail.attachment" => &["accountId", "messageId", "attachmentId"],
             _ => return Err("unknown_method"),
@@ -397,7 +554,7 @@ impl Session {
         }
         let account = field(params, "accountId", true)?.to_lowercase();
         if method == "gmail.invalidate" {
-            // Cache eviction, not keyring logout or an IPC ordering barrier.
+            // Invariant: Cache eviction, not keyring logout or an IPC ordering barrier.
             // New calls can authenticate again. In-flight HTTP cannot be recalled;
             // retired leases refuse its result and never refresh for a retry.
             if let Some(session) = self
@@ -425,12 +582,28 @@ impl Session {
                         .filter(|n| (1..=100).contains(n))
                         .ok_or("invalid_params")?,
                 };
-                query.push(("q".into(), field(params, "query", false)?.trim().into()));
+                let search = field(params, "query", false)?.trim();
+                query.push(("q".into(), search.into()));
+                if crate::local_mail::include_spam_trash(search) {
+                    query.push(("includeSpamTrash".into(), "true".into()));
+                }
                 query.push(("maxResults".into(), size.to_string()));
                 query.push((
                     "pageToken".into(),
                     field(params, "pageToken", false)?.into(),
                 ));
+                // An exact label filter, for labels whose search spelling could match another label.
+                let label = field(params, "labelId", false)?;
+                if !label.is_empty() {
+                    if label.len() > 256
+                        || !label
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    {
+                        return Err("invalid_params");
+                    }
+                    query.push(("labelIds".into(), label.into()));
+                }
                 vec!["messages"]
             }
             "gmail.read" => {
@@ -455,7 +628,7 @@ impl Session {
                 field(params, "attachmentId", true)?,
             ],
         };
-        // Resolve the registered provider before any credential or network read.
+        // Invariant: Resolve the registered provider before any credential or network read.
         let accounts = tokio::task::spawn_blocking(crate::account::list_readonly)
             .await
             .map_err(|_| "session_failed")??;
@@ -467,6 +640,7 @@ impl Session {
             return Err("gmail_account_unknown");
         }
         let budget = Arc::clone(&self.account(&account)?.budget);
+        let started = crate::processing::Run::start();
         let answer = self
             .get_with(
                 &account,
@@ -480,7 +654,9 @@ impl Session {
             )
             .await?;
         if method != "gmail.list" {
-            return Ok(resources::normalize(method, answer));
+            let answer = resources::normalize(method, answer);
+            let full = method == "gmail.read" && !metadata && params["full"] != false;
+            return Ok(if full { downloaded(answer, started) } else { answer });
         }
         let messages = match answer.get("messages") {
             None => Vec::new(),

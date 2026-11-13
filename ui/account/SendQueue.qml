@@ -1,7 +1,6 @@
 import QtQuick
 
-// Rendering and callback correlation only. The backend owns undo deadlines,
-// serial delivery, cancellation and durable recovery after a restart.
+// Invariant: Rust owns durable delivery, undo deadlines and cancellation; this object correlates UI callbacks.
 QtObject {
   id: queue
   required property var account
@@ -17,7 +16,7 @@ QtObject {
   property var deliveryStates: ({})
   function rememberDelivery(entries) {
     var states = Object.assign({}, deliveryStates)
-    for (var i = 0; i < entries.length; i++) states[String(entries[i].id)] = String(entries[i].state)
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) states[String(entries[entryIndex].id)] = String(entries[entryIndex].state)
     deliveryStates = states
   }
   function watchDelivery(id) {
@@ -31,14 +30,14 @@ QtObject {
   property bool retired: false
 
   function available() { return backend && backend.ready }
-  function request(method, params, callback) {
+  function request(method, parameters, callback) {
     if (!available()) {
-      Qt.callLater(function() { if (queue && typeof queue.apply === "function" && !queue.retired) callback(null, "Mail backend unavailable") })
+      Qt.callLater(function() { if (queue && !queue.retired && typeof queue.apply === "function") callback(null, "Mail backend unavailable") })
       return false
     }
-    params.accountId = String(account.accountId || "")
-    backend.call(method, params, function(result, error) {
-      if (queue && typeof queue.apply === "function" && !queue.retired) callback(result, error ? String(error.message || "Mail backend request failed") : "")
+    parameters.accountId = String(account.accountId || "")
+    backend.call(method, parameters, function(result, error) {
+      if (queue && !queue.retired && typeof queue.apply === "function") callback(result, error ? String(error.message || "Mail backend request failed") : "")
     })
     return true
   }
@@ -50,11 +49,11 @@ QtObject {
     rememberDelivery(entries)
     if (partial) {
       var merged = serverEntries.slice()
-      for (var p = 0; p < entries.length; p++) {
+      for (var incomingIndex = 0; incomingIndex < entries.length; incomingIndex++) {
         var found = -1
-        for (var m = 0; m < merged.length; m++) if (merged[m].id === entries[p].id) { found = m; break }
-        if (found < 0) merged.push(entries[p])
-        else merged[found] = entries[p]
+        for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) if (merged[mergedIndex].id === entries[incomingIndex].id) { found = mergedIndex; break }
+        if (found < 0) merged.push(entries[incomingIndex])
+        else merged[found] = entries[incomingIndex]
       }
       entries = merged
     }
@@ -64,11 +63,11 @@ QtObject {
     var done = Object.assign({}, handled)
     var receipts = []
     var remaining = Object.assign({}, submitted)
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i]
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      var entry = entries[entryIndex]
       var id = String(entry.id || "")
       delete remaining[id]
-      if (entry.state === "queued") waiting.push(entry)
+      if (entry.state === "queued" || entry.state === "waiting") waiting.push(entry)
       if (entry.state === "sending") busy = true
       if (done[id] === entry.state) continue
       if (entry.state === "sent") {
@@ -85,24 +84,23 @@ QtObject {
       }
     }
     for (var key in remaining) waiting.push(remaining[key])
-    waiting.sort(function(a, b) { return Number(a.order) - Number(b.order) || Number(a.queuedAt) - Number(b.queuedAt) })
+    waiting.sort(function(left, right) { return Number(left.order) - Number(right.order) || Number(left.queuedAt) - Number(right.queuedAt) })
     submitted = remaining
     handled = done
     parked = waiting
     account.sending = busy
     arm()
-    for (var r = 0; r < receipts.length; r++) {
-      (function(id) {
-        Qt.callLater(function() {
-          if (!queue || typeof queue.request !== "function" || queue.retired) return
-          queue.request("outbox.forget", { sendId: id }, function(result, error) {
-            if (!error) queue.apply(result.snapshot)
-          })
-        })
-      })(receipts[r])
-    }
+    for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) forgetReceipt(receipts[receiptIndex])
   }
-  function park(payload, id, order) {
+  function forgetReceipt(id) {
+    Qt.callLater(function() {
+      if (!queue || queue.retired || typeof queue.request !== "function") return
+      queue.request("outbox.forget", { sendId: id }, function(result, error) {
+        if (!error) queue.apply(result.snapshot)
+      })
+    })
+  }
+  function park(payload, id, order, nativeFields) {
     var sendId = String(id || "")
     var now = Date.now()
     var next = Object.assign({}, submitted)
@@ -110,8 +108,11 @@ QtObject {
     submitted = next
     parked = parked.concat([next[sendId]])
     arm()
-    request("outbox.enqueue", { provider: String(account.providerId || ""), payload: payload,
-      sendId: sendId, order: Math.max(0, Math.floor(Number(order) || 0)), delaySeconds: account.undoSendSeconds }, function(result, error) {
+    var parameters = {provider:String(account.providerId || ""),sendId:sendId,
+      order:Math.max(0,Math.floor(Number(order) || 0)),delaySeconds:account.undoSendSeconds}
+    if (nativeFields) { parameters.fields = nativeFields; parameters.resumeUnsent = true }
+    else parameters.payload = payload
+    request(nativeFields ? "outbox.compose" : "outbox.enqueue", parameters, function(result, error) {
       if (error) {
         if (queue.handled[sendId] === "sent") return
         var unknown = Object.assign({}, queue.uncertain)
@@ -127,7 +128,7 @@ QtObject {
       queue.apply(result.snapshot)
       queue.account.note("Message queued")
     })
-    // The composer parks its draft immediately; refusal is reported later.
+    // Invariant: The composer parks immediately, so a synchronous refusal must be reported after that transition.
     return true
   }
   function reconcile(id) {
@@ -161,7 +162,7 @@ QtObject {
     account.sendSecondsRemaining = latest ? Math.max(0, Math.ceil((latest.dueAt - Date.now()) / 1000)) : 0
     countdownTimer.running = parked.length > 0
   }
-  // Existing callers can ask for reconciliation; only Rust starts delivery.
+  // Invariant: Reconciliation may request a snapshot; only Rust may start delivery.
   function deliverDue() { sync(); return false }
   function deliverAll() {
     if (parked.length === 0) return false
@@ -214,12 +215,11 @@ QtObject {
       if (error) return
       queue.apply(result.snapshot)
       var entries = result.snapshot && Array.isArray(result.snapshot.entries) ? result.snapshot.entries : []
-      for (var i = 0; i < ids.length; i++) {
-        for (var e = 0; e < entries.length; e++) {
-          if (entries[e].id === ids[i] && entries[e].state === "cancelled") {
-            queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[i])
-            break
-          }
+      for (var receiptIndex = 0; receiptIndex < ids.length; receiptIndex++) {
+        for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+          if (entries[entryIndex].id !== ids[receiptIndex] || entries[entryIndex].state !== "cancelled") continue
+          queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[receiptIndex])
+          break
         }
       }
     })
@@ -234,7 +234,7 @@ QtObject {
     function onReadyChanged() {
       if (queue.available()) { queue.revision = -1; queue.sync() }
     }
-    function onNotification(method, params) { if (method === "outbox.changed") queue.apply(params) }
+    function onNotification(method, parameters) { if (method === "outbox.changed") queue.apply(parameters) }
   }
   readonly property Connections authEvents: Connections {
     target: queue.account ? queue.account.auth : null

@@ -13,12 +13,11 @@ Item {
       verify(service)
       var values = ["--version", "--clear", "-p", "--type=text/html",
         "田中 \"quoted\" \\ body\nline two", "", "trailing\r\n"]
-      for (var i = 0; i < values.length; i++) {
-        verify(service.copyText(values[i]))
-        var command = Quickshell.detachedCommands[i]
-        compare(command, ["wl-copy", "--", values[i]])
-        // The transport regression consumes the command actually emitted by
-        // Service, then runs wl-copy against an unavailable display.
+      for (var index = 0; index < values.length; index++) {
+        verify(service.copyText(values[index]))
+        var command = Quickshell.detachedCommands[index]
+        compare(command, ["wl-copy", "--", values[index]])
+        // Invariant: test_clipboard.py consumes this marker and executes the emitted command against an unavailable display.
         console.log("OMAMAIL_CLIPBOARD_ARGUMENTS:" + JSON.stringify(command))
       }
     }

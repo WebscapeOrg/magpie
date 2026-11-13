@@ -13,7 +13,7 @@ use std::{
 type Result<T> = std::result::Result<T, &'static str>;
 #[cfg(target_os = "linux")]
 const NO_ATIME: i32 = libc::O_NOATIME;
-// Darwin has no per-open NOATIME flag. Read-only access never chmods or writes,
+// Invariant: Darwin has no per-open NOATIME flag. Read-only access never chmods or writes,
 // but filesystem access-time policy remains the OS's responsibility.
 #[cfg(not(target_os = "linux"))]
 const NO_ATIME: i32 = 0;
@@ -36,7 +36,7 @@ pub(crate) fn open_dir(
     validate_acl(parent, false)?;
     let name = cstr(name)?;
     if create {
-        // SAFETY: valid directory fd and NUL-terminated single component.
+        // Invariant: SAFETY: valid directory fd and NUL-terminated single component.
         let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
         if result != 0
             && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
@@ -69,7 +69,11 @@ pub(crate) fn open_dir(
     Ok(Some(file))
 }
 
-fn open_dir_readonly(parent: &File, name: &std::ffi::OsStr, private: bool) -> Result<Option<File>> {
+pub(crate) fn open_dir_readonly(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    private: bool,
+) -> Result<Option<File>> {
     let name = cstr(name)?;
     let access = libc::O_RDONLY
         | libc::O_DIRECTORY
@@ -98,8 +102,8 @@ pub(crate) fn directories(root: &Path, suffix: &[&str], create: bool) -> Result<
     if !root.is_absolute() {
         return Err("cache_home_invalid");
     }
-    let mut dir = File::open("/").map_err(|_| "cache_unavailable")?;
-    for component in root.components() {
+    let (mut dir, relative) = directory_anchor(root)?;
+    for component in relative.components() {
         match component {
             Component::RootDir => (),
             Component::Normal(name) => {
@@ -132,8 +136,8 @@ pub(crate) fn directories_readonly(root: &Path, suffix: &[&str]) -> Result<Optio
     if !root.is_absolute() {
         return Err("cache_home_invalid");
     }
-    let mut dir = File::open("/").map_err(|_| "cache_unavailable")?;
-    for component in root.components() {
+    let (mut dir, relative) = directory_anchor(root)?;
+    for component in relative.components() {
         match component {
             Component::RootDir => (),
             Component::Normal(name) => {
@@ -160,6 +164,30 @@ pub(crate) fn directories_readonly(root: &Path, suffix: &[&str]) -> Result<Optio
         dir = next;
     }
     Ok(Some(dir))
+}
+
+fn directory_anchor(root: &Path) -> Result<(File, std::path::PathBuf)> {
+    #[cfg(target_os = "ios")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let home = crate::platform::dirs::AppDirs::home()?;
+        let relative = root.strip_prefix(&home).map_err(|_| "cache_unsafe_path")?;
+        let file = File::options()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&home)
+            .map_err(|_| "cache_unavailable")?;
+        let metadata = file.metadata().map_err(|_| "cache_unavailable")?;
+        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
+            return Err("cache_unsafe_path");
+        }
+        return Ok((file, relative.to_owned()));
+    }
+    #[cfg(not(target_os = "ios"))]
+    Ok((
+        File::open("/").map_err(|_| "cache_unavailable")?,
+        root.to_owned(),
+    ))
 }
 
 fn regular_impl(dir: &File, name: &str, writable: bool) -> Result<Option<File>> {
@@ -237,6 +265,25 @@ pub(crate) fn regular_readonly(dir: &File, name: &str) -> Result<Option<File>> {
     Ok(Some(file))
 }
 
+pub(crate) fn create_private(dir: &File, name: &str) -> Result<File> {
+    validate_owned_root(dir)?;
+    let name = cstr(name.as_ref())?;
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err("cache_unsafe_path");
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    validate_acl(&file, true)?;
+    Ok(file)
+}
+
 pub(crate) fn names(dir: &File) -> Result<Vec<String>> {
     let fd = unsafe {
         libc::openat(
@@ -291,7 +338,7 @@ pub(crate) fn names(dir: &File) -> Result<Vec<String>> {
 fn errno_location() -> *mut libc::c_int {
     unsafe { libc::__errno_location() }
 }
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn errno_location() -> *mut libc::c_int {
     unsafe { libc::__error() }
 }
@@ -381,6 +428,14 @@ pub(crate) fn sync_dir(dir: &File) -> Result<()> {
     dir.sync_all().map_err(|_| "cache_unavailable")
 }
 
+pub(crate) fn available_bytes(dir: &File) -> Result<u64> {
+    let mut status: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatvfs(dir.as_raw_fd(), &mut status) } != 0 {
+        return Err("cache_unavailable");
+    }
+    Ok((status.f_bavail as u64).saturating_mul(status.f_frsize as u64))
+}
+
 pub(crate) struct ExclusiveLock {
     file: File,
     owner: u32,
@@ -401,7 +456,7 @@ impl AsRawFd for ExclusiveLock {
 }
 impl Drop for ExclusiveLock {
     fn drop(&mut self) {
-        // Forked pre-exec children must neither retain nor unlock the owner's lease.
+        // Invariant: Forked pre-exec children must neither retain nor unlock the owner's lease.
         if std::process::id() == self.owner {
             unsafe {
                 libc::flock(self.as_raw_fd(), libc::LOCK_UN);
@@ -414,7 +469,7 @@ pub(crate) fn open_lock(dir: &File, name: &str) -> Result<File> {
     validate_owned_root(dir)?;
     let name = cstr(name.as_ref())?;
     let flags = libc::O_RDWR | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
-    // Darwin can return a spurious ENOENT when concurrent openat(O_CREAT)
+    // Invariant: Darwin can return a spurious ENOENT when concurrent openat(O_CREAT)
     // callers race the first creation. Use exclusive creation followed by a
     // non-creating open of the winner; both remain relative to the pinned dir.
     // https://github.com/golang/go/issues/81246
@@ -543,7 +598,7 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
         acl_get_fd_np(file.as_raw_fd(), 0x100 /* ACL_TYPE_EXTENDED */)
     });
     if acl.0.is_null() {
-        // Darwin reports ENOENT for a file that has no extended ACL at all.
+        // Invariant: Darwin reports ENOENT for a file that has no extended ACL at all.
         return if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
             Ok(())
         } else {
@@ -555,7 +610,7 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
         let mut entry = std::ptr::null_mut();
         let result = unsafe { acl_get_entry(acl.0, index, &mut entry) };
         if result != 0 {
-            // Darwin returns -1/EINVAL when the ACL has no further entries.
+            // Invariant: Darwin returns -1/EINVAL when the ACL has no further entries.
             return if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL) {
                 Ok(())
             } else {
@@ -585,4 +640,57 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
             }
         }
     }
+}
+
+#[cfg(feature = "mobile")]
+pub(crate) fn clear_tree(dir: &File) -> Result<()> {
+    fn walk(dir: &File, depth: usize, remove: bool) -> Result<()> {
+        if depth > 8 {
+            return Err("cache_unsafe_path");
+        }
+        validate_owned_root(dir)?;
+        for name in names(dir)? {
+            let c = cstr(name.as_ref())?;
+            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe {
+                libc::fstatat(
+                    dir.as_raw_fd(),
+                    c.as_ptr(),
+                    stat.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                return Err("cache_unavailable");
+            }
+            let stat = unsafe { stat.assume_init() };
+            match stat.st_mode & libc::S_IFMT {
+                libc::S_IFDIR => {
+                    let child =
+                        open_dir_readonly(dir, name.as_ref(), true)?.ok_or("cache_unavailable")?;
+                    walk(&child, depth + 1, remove)?;
+                    if remove
+                        && unsafe {
+                            libc::unlinkat(dir.as_raw_fd(), c.as_ptr(), libc::AT_REMOVEDIR)
+                        } != 0
+                    {
+                        return Err("cache_unavailable");
+                    }
+                }
+                libc::S_IFREG => {
+                    regular_readonly(dir, &name)?.ok_or("cache_unavailable")?;
+                    if remove {
+                        remove_owned(dir, &name)?;
+                    }
+                }
+                _ => return Err("cache_unsafe_path"),
+            }
+        }
+        if remove {
+            sync_dir(dir)?;
+        }
+        Ok(())
+    }
+    walk(dir, 0, false)?;
+    walk(dir, 0, true)
 }

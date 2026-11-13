@@ -1,8 +1,9 @@
-//! Shared byte budget for disposable body and resource caches only.
+//! Invariant: The shared byte budget covers disposable body/resource caches, never durable mail or
+//! drafts.
 use super::*;
 pub(super) const MAX_DISK_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_DISK_ENTRIES: usize = 4096;
-/// Caller holds OPERATIONS. Reserve temporary-file bytes before writing, so a
+/// Performance: Caller holds OPERATIONS. Reserve temporary-file bytes before writing, so a
 /// successful operation never temporarily doubles the configured disk ceiling.
 pub(super) fn reserve(
     root: &Path,

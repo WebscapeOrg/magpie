@@ -1,24 +1,16 @@
 QMLLINT := /usr/lib/qt6/bin/qmllint
 .DEFAULT_GOAL := test
-QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qml  ui/inbox/InboxTools.qml ui/components/SnoozePicker.qml ui/components/SenderAvatar.qml  ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
+QML_FILES := ui/tests/qml/tst_point_details.qml ui/components/PointDetails.qml  ui/tests/qml/tst_point_stack.qml ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qml  ui/inbox/InboxTools.qml ui/components/SnoozePicker.qml ui/components/SenderAvatar.qml  ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
 	ui/tests/compatibility/tst_published_agent.qml \
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
+	ui/tests/qml/tst_local_mail_status.qml \
+	ui/tests/qml/tst_point_progress.qml ui/tests/qml/tst_calendar_settings.qml ui/tests/qml/tst_todo_settings.qml \
 	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
-	ui/components/BackendSetup.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
-	ui/account/MailAccount.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
+	ui/components/BackendSetup.qml ui/components/LocalMailStatus.qml ui/components/PointProgress.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
+	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml  ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
 	ui/providers/AuthManager.qml ui/providers/GmailApiClient.qml \
-	ui/providers/OutlookAuth.qml \
-	ui/providers/ImapAuth.qml ui/providers/ImapClient.qml \
-	ui/providers/HeyAuth.qml ui/providers/HeyClient.qml \
-	ui/providers/JmapAuth.qml ui/providers/JmapClient.qml ui/providers/JmapPush.qml \
-	ui/components/ImapSetupPage.qml \
-	ui/components/OutlookSetupPage.qml \
-	ui/components/JmapSetupPage.qml \
-	ui/components/HeySetupPage.qml \
-	ui/components/ProviderPicker.qml \
-	ui/components/ProviderLogo.qml \
 	ui/components/ProviderHero.qml \
 	ui/components/LinkLabel.qml \
 	ui/components/MailboxSidebar.qml \
@@ -42,7 +34,6 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/InviteCard.qml \
 	ui/components/SwitcherSearch.qml \
 	ui/components/AccountNameField.qml \
-	ui/components/SenderNameField.qml \
 	ui/components/ReaderBlankSlate.qml \
 	ui/components/ReaderSkeleton.qml \
 	ui/components/ComposeView.qml \
@@ -65,29 +56,60 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/AboutYouSettings.qml ui/components/PointInterview.qml ui/tests/qml/tst_point_interview.qml ui/components/CalendarSettings.qml ui/components/TodoSettings.qml ui/components/PictureSettings.qml \
+	ui/components/SpendingSettings.qml ui/components/SyncSettings.qml \
 	ui/components/SettingsSidebar.qml \
-	ui/components/CalendarSettings.qml \
-	ui/components/CalendarEventComposer.qml \
-	ui/components/CalendarEventDetail.qml ui/components/CalendarReminderPanel.qml \
-	ui/components/CalendarPalette.qml \
 	ui/components/ConfirmDeleteDialog.qml \
+	ui/components/ConfirmPopup.qml \
 	ui/components/SetupPage.qml \
 	ui/components/ShortcutHelp.qml \
-	ui/calendar/CalendarController.qml ui/calendar/CalendarCache.qml ui/calendar/CalendarReminders.qml ui/calendar/CalendarReminderInbox.qml \
-	ui/components/CalendarView.qml \
-	ui/components/WeekCalendarView.qml \
 	ui/components/WindowMoveArea.qml \
 	ui/bar/BarPreview.qml
-APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml
+QML_FILES += ui/tests/qml/tst_account_message_identity.qml
+QML_FILES += ui/inbox/BundleBook.qml
+QML_FILES += ui/components/UndoToast.qml
+QML_FILES += ui/components/ApprovedSenders.qml
+QML_FILES += ui/tests/qml/tst_inbox_bundles.qml
+QML_FILES += ui/tests/qml/tst_bundle_actions.qml
+QML_FILES += ui/tests/qml/tst_picture_settings.qml
+QML_FILES += ui/tests/qml/tst_message_link_arguments.qml
+QML_FILES += ui/tests/qml/tst_settings_pictures.qml
+QML_FILES += ui/tests/qml/tst_spending_settings.qml
+QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
+QML_FILES += ui/tests/qml/tst_compose_geometry.qml
+QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_google_auth_session.qml
+QML_FILES += ui/tests/qml/tst_message_list_geometry.qml
+QML_FILES += ui/tests/qml/tst_reader_image_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
+QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
+QML_FILES += ui/tests/qml/NativeIntentBridge.qml
+QML_FILES += ui/tests/qml/tst_shell_fixtures.qml
+QML_FILES += ui/tests/qml/tst_magpie_logo.qml
+QML_FILES += ui/tests/qml/tst_sidebar_calendar_label.qml
+QML_FILES += ui/providers/Deferred.qml ui/tests/qml/tst_provider_deferred.qml
+QML_FILES += ui/tests/qml/tst_intents_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_google_backend_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_picker_keyboard.qml
+QML_FILES += ui/tests/qml/tst_label_move_picker.qml
+QML_FILES += ui/tests/qml/tst_mail_account_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_service_attachment_owner.qml
+QML_FILES += ui/tests/qml/tst_compose_recovery_attachment_gate.qml
+QML_FILES += ui/backend/RestartController.qml ui/tests/qml/tst_restart_controller.qml
+QML_FILES += ui/search/SearchSuggestions.qml ui/search/SearchHelp.qml ui/search/SearchStatus.qml
+QML_FILES += ui/account/SubmittedSearch.qml
+QML_FILES += ui/tests/qml/tst_search_completion.qml ui/tests/qml/tst_search_results.qml ui/tests/qml/tst_submitted_search.qml
+QML_FILES += ui/tests/qml/tst_search_participants.qml
+QML_FILES += ui/tests/qml/tst_panel_theme.qml
+APP_QML_FILES := ui/components/MarkedText.qml app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
 APP_TARGET_DIR ?= $(CURDIR)/target/standalone
 APP_BACKEND := $(APP_TARGET_DIR)/debug/omamail$(APP_EXEEXT)
-APP_EXECUTABLE := $(CURDIR)/$(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
+APP_EXECUTABLE := $(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
 
-.PHONY: test test-js test-shell test-shell-portable test-shell-libcurl \
-	test-qml test-app-qml test-local test-backend-process qml-check validate bench install \
+.PHONY: test test-js test-shell test-shell-portable test-shell-independent \
+	test-qml test-app-qml test-local test-backend-process test-agent-cli-protocols qml-check validate bench install \
 	app-build app-run help
 
 help:
@@ -96,15 +118,25 @@ help:
 
 test: test-rust test-js test-shell test-qml
 
-# The real Quickshell process bridge needs the desktop runtime installed.
-# Keep it explicit so the portable suite can still run without Quickshell.
+# Invariant: the explicit local gate requires Quickshell; portable tests do not.
 test-local: test test-backend-process
 
 test-backend-process:
 	cargo build --locked --target-dir "$(CURDIR)/target" --bin omamail
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
+	python3 tests/test_mail_backup.py
+	python3 tests/test_search_backend.py
+	python3 tests/test_removed_providers.py
 	python3 tests/test_agent_native_bridge.py
+
+# Invariant: real CLI protocol fixtures are opt-in and use a local model server.
+test-agent-cli-protocols:
+	@test -n "$(OMAMAIL_TEST_CODEX)$(OMAMAIL_TEST_CLAUDE)$(OMAMAIL_TEST_OPENCODE)" || { \
+		echo "Set OMAMAIL_TEST_CODEX, OMAMAIL_TEST_CLAUDE or OMAMAIL_TEST_OPENCODE to an installed executable." >&2; \
+		exit 1; }
+	cargo build --locked --bin omamail
+	python3 tests/test_agent_cli_protocols.py
 
 .PHONY: test-rust backend
 test-rust:
@@ -113,21 +145,29 @@ test-rust:
 backend:
 	cargo build --locked --release --target-dir "$(CURDIR)/target" --bin omamail
 
-# The parsing, formatting, and decision rules live in plain JS precisely so
-# they can be tested without a compositor. These run anywhere node does.
 test-js:
+	node ui/tests/test_inbox_readiness.js
+	node ui/tests/test_calendar_handoff.js
+	node ui/tests/test_oracles.js
+	node ui/tests/test_load.js
+	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
+	node ui/tests/test_pictures.js
+	node ui/tests/test_spending.js
+	TZ=America/Santiago node ui/tests/test_spending.js
+	TZ=America/Havana node ui/tests/test_spending.js
+	node ui/tests/test_unsaved.js
+	node ui/tests/test_sync_health.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js
 	node ui/tests/test_bar_bridge.js
+	node ui/tests/test_bar_status.js
 	node ui/tests/test_backend_wire.js
 	node ui/tests/test_backend_queue.js
 	node ui/tests/test_backend_compatibility.js
 	node ui/tests/test_backend_runtime.js
 	node ui/tests/test_backend_chunks.js
-	node tests/test_imap_backend.js
-	node tests/test_hey_backend.js
 	node tests/test_gmail_backend.js
 	node ui/tests/test_compose_recovery.js
 	node ui/tests/test_agent.js
@@ -138,18 +178,11 @@ test-js:
 	node ui/tests/test_recipients.js
 	node ui/tests/test_senders.js
 	node ui/tests/test_oauth.js
-	node ui/tests/test_microsoft_oauth.js
 	node ui/tests/test_credentials.js
 	node ui/tests/test_secrets.js
 	node ui/tests/test_gmail_api.js
 	node ui/tests/test_message.js
 	node ui/tests/test_calendar.js
-	node ui/tests/test_calendar_time.js
-	node ui/tests/test_calendar_cache.js
-	node ui/tests/test_calendar_feed.js
-	node ui/tests/test_calendar_sources.js
-	node ui/tests/test_calendar_reminders.js
-	node ui/tests/test_calendar_palette.js
 	node ui/tests/test_bar_preview.js
 	node ui/tests/test_unsubscribe.js
 	node ui/tests/test_mailto.js
@@ -165,39 +198,53 @@ test-js:
 	node ui/tests/test_conversation.js
 	node tests/test_reader_pipeline.js
 	node ui/tests/test_keymap.js
+	node ui/tests/test_search_completion.js
+	node ui/tests/test_search_state.js
 	node ui/tests/test_accounts.js
 	node ui/tests/test_unified.js
 	node ui/tests/test_aliases.js
 	node ui/tests/test_menu.js
 	node ui/tests/test_provider.js
-	node ui/tests/test_imap.js
-	node ui/tests/test_jmap.js
-	node ui/tests/test_jmap_threads.js
-	node ui/tests/test_jmap_helpers.js
-	node ui/tests/test_hey.js
 
-test-shell: test-shell-portable test-shell-libcurl
+test-shell: test-shell-portable
 
-# Everything here drives one of our own scripts against a fake server and
-# asserts what the script did with the answer, so any libcurl can run it.
-test-shell-portable:
+# Invariant: portable transport tests assert our policy using controlled servers.
+test-shell-portable: test-shell-independent
+	python3 tests/test_public_http.py
+
+test-shell-independent:
+	python3 tests/test_description_office.py
+	python3 tests/test_low_space.py
+	python3 tests/test_register_mailto.py
+	python3 tests/test_open_magpie_calendar.py
+	python3 tests/test_qml_native_resources.py
+	python3 tests/test_published_agent_contract.py
+	python3 tests/test_config_store_paths.py
+	python3 tests/test_ci_report.py
+	python3 tests/test_body_cache_paths.py
+	python3 tests/test_backend_process_cleanup.py
+	python3 tests/test_benchmark_processes.py
+	python3 tests/test_benchmark_results.py
 	python3 tests/test_app_make.py
+	python3 tests/test_omastore.py
+	python3 tests/test_performance_verification.py
 	python3 tests/test_diagnostics.py
 	python3 tests/test_network_migration.py
 	python3 tests/test_plugin_workflow.py
 	python3 tests/test_backend_runtime.py
+	python3 tests/test_phone_service.py
 	python3 tests/test_backend_release.py
 	python3 tests/test_runtime_release_contract.py
 	sh tests/test_dev.sh
 	python3 tests/test_attachment_common.py
 	python3 tests/test_notification.py
-	python3 tests/test_calendar_notifications.py
-	python3 tests/test_curl_config.py
-	python3 tests/test_public_http.py
+	python3 tests/test_public_http.py Policy
 	python3 tests/test_contacts.py
 	python3 tests/test_qml_names.py
 	python3 tests/test_qml_text_format.py
+	python3 tests/test_qml_text_guard.py
 	python3 tests/test_clipboard.py
+	python3 tests/test_open_link_window.py
 	bash tests/test_source.sh
 	bash tests/test_service_source.sh
 	bash tests/test_config_store.sh
@@ -205,44 +252,20 @@ test-shell-portable:
 	bash tests/test_link_plugin.sh
 	bash tests/test_mailto.sh
 	bash tests/test_default_mail.sh
-	bash tests/test_transport.sh
-	bash tests/test_jmap_transport.sh
-	python3 tests/test_jmap_stream.py
 	bash tests/test_attachment_open.sh
 	bash tests/test_attachment_save.sh
 	bash tests/test_attachment.sh
-	bash tests/test_calendar_transport.sh
-	bash tests/test_calendar_write.sh
-	bash tests/test_calendar_delete.sh
 	bash tests/test_release_notes.sh
 	bash tests/test_publish.sh
 	python3 tests/test_publish_backend.py
 	bash tests/test_release_source.sh
 
-# This one asserts libcurl's own behaviour rather than ours: which of its two
-# output channels a single-UID BODY.PEEK fetch arrives on. That is a property
-# of the installed libcurl and it differs by version — Omarchy's 8.21 puts the
-# message on stdout, and the libcurl on a GitHub runner delivers neither the
-# body there nor a complete one through the header callback. Running it on a
-# runner reports on a library nobody here runs, which is why the release
-# workflow does not, and why `make test` still does.
-test-shell-libcurl:
-	bash tests/test_imap_ordering.sh
-
-# Focus ownership and key routing cannot be tested without a focus scope, and a
-# focus scope needs the QML engine. Offscreen, so it needs no compositor: the
-# bugs this catches — a hidden component owning the focus and swallowing keys, a
-# Repeater building no Shortcuts — are invisible to any test that cannot
-# instantiate one.
-#
-# Found rather than hard-coded: the binary is at /usr/lib/qt6/bin on Arch and on
-# PATH as qmltestrunner6 on Debian and Ubuntu, and pinning one of those makes
-# the suite unrunnable on the other.
+# Invariant: Arch and Debian install Qt's test runner under different names/paths.
 QMLTESTRUNNER := $(shell command -v qmltestrunner6 2>/dev/null \
 	|| ls /usr/lib/qt6/bin/qmltestrunner 2>/dev/null \
 	|| command -v qmltestrunner 2>/dev/null)
 
-# Use the verified release download, not a build from this checkout.
+# Invariant: this gate needs the verified release download, not a source build.
 .PHONY: test-agent-published
 test-agent-published:
 	@test -n "$(PUBLISHED_BACKEND)" || { echo "Set PUBLISHED_BACKEND to the verified pinned executable" >&2; exit 1; }
@@ -256,8 +279,12 @@ test-qml:
 		exit 1; }
 	cargo build --locked --bin omamail
 	python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml
-	python3 tests/test_outlook_http.py "$(QMLTESTRUNNER)"
+	# Settings → AI spending counts from local midnight; these zones skip or repeat a midnight
+	# when the clocks change, which Qt's JavaScript handles differently from Node's.
+	TZ=America/Santiago python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml/tst_spending_settings.qml
+	TZ=America/Havana python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml/tst_spending_settings.qml
 	python3 tests/test_sidebar_text.py "$(QMLTESTRUNNER)"
+	python3 tests/test_view_resources.py "$(QMLTESTRUNNER)"
 	python3 tests/test_attachment_resources.py "$(QMLTESTRUNNER)"
 	QMLTESTRUNNER="$(QMLTESTRUNNER)" cargo test --locked --lib message::html::tests::native_output_cannot_trigger_qt_resource_requests -- --ignored
 
@@ -269,7 +296,7 @@ test-app-qml:
 	cmake -S app -B "$(APP_BUILD_DIR)" -DOMAMAIL_BACKEND="$(APP_BACKEND)" -DQMLTESTRUNNER_EXECUTABLE="$(QMLTESTRUNNER)"
 	cmake --build "$(APP_BUILD_DIR)" --parallel
 	python3 app/tests/test_qml_inventory.py
-	QT_QPA_PLATFORM=offscreen ctest --test-dir "$(APP_BUILD_DIR)" --output-on-failure --no-tests=error -R 'tst_standalone_composition'
+	QT_QPA_PLATFORM=offscreen ctest --test-dir "$(APP_BUILD_DIR)" --output-on-failure --no-tests=error
 
 app-build:
 	cargo build --locked --no-default-features --features standalone --target-dir "$(APP_TARGET_DIR)" --bin omamail
@@ -279,14 +306,11 @@ app-build:
 app-run: app-build
 	OMAMAIL_DEVELOPMENT_RESOURCES=1 OMAMAIL_BIN="$(APP_BACKEND)" "$(APP_EXECUTABLE)"
 
-# Both engines on the same fixtures. The QML column is the one that decides
-# anything — the shell runs that engine, not node's — so run it on the machine
-# the shell runs on. Not part of `test`: it takes a few seconds and measures
-# rather than asserts.
+# Performance: QML measurements represent the desktop engine; Node is a comparison.
 bench:
 	bash ui/tests/bench.sh
 
-# Needs the Omarchy shell's qs.Commons / qs.Ui on the import path.
+# Invariant: qs.Commons and qs.Ui come from the installed Omarchy shell.
 qml-check:
 	$(QMLLINT) -I /usr/share/omarchy/shell $(QML_FILES)
 	$(QMLLINT) -I app/qml/imports -I app/build/qml $(APP_QML_FILES)
@@ -295,7 +319,13 @@ validate: test test-app-qml qml-check
 	omarchy plugin validate .
 	git diff --check
 
-# Development only: the Marketplace installs the plugin for ordinary users.
+.PHONY: verify-performance
+VERIFY_PROFILE ?= ci
+VERIFY_OUTPUT ?= /tmp/magpie-verification-$(shell date +%Y%m%d-%H%M%S)
+verify-performance:
+	python3 scripts/verify-performance.py --profile "$(VERIFY_PROFILE)" --output "$(VERIFY_OUTPUT)"
+
+# Invariant: these local installation targets are explicitly requested by developers.
 .PHONY: install-backend-local install-plugin
 install-backend-local: backend
 	python3 scripts/backend-runtime.py install-local
@@ -303,13 +333,11 @@ install-backend-local: backend
 install: install-backend-local
 	bash scripts/link-plugin.sh
 
-# Reset the private runtime so the setup page exercises a fresh installation.
 install-plugin:
 	python3 scripts/backend-runtime.py uninstall
 	bash scripts/link-plugin.sh
 
-# Prepare release/X.Y.Z and its PR; CI publishes, verifies, then updates its pin.
-# VERSION defaults to the next patch. Main changes only when the PR is merged.
+# Invariant: publication and pin advancement occur on a release branch before merging.
 .PHONY: publish
 publish:
 	bash scripts/publish.sh "$(VERSION)"

@@ -1,9 +1,8 @@
 #!/bin/sh
 # Registers Magpie as the desktop handler for mailto: links.
 #
-# The plugin is not an installed application until this file exists: XDG only
-# offers handlers that ship a .desktop claiming the scheme. The Exec path is
-# this checkout, so a development symlink and a cloned install both work.
+# XDG offers handlers only when a desktop file claims the scheme. The native
+# app's stable launcher owns single-instance delivery and exact URL arguments.
 set -eu
 
 fail() {
@@ -24,7 +23,15 @@ while [ "$#" -gt 0 ]; do
 done
 plugin_dir=$(cd "$plugin_dir" && pwd)
 [ -x "$plugin_dir/scripts/mailto.sh" ] || fail 'register-mailto.sh: mailto.sh is missing'
-[ -f "$plugin_dir/ui/assets/magpie.svg" ] || fail 'register-mailto.sh: magpie.svg is missing'
+[ -f "$plugin_dir/ui/assets/magpie-mail.png" ] || fail 'register-mailto.sh: magpie-mail.png is missing'
+launcher=magpie-mail
+if ! command -v magpie-mail >/dev/null 2>&1; then
+  if [ -x "$plugin_dir/omamail-app" ]; then
+    launcher="$plugin_dir/omamail-app"
+  elif [ -x "$plugin_dir/bin/omamail-app" ]; then
+    launcher="$plugin_dir/bin/omamail-app"
+  fi
+fi
 
 data_home=${XDG_DATA_HOME:-${HOME:?}/.local/share}
 apps="$data_home/applications"
@@ -36,18 +43,45 @@ if [ ! -f "$desktop" ]; then
   claim_default=true
 fi
 
-cat > "$desktop" <<EOF
-[Desktop Entry]
+python3 - "$plugin_dir" "$desktop" "$launcher" <<'PYTHON'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+plugin, destination, launcher = sys.argv[1:]
+if any(ord(character) < 32 or ord(character) == 127 for character in plugin + launcher):
+    raise SystemExit("register-mailto.sh: unsupported desktop path characters")
+
+def value(text):
+    return text.replace("\\", "\\\\")
+
+def command(text):
+    quoted = "".join("\\" + character if character in '\\"`$' else character for character in text)
+    return value('"' + quoted.replace("%", "%%") + '"')
+
+launch = command('exec "$0" "$@"')
+content = f"""[Desktop Entry]
 Type=Application
-Name=🐦 Magpie
+Name=✉️ Magpie Mail
 Comment=Email client for Omarchy
-Exec=$plugin_dir/scripts/mailto.sh %u
-Icon=$plugin_dir/ui/assets/magpie.svg
+Exec=/bin/sh -c {launch} {command(launcher)} %u
+Icon=omamail
 Terminal=false
-StartupNotify=false
+StartupNotify=true
+StartupWMClass=omamail
+SingleMainWindow=true
 MimeType=x-scheme-handler/mailto;
 Categories=Office;Network;Email;
-EOF
+"""
+with tempfile.NamedTemporaryFile("w", dir=Path(destination).parent, prefix=".omamail-", delete=False, encoding="utf-8") as output:
+    temporary = Path(output.name)
+    output.write(content)
+try:
+    os.replace(temporary, destination)
+finally:
+    temporary.unlink(missing_ok=True)
+PYTHON
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$apps" >/dev/null 2>&1 || true
@@ -61,3 +95,6 @@ if [ "$claim_default" = true ]; then
     xdg-settings set default-url-scheme-handler mailto omamail.desktop >/dev/null 2>&1 || true
   fi
 fi
+
+# The SUPER+SHIFT+E block written before Magpie became Magpie Mail named the old plugin id.
+[ ! -f "$plugin_dir/scripts/default-mail.sh" ] || sh "$plugin_dir/scripts/default-mail.sh" refresh

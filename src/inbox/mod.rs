@@ -1,21 +1,121 @@
+pub(crate) mod context_tokens;
+pub(crate) mod prices;
 mod avatars;
+mod progress;
+pub(crate) mod point_details;
+#[cfg(test)]
+include!("readiness_tests.rs");
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+mod context;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod describe;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod point_context;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod calendar;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod todos;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod rewrites;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod bundles;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+mod sender_proof;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod interview;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod picker;
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+pub(crate) mod point_eval;
+#[cfg(any(
+    feature = "mobile",
+    all(test, feature = "agent", unix, not(target_os = "ios"))
+))]
+pub(crate) mod claude;
+#[cfg(feature = "mobile")]
+pub(crate) mod assistant;
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
+mod overview_tests;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+mod pictures;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod spending;
 mod snooze;
+pub(crate) use snooze::is_snooze_label;
 mod store;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
+/// Desktop writes descriptions through the local AI agent; the iPhone through its own Claude API key.
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+mod writer {
+    pub(super) async fn ready() -> Result<(), &'static str> {
+        Ok(())
+    }
+    /// Whether this writer may be given the owner's bio and other mail: only where every request
+    /// is sure to reach Claude.
+    pub(super) async fn personal() -> bool {
+        crate::agent::overview::personal().await
+    }
+    pub(super) async fn generate(messages: &serde_json::Value, context: &serde_json::Value, tier: super::picker::Tier, _left_before: u64) -> Result<serde_json::Value, &'static str> {
+        crate::agent::overview::generate(messages, context, tier).await
+    }
+    /// Claude runs on the household's subscriptions here, so only the picker costs money, and the
+    /// spending page counts it; there is no daily limit to charge.
+    pub(super) fn charge(_amount: u64) {}
+}
+#[cfg(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
+mod writer {
+    pub(super) use super::claude::{charge, generate, ready};
+    /// The phone's own key reaches only Claude, so its writer may be given the owner's context.
+    pub(super) async fn personal() -> bool {
+        true
+    }
+}
+
+/// The longest Point Magpie keeps, in characters: about four lines of the desktop list.
+pub(crate) const POINT_LIMIT: usize = 300;
+/// Changes whenever The Point's rules change, so every Point still in the Inbox is written again,
+/// its earlier text staying in view until then.
+pub(crate) const POINT_REVISION: u64 = 3;
+/// Invariant: the phone's own writer pays for each request and runs in an app iOS can freeze, so a
+/// message it could not describe for Claude's or the mail's reasons waits ("waiting") instead of
+/// failing, and a message's own failure is asked again after 1 and then 5 minutes rather than 15.
+/// The desktop writer keeps "failed" and the 15-minute wait.
+const PHONE_WRITER: bool = cfg!(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))));
+/// When this engine started. A row still "running" from before then lost its writer when iOS ended
+/// the app, so it is asked again at once instead of after 15 minutes.
+static STARTED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
+/// Whether the writer was last found able to take the owner's context (see `writer::personal`).
+/// A Point written without it is written again once it can, so a desktop whose router gains its
+/// Claude-only mode does not keep Points that were written from the email alone.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+static PERSONAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(PHONE_WRITER);
+/// How long the phone waits before asking again about a message whose own description failed once, then twice.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const OWN_WAITS: [i64; 2] = [60_000, 300_000];
+
 pub struct Inbox {
     overview_slots: Arc<Semaphore>,
+    overview_progress: progress::Progress,
     avatar_slots: Arc<Semaphore>,
     snooze_lock: Mutex<()>,
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    painter: pictures::Painter,
 }
 impl Default for Inbox {
     fn default() -> Self {
+        if PHONE_WRITER {
+            STARTED.store(now(), std::sync::atomic::Ordering::Release);
+        }
         Self {
             overview_slots: Arc::new(Semaphore::new(1)),
+            overview_progress: Default::default(),
             avatar_slots: Arc::new(Semaphore::new(3)),
             snooze_lock: Mutex::new(()),
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            painter: Default::default(),
         }
     }
 }
@@ -27,11 +127,7 @@ fn account(params: &Value) -> Result<String, &'static str> {
         .as_str()
         .filter(|s| !s.is_empty())
         .ok_or("invalid_params")?;
-    let account = crate::mail::resolve_account(value)?;
-    if account.provider != crate::mail::Provider::Gmail {
-        return Err("inbox_gmail_required");
-    }
-    Ok(account.id)
+    Ok(crate::mail::resolve_account(value)?.id)
 }
 fn ids(params: &Value) -> Result<Vec<String>, &'static str> {
     let values = params["ids"]
@@ -59,97 +155,407 @@ fn fields(params: &Value, allowed: &[&str]) -> Result<(), &'static str> {
     Ok(())
 }
 impl Inbox {
+    /// Starts painting sender pictures for the next signed-in account that is due; never waits.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) fn paint_pictures(
+        &self,
+        accounts: Vec<String>,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+    ) {
+        // Asking for pictures is the phone showing them again.
+        #[cfg(feature = "mobile")]
+        pictures::want(true);
+        self.painter.start(accounts, gmail, local_mail);
+    }
+    /// Stops painting after the picture in hand, because the phone no longer shows sender
+    /// pictures, until they are asked for again.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn stop_pictures(&self) {
+        pictures::want(false);
+    }
+    /// Hands over, acknowledges or takes in the sender pictures the phone shares with Dave's other
+    /// devices through iCloud, or records that iCloud lost them all.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn shared_pictures(&self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value, &'static str> {
+        match method {
+            "engine.picturesToShare" => pictures::to_share(params).await,
+            "engine.picturesShared" => pictures::shared(params).await,
+            "engine.importPictures" => pictures::import(params).await,
+            "engine.picturesUnshared" => pictures::unshared(params).await,
+            _ => Err("unknown_method"),
+        }
+    }
+    /// A number that changes whenever a sender picture is painted.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn picture_revision(&self) -> u64 {
+        pictures::revision()
+    }
+    /// Forgets the sender pictures of accounts no longer on the phone. Blocks.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn forget_removed_pictures(accounts: &[String]) -> Result<(), &'static str> {
+        pictures::forget_removed(accounts)
+    }
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(crate) async fn prepare(
+        &self,
+        account: &str,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+    ) -> Result<(), &'static str> {
+        if self.overview_slots.available_permits() == 0 {
+            return Ok(());
+        }
+        let prefs = preferences(account)?;
+        if prefs["paused"] == true {
+            return Ok(());
+        }
+        let _ = rewrites::check(account, &local_mail).await;
+        let candidates = local_mail.overview_candidates(account).await?;
+        let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+        let covered = bundles::covered_ids(account);
+        let ids: Vec<_> = candidates
+            .into_iter()
+            .filter(|id| !covered.contains(id) && overview_due(&saved[id], false, now()))
+            .take(4)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        self.call("inbox.overviews", &json!({"accountId":account,"ids":ids,"allowRemoteImages":prefs["allowRemoteImages"] == true}), gmail, local_mail).await?;
+        Ok(())
+    }
+    /// Claims the requested messages and writes their descriptions in a background task.
+    /// With a limit the caller waits up to that long, as the iPhone's background refresh must.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    #[allow(clippy::too_many_arguments)]
+    async fn request_overviews(
+        &self,
+        account: String,
+        ids: Vec<String>,
+        retry: bool,
+        remote: bool,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+        limit: Option<std::time::Duration>,
+    ) -> Result<Value, &'static str> {
+        // Counted before anything else, so leaving the app at any point after the request arrived stops the batch.
+        let left_before = suspensions();
+        // A foreground request the app left before it got here is refused before any mail is claimed;
+        // background describing (with a limit) runs while the app is away by design.
+        #[cfg(feature = "mobile")]
+        if left_foreground(limit, claude::diagnostics::active) {
+            return Err("mobile_suspended");
+        }
+        // Invariant: a writer that cannot take requests now refuses before any mail is claimed, and says why.
+        if let Err(problem) = writer::ready().await {
+            return Ok(json!({"accepted":false,"problem":problem}));
+        }
+        let Ok(permit) = self.overview_slots.clone().try_acquire_owned() else {
+            return Ok(json!({"accepted":false}));
+        };
+        let name = store::key(&["overviews", &account]);
+        let settings = preferences(&account)?;
+        let remote = remote
+            && (settings["configured"] != true
+                || settings["allowRemoteImages"] == true);
+        if settings["paused"] == true {
+            return Ok(json!({"accepted":false}));
+        }
+        // Mail behind a bundle keeps the Point it had, and is not written again until it comes back.
+        let covered = bundles::covered_ids(&account);
+        let ids: Vec<String> = ids.into_iter().filter(|id| !covered.contains(id)).collect();
+        let ids = if writer::personal().await {
+            bundles::older_first(&account, ids, retry, PHONE_WRITER && limit.is_some(), &local_mail).await
+        } else {
+            ids
+        };
+        let claimed_at = now();
+        let (incarnation, chosen) = crate::account::with_incarnation(None, |token| {
+            crate::mail::resolve_account(&account)?;
+            let chosen = store::update(&name, |saved| {
+                claim_overviews(saved, &ids, retry, claimed_at)
+            })?;
+            Ok((token, chosen))
+        })?;
+        if chosen.is_empty() {
+            return Ok(json!({"accepted":true}));
+        }
+        let running = self.overview_progress.begin(&account, &chosen);
+        let origin = if PHONE_WRITER && limit.is_some() { crate::processing::Origin::BackgroundRefresh } else { crate::processing::Origin::current() };
+        let task = tokio::spawn(crate::processing::scope(origin, async move {
+            let _permit = permit;
+            let _running = running;
+            let started = std::time::Instant::now();
+            let result =
+                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before, PHONE_WRITER && limit.is_some()).await;
+            let Ok(protected) = local_mail.overview_candidates(&account).await else {
+                return;
+            };
+            let protected: std::collections::HashSet<_> =
+                protected.into_iter().collect();
+            let completed =
+                crate::account::with_incarnation(Some(&incarnation), |_| {
+                    crate::mail::resolve_account(&account)?;
+                    store::update(&name, |saved| {
+                        let current: Vec<_> = chosen
+                            .into_iter()
+                            .filter(|id| {
+                                overview_claimed(&saved[id], claimed_at)
+                            })
+                            .collect();
+                        finish_overviews_protected(saved, &current, &result, &protected)
+                    })
+                });
+            if let Ok(tally) = &completed {
+                note_batch(tally, &result, started.elapsed(), left_before);
+            }
+            if completed.is_ok() && let Ok(rows) = &result {
+                bundles::record(&account, rows, &incarnation, &local_mail).await;
+            }
+            if completed.as_ref().err() == Some(&"overview_account_changed") {
+                let _ = crate::account::with_incarnation(None, |_| {
+                    crate::mail::resolve_account(&account)?;
+                    if store::read(&name)?.is_none() {
+                        return Ok(());
+                    }
+                    store::update(&name, |saved| {
+                        for id in &ids {
+                            if overview_claimed(&saved[id], claimed_at) {
+                                reset_overview_after_account_change(&mut saved[id], now());
+                            }
+                        }
+                        Ok(())
+                    })
+                });
+            }
+        }));
+        if let Some(limit) = limit {
+            let finished = tokio::time::timeout(limit, task).await.is_ok();
+            return Ok(json!({"accepted":true,"finished":finished}));
+        }
+        Ok(json!({"accepted":true}))
+    }
+    /// Waits until no description is being written and no sender picture is being asked for or
+    /// saved, at most `limit` and only while the app stays in the background, so leaving the app
+    /// does not freeze a request half done or lose a picture that was paid for.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn settle(&self, limit: std::time::Duration) -> &'static str {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            if self.overview_slots.try_acquire().is_ok() && !pictures::under_way() {
+                return "settled";
+            }
+            if claude::diagnostics::active() {
+                return "resumed";
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return "busy";
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+    /// Retry on the phone: every failed message in the account may be asked about again, so ones
+    /// not asked in this batch are asked by the following ones instead of waiting for another Retry.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn forgive_failed(&self, account: &str) -> Result<(), &'static str> {
+        crate::account::with_incarnation(None, |_| {
+            let account = crate::mail::resolve_account(account)?.id;
+            store::update(&store::key(&["overviews", &account]), forgive_attempts)
+        })
+    }
+    /// Marks the account's Inbox Points whose thread or linked todos changed since they were
+    /// written, so the app asks for them again (at most once a minute).
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn check_rewrites(&self, account: &str, local_mail: &crate::local_mail::LocalMail) {
+        if let Ok(account) = crate::mail::resolve_account(account) {
+            let _ = rewrites::check(&account.id, local_mail).await;
+        }
+    }
+    /// The saved descriptions for one page of the app's mail.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn overview_page(&self, account: &str, ids: &[&str]) -> Result<Value, &'static str> {
+        let account = crate::mail::resolve_account(account)?.id;
+        let saved = store::read(&store::key(&["overviews", &account]))?.unwrap_or(json!({}));
+        let saved = saved.as_object().ok_or("inbox_storage_invalid")?;
+        let mut page = serde_json::Map::new();
+        for id in ids {
+            if let Some(row) = saved.get(*id) {
+                page.insert((*id).to_owned(), row.clone());
+            }
+        }
+        let mut shown = overview_snapshot(Value::Object(page), now())?;
+        no_refresh_for_covered(&account, &mut shown);
+        Ok(json!({"overviews":shown,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)}))
+    }
+    /// The iPhone's background refresh: describe the app's chosen Inbox mail still waiting, within a time limit.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn describe_waiting(
+        &self,
+        account: &str,
+        ids: &[String],
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+        limit: std::time::Duration,
+    ) -> Result<Value, &'static str> {
+        let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+        // Invariant: the app names more messages than are described, so messages that failed or are
+        // still running never hold back the ones behind them.
+        let covered = bundles::covered_ids(account);
+        let waiting: Vec<String> = ids.iter().filter(|id| !covered.contains(*id)).cloned().collect();
+        let due = background_due(&saved, &waiting, now());
+        let mut finished = json!(true);
+        if !due.is_empty() {
+            let prefs = preferences(account)?;
+            let outcome = self
+                .request_overviews(account.to_owned(), due, false, prefs["allowRemoteImages"] == true, gmail, local_mail, Some(limit))
+                .await?;
+            finished = outcome["finished"].clone();
+        }
+        let mut saved = overview_snapshot(store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({})), now())?;
+        no_refresh_for_covered(account, &mut saved);
+        let rows: serde_json::Map<String, Value> = ids
+            .iter()
+            .filter_map(|id| saved.get(id).map(|row| (id.clone(), row.clone())))
+            .collect();
+        Ok(json!({"accountId":account,"finished":finished,"overviews":rows}))
+    }
     pub async fn call(
         &self,
         method: &str,
         params: &Value,
         gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
     ) -> Result<Value, &'static str> {
         match method {
             "inbox.snapshot" => {
                 fields(params, &["accountId"])?;
                 let account = account(params)?;
-                Ok(
-                    json!({"overviews":store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})),"snoozes":snooze::snapshot(&account)?}),
-                )
-            }
-            "inbox.overviews" => {
-                fields(params, &["accountId", "ids", "retry"])?;
-                let account = account(params)?;
-                let ids = ids(params)?;
-                #[cfg(all(feature = "agent", unix))]
+                #[allow(unused_mut)]
+                let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)});
+                no_refresh_for_covered(&account, &mut snapshot["overviews"]);
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
-                    let Ok(permit) = self.overview_slots.clone().try_acquire_owned() else {
-                        return Ok(json!({"accepted":false}));
-                    };
-                    let name = store::key(&["overviews", &account]);
-                    let mut chosen = Vec::new();
-                    store::update(&name, |saved| {
-                        if !saved.is_object() {
-                            return Err("inbox_storage_invalid");
-                        }
-                        for id in ids {
-                            let old = &saved[&id];
-                            if old["text"].as_str().is_some_and(|s| !s.is_empty())
-                                && old["version"] == 1
-                            {
-                                continue;
+                    snapshot["pictures"] = json!(pictures::revision());
+                }
+                Ok(snapshot)
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.pictureStatus" => {
+                fields(params, &[])?;
+                pictures::status().await
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.setPictureKey" => {
+                fields(params, &["key"])?;
+                let key = params["key"]
+                    .as_str()
+                    .filter(|key| key.len() <= 4096)
+                    .ok_or("invalid_params")?;
+                pictures::set_key(key).await
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.removePictureKey" => {
+                fields(params, &[])?;
+                pictures::remove_key().await
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "ai.spending" => spending::spending(params).await,
+            // The owner's bio, which The Point reads every email against: read it, or save it with `text`.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.interview" => interview::generate(params).await,
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.aboutYou" => {
+                fields(params, &["text", "interviewOffered"])?;
+                if params.get("interviewOffered").is_some_and(|value| *value != true) { return Err("invalid_params"); }
+                if let Some(text) = params.get("text") {
+                    let text = text.as_str().filter(|text| text.len() <= 16 * 1024).ok_or("invalid_params")?;
+                    point_context::set_about_you(text)?;
+                }
+                if params["interviewOffered"] == true { point_context::mark_interview_offered()?; }
+                point_context::about_you_page()
+            }
+            // Whether The Point may read each account's Google Calendar; `accountId` reads that one again.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.calendarAccess" => {
+                fields(params, &["accountId"])?;
+                let accounts = point_context::accounts();
+                let recheck = match params.get("accountId") {
+                    Some(value) => Some(value.as_str().filter(|id| accounts.iter().any(|known| known == id)).ok_or("invalid_params")?),
+                    None => None,
+                };
+                // A token cached from before the owner allowed it would be refused again.
+                if let Some(account) = recheck {
+                    let _ = gmail.call("gmail.invalidate", &json!({"accountId":account})).await;
+                }
+                Ok(json!({"accounts":calendar::check(&gmail, &accounts, recheck).await}))
+            }
+            // Whether The Point reads the owner's todos from Magpie To Do; `link` connects a key from
+            // Atlas's Settings → Connections → Magpie, and an empty `link` disconnects.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.todoConnection" => {
+                fields(params, &["link"])?;
+                let link = match params.get("link") {
+                    Some(value) => Some(value.as_str().filter(|link| link.len() <= 4096).ok_or("invalid_params")?),
+                    None => None,
+                };
+                todos::connection(link).await
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.bundles" | "inbox.approveBundle" | "inbox.refuseBundle" | "inbox.approvedSenders" | "inbox.removeApprovedSender" => {
+                bundles::call(method, params, &local_mail).await
+            }
+            "inbox.preferences" => {
+                fields(params, &["accountId", "paused", "allowRemoteImages"])?;
+                for field in ["paused", "allowRemoteImages"] {
+                    if params.get(field).is_some_and(|value| !value.is_boolean()) {
+                        return Err("invalid_params");
+                    }
+                }
+                account(params)?;
+                let change = || {
+                    let account = account(params)?;
+                    if params.get("paused").is_none() && params.get("allowRemoteImages").is_none() {
+                        return preferences(&account);
+                    }
+                    store::update(&store::key(&["preferences", &account]), |saved| {
+                        validate_preferences(saved)?;
+                        for field in ["paused", "allowRemoteImages"] {
+                            if let Some(value) = params.get(field) {
+                                saved[field] = value.clone();
                             }
-                            if params["retry"] != true
-                                && old["state"] == "failed"
-                                && now() - old["updated"].as_i64().unwrap_or(0) < 900_000
-                            {
-                                continue;
-                            }
-                            saved[&id] = json!({"state":"running","updated":now(),"version":1});
-                            chosen.push(id);
                         }
                         Ok(())
                     })?;
-                    if chosen.is_empty() {
-                        return Ok(json!({"accepted":true}));
-                    }
-                    tokio::spawn(async move {
-                        let _permit = permit;
-                        let result = overview_batch(&account, &chosen, &gmail).await;
-                        let _ = store::update(&name, |saved| {
-                            for id in &chosen {
-                                let text = result
-                                    .as_ref()
-                                    .ok()
-                                    .and_then(|rows| rows.as_array())
-                                    .and_then(|rows| rows.iter().find(|v| v["id"] == *id))
-                                    .and_then(|v| v["text"].as_str());
-                                saved[id] = match text {
-                                    Some(text) => {
-                                        json!({"state":"ready","text":text,"version":1,"updated":now()})
-                                    }
-                                    None => {
-                                        json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":1})
-                                    }
-                                };
-                            }
-                            // Overviews are replaceable; keep a bounded recent working set.
-                            if saved.as_object().unwrap().len() > 5000 {
-                                let mut keys: Vec<_> = saved
-                                    .as_object()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|(k, v)| (v["updated"].as_i64().unwrap_or(0), k.clone()))
-                                    .collect();
-                                keys.sort();
-                                for (_, key) in keys.into_iter().take(1000) {
-                                    saved.as_object_mut().unwrap().remove(&key);
-                                }
-                            }
-                            Ok(())
-                        });
-                    });
-                    Ok(json!({"accepted":true}))
-                }
-                #[cfg(not(all(feature = "agent", unix)))]
+                    preferences(&account)
+                };
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
-                    let _ = (account, ids);
+                    crate::account::with_incarnation(None, |_| change())
+                }
+                #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+                {
+                    change()
+                }
+            }
+            "inbox.overviews" => {
+                fields(params, &["accountId", "ids", "retry", "allowRemoteImages"])?;
+                for field in ["retry", "allowRemoteImages"] {
+                    if params.get(field).is_some_and(|value| !value.is_boolean()) {
+                        return Err("invalid_params");
+                    }
+                }
+                let remote = params["allowRemoteImages"] == true;
+                let account = account(params)?;
+                let ids = ids(params)?;
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+                {
+                    self.request_overviews(account, ids, params["retry"] == true, remote, gmail, local_mail, None)
+                        .await
+                }
+                #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+                {
+                    let _ = (account, ids, local_mail, remote);
                     Err("overview_ai_unavailable")
                 }
             }
@@ -183,64 +589,1107 @@ impl Inbox {
                 let _guard = self.snooze_lock.lock().await;
                 tokio::time::timeout(
                     std::time::Duration::from_secs(55),
-                    snooze::call(method, params, &gmail),
+                    snooze::call(method, params, gmail.as_ref()),
                 )
                 .await
-                .map_err(|_| "snooze_pending_retry")?
+                // Invariant: a snooze that is cut off here has already saved its row, because
+                // reading its thread has its own shorter limit.
+                .map_err(|_| match method {
+                    "inbox.snooze" => "snooze_pending_retry",
+                    _ => "gmail_timeout",
+                })?
             }
             _ => Err("unknown_method"),
         }
     }
 }
-#[cfg(all(feature = "agent", unix))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn claim_overviews(
+    saved: &mut Value,
+    ids: &[String],
+    retry: bool,
+    at: i64,
+) -> Result<Vec<String>, &'static str> {
+    let mut chosen = Vec::new();
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    for id in ids {
+        let old = &saved[id];
+        if !overview_due(old, retry, at) {
+            continue;
+        }
+        if overview_current(old, at) {
+            saved[id]["rewriteState"] = json!("running");
+            saved[id]["rewriteAt"] = json!(at);
+            chosen.push(id.clone());
+            continue;
+        }
+        let pending_since = old["pendingSince"]
+            .as_i64()
+            .filter(|value| *value > 0 && *value <= at)
+            .unwrap_or(at);
+        let attempts = old["attempts"].as_u64().unwrap_or(0);
+        let waits = old["waits"].as_u64();
+        let previous_point = old["previousPoint"] == true || matches!(old["state"].as_str(), Some("ready" | "stale"));
+        saved[id] =
+            json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+        if let Some(waits) = waits {
+            saved[id]["waits"] = json!(waits);
+        }
+        if previous_point { saved[id]["previousPoint"] = json!(true); }
+        chosen.push(id.clone());
+    }
+    Ok(chosen)
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn reset_overview_after_account_change(value: &mut Value, at: i64) {
+    if overview_current(value, at) {
+        value["rewriteState"] = json!("failed");
+        value["rewriteAt"] = json!(0);
+        return;
+    }
+    let previous = value["previousPoint"] == true || matches!(value["state"].as_str(), Some("ready" | "stale"));
+    *value = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+    if previous { value["previousPoint"] = json!(true); }
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn finish_overviews_protected(
+    saved: &mut Value,
+    chosen: &[String],
+    result: &Result<Value, &'static str>,
+    protected: &std::collections::HashSet<String>,
+) -> Result<Tally, &'static str> {
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    let mut tally = Tally::default();
+    for id in chosen {
+        let pending_since = saved[id]["pendingSince"]
+            .as_i64()
+            .filter(|value| *value > 0 && *value <= now())
+            .unwrap_or_else(now);
+        let row = result
+            .as_ref()
+            .ok()
+            .and_then(Value::as_array)
+            .and_then(|rows| rows.iter().find(|v| v["id"] == *id));
+        let error = row.and_then(|row| row["error"].as_str()).or(result.as_ref().err().copied());
+        // Invariant: an attempt counts only when the writer answered for this message and the failure
+        // was its own; a batch-wide failure (tagged "batch" or the whole result) or one met while
+        // preparing the mail ("prepare") never counts.
+        // On the phone a message that could not be prepared for its own reasons also counts, so it
+        // gives up after RETRY_LIMIT instead of waiting forever; preparing costs no Claude request.
+        let stage = row.and_then(|row| row.get("stage"));
+        let own = result.is_ok() && stage.is_none_or(|stage| PHONE_WRITER && stage == "prepare") && !error.is_some_and(service_failure);
+        let asked = result.is_ok() && stage.is_none();
+        let attempts = saved[id]["attempts"].as_u64().unwrap_or(0) + u64::from(own);
+        let previous_point = saved[id]["previousPoint"] == true || matches!(saved[id]["state"].as_str(), Some("ready" | "stale"));
+        let accepted = row.filter(|row| row["text"].as_str().is_some_and(valid_description));
+        saved[id] = match accepted {
+            Some(row) => {
+                let at = now();
+                // The writer's own expiry, which counts from when the Point was written, even when
+                // that has passed by the time the batch completes.
+                let expires = row["expiresAt"].as_i64().filter(|value| (0..=9_007_199_254_740_991).contains(value)).unwrap_or_else(|| next_day(at));
+                let mut ready = json!({"state":"ready","text":row["text"],"version":2,"promptRevision":POINT_REVISION,"updated":at,"expiresAt":expires});
+                if let Some(sources) = row["sources"].as_array().filter(|sources| !sources.is_empty()) {
+                    ready["sources"] = json!(sources);
+                }
+                // The Point's own end date, kept apart from expiresAt, which "today" Points move to midnight.
+                if let Some(until) = row["untilAt"].as_i64().filter(|value| *value > 0 && *value <= 9_007_199_254_740_991) {
+                    ready["untilAt"] = json!(until);
+                }
+                if let Some(personal) = row["personal"].as_bool() {
+                    ready["personal"] = json!(personal);
+                }
+                if let Some(tier) = row["tier"].as_str().filter(|tier| ["haiku", "sonnet", "opus"].contains(tier)) {
+                    ready["tier"] = json!(tier);
+                }
+                if row["contextKey"]["sent"].is_string() {
+                    ready["contextKey"] = row["contextKey"].clone();
+                }
+                ready
+            }
+            None if overview_current(&saved[id], now()) => {
+                let mut previous = saved[id].clone();
+                previous["rewriteState"] = json!("failed");
+                previous["rewriteAt"] = json!(now());
+                // A rewrite that failed for the message's own reasons counts, so one that can never be
+                // written again stops being asked after RETRY_LIMIT and keeps its Point.
+                if own {
+                    previous["rewriteAttempts"] = json!(previous["rewriteAttempts"].as_u64().unwrap_or(0) + 1);
+                }
+                if error == Some(WAITS_FOR_APP) {
+                    previous["foreground"] = json!(true);
+                }
+                previous
+            }
+            None if PHONE_WRITER => phone_unfinished(&saved[id], error, own, asked, attempts, pending_since, now()),
+            None => with_problem(
+                json!({"state":"failed","reason":overview_failure(error),"updated":now(),"pendingSince":pending_since,"version":2,"attempts":attempts}),
+                error,
+            ),
+        };
+        if previous_point && saved[id]["state"] != "ready" { saved[id]["previousPoint"] = json!(true); }
+        if let Some(row) = row {
+            let details = point_details::clean(&row["details"]);
+            if !details.as_object().unwrap().is_empty() {
+                if saved[id]["state"] != "ready" || accepted.is_some() {
+                    saved[id]["details"] = details;
+                } else {
+                    saved[id]["lastAttempt"] = details;
+                }
+            }
+        }
+        match saved[id]["state"].as_str() {
+            Some("ready") => tally.described += 1,
+            Some("waiting") => tally.waiting += 1,
+            _ => tally.failed += 1,
+        }
+        if tally.problem.is_none() {
+            tally.problem = error.map(str::to_owned);
+        }
+    }
+    if saved.as_object().unwrap().len() > 5000 {
+        let mut keys: Vec<_> = saved
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| !protected.contains(*k))
+            .map(|(k, v)| (v["updated"].as_i64().unwrap_or(0), k.clone()))
+            .collect();
+        keys.sort();
+        for (_, key) in keys.into_iter().take(1000) {
+            saved.as_object_mut().unwrap().remove(&key);
+        }
+    }
+    Ok(tally)
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+/// How one batch ended, for the diagnostics record.
+#[derive(Default, Debug)]
+struct Tally {
+    described: u32,
+    waiting: u32,
+    failed: u32,
+    problem: Option<String>,
+}
+
+/// Codes a failed or waiting row keeps beside its reason, so an app can tell a problem that holds
+/// every Point (every Claude subscription out) or a pause in Claude's answers from the message's own
+/// failure. Invariant: only these fixed codes, never an error's text.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const ROW_PROBLEMS: [&str; 6] = ["overview_ai_paused", "overview_ai_unavailable", "overview_start_failed", "ai_rate_limited", "ai_unavailable", "ai_unreachable"];
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn with_problem(mut row: Value, error: Option<&str>) -> Value {
+    if let Some(code) = error.and_then(|error| ROW_PROBLEMS.into_iter().find(|known| *known == error)) {
+        row["problem"] = json!(code);
+    }
+    row
+}
+
+/// What a message the phone could not describe becomes.
+/// Invariant: its own failure counts and is asked again after OWN_WAITS, until RETRY_LIMIT. A message
+/// that was not asked because Claude or the key failed first (or the app left) waits only for
+/// claude::ready, which keeps the shared backoff. A message whose own request failed for Claude's
+/// reasons waits a minute, doubling to 15 minutes, so the messages it stopped go before it; any
+/// other failure of the service waits 15 seconds, doubling to 15 minutes, so it is not asked every poll.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: bool, attempts: u64, pending_since: i64, at: i64) -> Value {
+    let reason = overview_failure(error);
+    if own {
+        let mut row = with_problem(json!({"state":"failed","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts}), error);
+        if let Some(wait) = OWN_WAITS.get(attempts.saturating_sub(1) as usize).filter(|_| attempts < RETRY_LIMIT) {
+            row["retryAt"] = json!(at.saturating_add(*wait));
+        }
+        return row;
+    }
+    let mut row = with_problem(json!({"state":"waiting","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts}), error);
+    if error == Some(WAITS_FOR_APP) {
+        row["foreground"] = json!(true);
+    }
+    let claude = error.is_some_and(|error| error.starts_with("ai_") || error == INTERRUPTED || error == WAITS_FOR_APP);
+    let waited = previous["waits"].as_u64().unwrap_or(0).min(16);
+    if claude && !asked {
+        // Not asked this time, so its own wait does not grow, but it is kept for the next time it is.
+        if waited > 0 {
+            row["waits"] = json!(waited);
+        }
+        return row;
+    }
+    let first: i64 = if claude { 60_000 } else { 15_000 };
+    let waits = waited.saturating_add(1).min(16);
+    row["waits"] = json!(waits);
+    row["retryAt"] = json!(at.saturating_add((first << (waits - 1).min(6)).min(900_000)));
+    row
+}
+
+/// The batch stopped because the app left the foreground, so the messages after it were not asked.
+#[cfg_attr(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")), allow(dead_code))]
+const INTERRUPTED: &str = "overview_interrupted";
+/// The first four messages the phone's background run may describe. A message the picker gave
+/// Sonnet or Opus is left for the foreground, so the background run does not ask about it again.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+#[cfg_attr(not(feature = "mobile"), allow(dead_code))]
+fn background_due(saved: &Value, ids: &[String], at: i64) -> Vec<String> {
+    ids.iter().filter(|id| saved[id.as_str()]["foreground"] != true && overview_due(&saved[id.as_str()], false, at)).take(4).cloned().collect()
+}
+
+/// A Sonnet or Opus message met in the phone's background run, which asks only Haiku.
+#[cfg_attr(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")), allow(dead_code))]
+const WAITS_FOR_APP: &str = "overview_waits_for_app";
+
+#[cfg(feature = "mobile")]
+fn suspensions() -> u64 {
+    claude::diagnostics::suspensions()
+}
+
+/// True for a foreground request (no limit) once the app is no longer in the foreground.
+#[cfg(feature = "mobile")]
+fn left_foreground(limit: Option<std::time::Duration>, active: fn() -> bool) -> bool {
+    limit.is_none() && !active()
+}
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+#[cfg(not(feature = "mobile"))]
+fn suspensions() -> u64 {
+    0
+}
+
+#[cfg(feature = "mobile")]
+fn note_batch(tally: &Tally, result: &Result<Value, &'static str>, elapsed: std::time::Duration, suspensions: u64) {
+    let problem = result.as_ref().err().copied().or(tally.problem.as_deref());
+    claude::diagnostics::record(claude::diagnostics::Event {
+        outcome: problem.map_or_else(|| "ok".into(), claude::diagnostics::outcome),
+        elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+        suspended: claude::diagnostics::suspensions() != suspensions,
+        described: tally.described,
+        waiting: tally.waiting,
+        failed: tally.failed,
+        ..claude::diagnostics::event("batch")
+    });
+}
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+#[cfg(not(feature = "mobile"))]
+fn note_batch(_: &Tally, _: &Result<Value, &'static str>, _: std::time::Duration, _: u64) {}
+
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
+fn finish_overviews(
+    saved: &mut Value,
+    chosen: &[String],
+    result: &Result<Value, &'static str>,
+) -> Result<(), &'static str> {
+    finish_overviews_protected(saved, chosen, result, &std::collections::HashSet::new()).map(|_| ())
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 async fn overview_batch(
     account: &str,
     ids: &[String],
     gmail: &crate::providers::gmail::Session,
+    local_mail: &crate::local_mail::LocalMail,
+    remote: bool,
+    left_before: u64,
+    background: bool,
 ) -> Result<Value, &'static str> {
-    let mut messages = Vec::new();
-    for id in ids {
-        let raw = gmail
-            .call(
-                "gmail.read",
-                &json!({"accountId":account,"id":id,"full":true}),
-            )
-            .await?;
-        let prepared = crate::message::content::prepare(&raw, now())?;
-        let summary = &prepared["summary"];
-        let body = prepared["body"]["text"].as_str().unwrap_or("");
-        // Preserve the opening request and the end (often where the real ask lives).
-        let body = if body.chars().count() > 48000 {
-            let start: String = body.chars().take(36000).collect();
-            let end: String = body
-                .chars()
-                .rev()
-                .take(12000)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect();
-            format!("{start}\n[Middle omitted]\n{end}")
+    let personal = writer::personal().await;
+    PERSONAL.store(personal, std::sync::atomic::Ordering::Release);
+    overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
+        let mut prepared = Vec::new();
+        let mut failed = Vec::new();
+        for mut message in messages.as_array().cloned().ok_or("overview_input_invalid")? {
+            let id = message["id"]
+                .as_str()
+                .ok_or("overview_input_invalid")?
+                .to_owned();
+            let enriched = async {
+                let raw = local_mail.read(account, &id, gmail).await?;
+                context::enrich(account, &id, &raw, &mut message, gmail, remote).await?;
+                if personal {
+                    point_context::add_related(account, &raw, &mut message, local_mail).await;
+                }
+                Ok::<(), &'static str>(())
+            }
+            .await;
+            match enriched {
+                Ok(()) => prepared.push(message),
+                Err(error) if account_failure(error) => return Err(error),
+                Err(error) => failed.push(json!({"id":id,"error":error,"stage":"prepare"})),
+            }
+        }
+        if prepared.is_empty() {
+            return Ok(json!(failed));
+        }
+        let prepared = json!(prepared);
+        let mut shared = if personal { point_context::shared(local_mail, gmail, !background).await } else { json!({}) };
+        // Only with the owner's context: no context, no covers.
+        if personal {
+            bundles::add_points(&mut shared);
+        }
+        // What each Point is written against, taken after the shared context read the todos, so a
+        // later reply in the thread or change to a linked todo has it written again.
+        let keys = if personal {
+            let ids: Vec<String> = prepared.as_array().into_iter().flatten().filter_map(|message| message["id"].as_str().map(str::to_owned)).collect();
+            rewrites::keys(account, &ids, local_mail).await
         } else {
-            body.to_owned()
+            std::collections::HashMap::new()
         };
-        messages.push(json!({"id":id,"from":summary["from"],"subject":summary["subject"],"date":summary["fullTime"],"body":body,"attachments":prepared["attachments"]}));
+        // Invariant: when the app left while the mail was being prepared, nothing is sent; the
+        // messages are returned as not asked and are described when it returns.
+        let generated = if suspensions() != left_before {
+            Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
+        } else {
+            // A writer that cannot take the owner's context writes nothing, so the picker is not asked.
+            let (choices, spent) = if personal {
+                picker::choose_detailed(&prepared, &shared).await
+            } else {
+                (prepared.as_array().into_iter().flatten().map(|_| picker::Choice {
+                    tier: picker::Tier::Sonnet, millis: None, defaulted: true, cost: 0
+                }).collect(), 0)
+            };
+            let tiers: Vec<_> = choices.iter().map(|choice| choice.tier).collect();
+            spending::record("descriptions", spent).await;
+            writer::charge(spent);
+            tiered(&prepared, &tiers, background, |group, tier| {
+                let shared = &shared;
+                async move { writer::generate(&group, shared, tier, left_before).await }
+            })
+            .await
+            .map(|mut rows| {
+                // The writer marks each row with whether context went with it (the desktop's writer
+                // decides that again when it writes); a row it leaves unmarked had the batch's answer.
+                for row in rows.as_array_mut().into_iter().flatten() {
+                    if let Some(index) = prepared.as_array().unwrap().iter().position(|message| message["id"] == row["id"]) {
+                        let choice = &choices[index];
+                        let mut details = json!({"choice": if choice.defaulted { "default" } else { "decisions" }});
+                        if let Some(ms) = choice.millis { details["decideMs"] = json!(ms); }
+                        if choice.cost > 0 { details["decideCostNanos"] = json!(choice.cost); }
+                        point_details::merge(row, &details);
+                    }
+                    if !row["personal"].is_boolean() {
+                        row["personal"] = json!(personal);
+                    }
+                    if let Some(key) = row["id"].as_str().and_then(|id| keys.get(id)).filter(|_| row["personal"] == true) {
+                        row["contextKey"] = key.clone();
+                    }
+                }
+                rows
+            })
+        };
+        merge_rows(generated, &prepared, failed)
+    })
+    .await
+}
+
+/// Failures that concern the whole account, so the batch stops rather than marking each message.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn account_failure(error: &str) -> bool {
+    error.starts_with("accounts_")
+        || matches!(error, "local_account_unknown" | "gmail_account_unknown" | "gmail_auth_required" | "overview_account_changed")
+}
+
+/// Writes each tier's messages with its own model, Haiku first, and marks each row with its tier.
+/// Invariant: in the phone's short background run only Haiku is asked; Sonnet and Opus messages
+/// are returned as not asked (`WAITS_FOR_APP`) and written when Magpie is next in the foreground.
+/// A tier whose writer fails marks only its own messages; when the batch had one tier, the
+/// writer's failure is the batch's, as before tiers.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+async fn tiered<F, Fut>(prepared: &Value, tiers: &[picker::Tier], background: bool, mut write: F) -> Result<Value, &'static str>
+where
+    F: FnMut(Value, picker::Tier) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, &'static str>>,
+{
+    let messages = prepared.as_array().ok_or("overview_input_invalid")?;
+    let groups: Vec<(picker::Tier, Vec<Value>)> = [picker::Tier::Haiku, picker::Tier::Sonnet, picker::Tier::Opus]
+        .into_iter()
+        .map(|tier| (tier, messages.iter().zip(tiers).filter(|(_, chosen)| **chosen == tier).map(|(message, _)| message.clone()).collect::<Vec<_>>()))
+        .filter(|(_, group)| !group.is_empty())
+        .collect();
+    let not_asked = |group: &[Value], error: &str| group.iter().map(|message| json!({"id":message["id"],"error":error,"stage":"batch"})).collect::<Vec<_>>();
+    let mut rows = Vec::new();
+    for (tier, group) in groups {
+        if background && tier != picker::Tier::Haiku {
+            rows.extend(not_asked(&group, WAITS_FOR_APP).into_iter().map(|mut row| {
+                row["tier"] = json!(tier.name());
+                row
+            }));
+            continue;
+        }
+        let run = crate::processing::Run::start();
+        let (answer, tokens) = context_tokens::measure(write(json!(group), tier)).await;
+        let elapsed = run.millis();
+        let record = run.finish();
+        let mut answer = match answer {
+            Ok(answer) => answer.as_array().cloned().unwrap_or_default(),
+            Err(error) if account_failure(error) => return Err(error),
+            Err(error) => not_asked(&group, error),
+        };
+        for row in &mut answer {
+            if row["error"].is_null() && row["tier"].is_null() { row["tier"] = json!(tier.name()); }
+            let requested = if PHONE_WRITER { tier.model() } else { tier.name() };
+            let mut details = json!({"requestedModel": requested});
+            if !PHONE_WRITER {
+                details["createMs"] = json!(elapsed);
+                details["batchSize"] = json!(group.len());
+                if row["details"]["model"].as_str().is_none() {
+                    details["model"] = json!(requested);
+                }
+                details["createRun"] = record.clone();
+                point_details::merge(row, &tokens);
+            }
+            point_details::merge(row, &details);
+        }
+        rows.extend(answer);
     }
-    crate::agent::overview::generate(&json!(messages)).await
+    Ok(json!(rows))
+}
+
+/// Joins the writer's rows for the messages it was given with the rows of messages that could not be prepared.
+/// Invariant: a message that could not be prepared fails alone and never reaches the writer.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn merge_rows(generated: Result<Value, &'static str>, prepared: &Value, mut failed: Vec<Value>) -> Result<Value, &'static str> {
+    if failed.is_empty() {
+        return generated;
+    }
+    match generated {
+        Ok(Value::Array(rows)) => failed.extend(rows),
+        Ok(_) => {}
+        Err(error) => failed.extend(
+            prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":error,"stage":"batch"})),
+        ),
+    }
+    Ok(json!(failed))
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+async fn overview_batch_with<F, Fut>(
+    account: &str,
+    ids: &[String],
+    gmail: &crate::providers::gmail::Session,
+    local_mail: &crate::local_mail::LocalMail,
+    generate: F,
+) -> Result<Value, &'static str>
+where
+    F: FnOnce(Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, &'static str>>,
+{
+    let mut messages = Vec::new();
+    let mut downloads = std::collections::HashMap::new();
+    let mut download_runs = std::collections::HashMap::new();
+    let mut failed = Vec::new();
+    for id in ids {
+        let prepared = async {
+            let raw = local_mail.read(account, id, gmail).await?;
+            let message = overview_message(id, &raw)?;
+            downloads.insert(id.clone(), point_details::duration(&raw[crate::providers::gmail::DOWNLOAD_MS]));
+            download_runs.insert(id.clone(), crate::processing::clean(&raw[crate::providers::gmail::DOWNLOAD_RUN]));
+            Ok::<_, &'static str>(message)
+        }
+        .await;
+        match prepared {
+            Ok(mut message) => {
+                message["owner"] = json!(account);
+                messages.push(message);
+            }
+            Err(error) if account_failure(error) => return Err(error),
+            Err(error) => failed.push(json!({"id":id,"error":error,"stage":"prepare"})),
+        }
+    }
+    if messages.is_empty() {
+        return Ok(json!(failed));
+    }
+    let messages = json!(messages);
+    let mut result = merge_rows(generate(messages.clone()).await, &messages, failed)?;
+    for row in result.as_array_mut().into_iter().flatten() {
+        if let Some(ms) = row["id"].as_str().and_then(|id| downloads.get(id)).copied().flatten() {
+            point_details::merge(row, &json!({"gmailMs":ms}));
+        }
+        if let Some(run) = row["id"].as_str().and_then(|id| download_runs.get(id)).and_then(Option::as_ref) {
+            point_details::merge(row, &json!({"downloadRun":run}));
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
+    let prepared = crate::message::content::prepare(raw, now())?;
+    let summary = &prepared["summary"];
+    let body = prepared["body"]["text"].as_str().unwrap_or("");
+    let current = chrono::Local::now();
+    let valid_until = next_day(current.timestamp_millis());
+    // Invariant: recipient and attachment lists are bounded like the body, so no header can make a request unbounded.
+    let first = |list: &Value| json!(list.as_array().map(|items| &items[..items.len().min(50)]).unwrap_or_default());
+    // Only the picker reads these; they are not sent to Claude.
+    let categories: Vec<&str> = summary["labelIds"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|label| label.starts_with("CATEGORY_")).take(5).collect();
+    let unsubscribe = !crate::message::content::header(raw, "List-Unsubscribe").trim().is_empty();
+    Ok(
+        json!({"id":id,"from":summary["from"],"to":first(&summary["to"]),"cc":first(&summary["cc"]),"bcc":first(&summary["bcc"]),"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":first(&prepared["attachments"]),"picker":{"categories":categories,"listUnsubscribe":unsubscribe}}),
+    )
+}
+
+fn preferences(account: &str) -> Result<Value, &'static str> {
+    let saved = store::read(&store::key(&["preferences", account]))?;
+    let configured = saved.is_some();
+    let saved = match saved {
+        Some(saved) => saved,
+        None => legacy_preferences()?,
+    };
+    validate_preferences(&saved)?;
+    Ok(
+        json!({"paused":saved["paused"] == true,"allowRemoteImages":saved["allowRemoteImages"] == true,"configured":configured}),
+    )
+}
+
+#[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+fn legacy_preferences() -> Result<Value, &'static str> {
+    Ok(json!({}))
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+fn legacy_preferences() -> Result<Value, &'static str> {
+    use crate::platform::{dirs::AppDirs, private_fs};
+    use std::io::Read;
+    let Some(dir) = private_fs::directories_readonly(&AppDirs::discover()?.config, &["omamail"])?
+    else {
+        return Ok(json!({}));
+    };
+    let Some(file) = private_fs::regular_readonly(&dir, "window.json")? else {
+        return Ok(json!({}));
+    };
+    let mut bytes = Vec::new();
+    file.take(128 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "inbox_storage_invalid")?;
+    if bytes.len() > 128 * 1024 {
+        return Err("inbox_storage_invalid");
+    }
+    let saved: Value = serde_json::from_slice(&bytes).map_err(|_| "inbox_storage_invalid")?;
+    if !saved.is_object()
+        || ["overviewPaused", "alwaysShowImages"]
+            .iter()
+            .any(|field| saved.get(field).is_some_and(|value| !value.is_boolean()))
+    {
+        return Err("inbox_storage_invalid");
+    }
+    Ok(
+        json!({"paused":saved["overviewPaused"] == true,"allowRemoteImages":saved["alwaysShowImages"] == true}),
+    )
+}
+
+fn validate_preferences(saved: &Value) -> Result<(), &'static str> {
+    if !saved.is_object()
+        || ["paused", "allowRemoteImages"]
+            .iter()
+            .any(|field| saved.get(field).is_some_and(|value| !value.is_boolean()))
+    {
+        return Err("inbox_storage_invalid");
+    }
+    Ok(())
+}
+
+fn valid_description(text: &str) -> bool {
+    !text.trim().is_empty()
+        && text.chars().count() <= POINT_LIMIT
+        && !text.chars().any(|c| {
+            c.is_control()
+                || matches!(c as u32, 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff)
+                || c == '<'
+                || c == '>'
+        })
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
+    if overview_current(value, at) {
+        // Written under earlier rules, without the owner's context, or before the owner answered in
+        // its thread or a linked todo changed (rewrites.rs).
+        let behind = value["promptRevision"] != POINT_REVISION
+            || (value["personal"] == false && PERSONAL.load(std::sync::atomic::Ordering::Acquire))
+            || value["contextChanged"] == true;
+        if !behind || (!retry && value["rewriteAttempts"].as_u64().unwrap_or(0) >= RETRY_LIMIT) {
+            return false;
+        }
+        let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
+        return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
+    }
+    if orphaned(value) {
+        return true;
+    }
+    // Invariant: the phone pays for each attempt, so a message that failed three times for its own
+    // content waits for Retry instead of being asked again every 15 minutes.
+    if cfg!(feature = "mobile") && !retry && value["state"] == "failed" && value["attempts"].as_u64().unwrap_or(0) >= RETRY_LIMIT {
+        return false;
+    }
+    // A row that says when to ask again is due then, or at once on Retry; a waiting row without a
+    // time waits only for claude::ready.
+    if value["state"] == "waiting" || (value["state"] == "failed" && value.get("retryAt").is_some()) {
+        return retry || value["retryAt"].as_i64().is_none_or(|next| next <= at);
+    }
+    let age = at.saturating_sub(value["updated"].as_i64().unwrap_or(0));
+    !(age >= 0
+        && age < 900_000
+        && (value["state"] == "running" || (!retry && value["state"] == "failed")))
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const RETRY_LIMIT: u64 = 3;
+
+#[cfg(feature = "mobile")]
+fn forgive_attempts(saved: &mut Value) -> Result<(), &'static str> {
+    for row in saved.as_object_mut().ok_or("inbox_storage_invalid")?.values_mut() {
+        if row["state"] == "failed" && row.get("attempts").is_some() {
+            row["attempts"] = json!(0);
+        }
+        if row.get("rewriteAttempts").is_some() {
+            row["rewriteAttempts"] = json!(0);
+        }
+        // Retry means now: a failed or waiting message is due on the next poll, not after its wait.
+        if matches!(row["state"].as_str(), Some("failed" | "waiting")) {
+            row["retryAt"] = json!(0);
+            row.as_object_mut().map(|fields| fields.remove("waits"));
+        }
+    }
+    Ok(())
+}
+
+/// A row still "running" from before this engine started, whose writer iOS ended with the app.
+fn orphaned(value: &Value) -> bool {
+    PHONE_WRITER
+        && value["state"] == "running"
+        && value["updated"].as_i64().is_some_and(|updated| updated < STARTED.load(std::sync::atomic::Ordering::Acquire))
+}
+
+/// Failures that say nothing about the message itself, so they never count as one of its attempts.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn service_failure(error: &str) -> bool {
+    ["ai_", "gmail_", "local_", "private_fs_", "inbox_storage_"].iter().any(|prefix| error.starts_with(prefix))
+        && error != "gmail_not_found"
+        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_ai_paused" | "overview_account_changed" | INTERRUPTED | WAITS_FOR_APP)
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn overview_claimed(value: &Value, at: i64) -> bool {
+    (value["state"] == "running" && value["updated"] == at)
+        || (value["rewriteState"] == "running" && value["rewriteAt"] == at)
+}
+
+fn overview_current(value: &Value, at: i64) -> bool {
+    value["version"] == 2
+        && value["state"] == "ready"
+        && value["text"].as_str().is_some_and(valid_description)
+        && value["expiresAt"].as_i64().is_some_and(|expires| {
+            expires <= 9_007_199_254_740_991 && (expires == 0 || expires > at)
+        })
+}
+
+/// Whether a current Point would be written again now; never where this build has no writer.
+fn rewrite_due(value: &Value, at: i64) -> bool {
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    return overview_due(value, false, at);
+    #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+    {
+        let _ = (value, at);
+        false
+    }
+}
+
+fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
+    for value in saved
+        .as_object_mut()
+        .ok_or("inbox_storage_invalid")?
+        .values_mut()
+    {
+        for key in ["details", "lastAttempt"] {
+            if value.get(key).is_some() { value[key] = point_details::clean(&value[key]); }
+        }
+        // A Point written under earlier rules is still shown, and marked so the app asks for it
+        // again when the engine would take it: not while a rewrite is running or has just failed.
+        if overview_current(value, at) && rewrite_due(value, at) {
+            value["refresh"] = json!(true);
+        }
+        if !overview_current(value, at) && value["state"] == "ready" {
+            value["state"] = json!("stale");
+            value.as_object_mut().map(|fields| fields.remove("text"));
+        }
+        if orphaned(value) {
+            value["state"] = json!("waiting");
+        }
+    }
+    Ok(saved)
+}
+
+/// A mail behind a bundle keeps the Point it had (design), so the app is not told to ask for it again.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn no_refresh_for_covered(account: &str, snapshot: &mut Value) {
+    let covered = bundles::covered_ids(account);
+    for id in covered {
+        if let Some(fields) = snapshot.get_mut(&id).and_then(Value::as_object_mut) {
+            fields.remove("refresh");
+        }
+    }
+}
+#[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+fn no_refresh_for_covered(_: &str, _: &mut Value) {}
+
+fn next_day(at: i64) -> i64 {
+    use chrono::{Local, TimeZone};
+    let Some(current) = Local.timestamp_millis_opt(at).single() else {
+        return at.saturating_add(86_400_000);
+    };
+    let Some(date) = current
+        .date_naive()
+        .succ_opt()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+    else {
+        return at.saturating_add(86_400_000);
+    };
+    Local
+        .from_local_datetime(&date)
+        .earliest()
+        .map_or(at.saturating_add(86_400_000), |date| {
+            date.timestamp_millis()
+        })
 }
 
 fn overview_failure(error: Option<&str>) -> &'static str {
     match error {
         Some("overview_start_failed") => "AI worker could not start; retry from Menu",
         Some("overview_ai_unavailable") => "AI service did not respond; retry from Menu",
+        Some("overview_ai_paused") => "Every Claude subscription is out for now; Magpie Mail will try again",
         Some("overview_invalid_response") => {
             "AI response failed format or length checks; retry from Menu"
         }
         Some("overview_unsupported_claim") => {
             "AI response could not be verified against the mail; retry from Menu"
         }
+        Some("ai_key_invalid" | "ai_key_refused") => {
+            "Claude refused the API key; add a new key in Settings"
+        }
+        Some("ai_key_workspace") => {
+            "The API key is not tied to one workspace; add a key made for one workspace in Settings"
+        }
+        Some("ai_billing") => "Claude API billing needs attention in the Claude Console",
+        Some("ai_rate_limited" | "ai_unavailable" | "ai_unreachable" | "ai_daily_limit") => {
+            "Claude could not take more requests just now; Magpie Mail will retry"
+        }
+        Some("overview_ai_refused") => "Claude declined to describe this message",
+        Some(INTERRUPTED) => "Magpie Mail left the foreground before this message; it will be described next",
+        Some(WAITS_FOR_APP) => "Its Point is written when you next open Magpie Mail",
         None => "AI response omitted this message; retry from Menu",
         _ => "Mail could not be prepared for AI; retry from Menu",
+    }
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod overview_attempt_tests {
+    use super::*;
+
+    #[test]
+    fn each_message_keeps_its_own_failure_and_only_its_own_faults_count_as_attempts() {
+        let at = now();
+        let mut saved = json!({});
+        let ids: Vec<String> = ["a", "b", "c"].iter().map(|id| id.to_string()).collect();
+        claim_overviews(&mut saved, &ids, false, at).unwrap();
+        let result = Ok(json!([
+            {"id":"a","text":"Your invoice INV-520 was paid","timeSensitive":false,"expiresAt":0},
+            {"id":"b","error":"overview_ai_refused"},
+            {"id":"c","error":"ai_rate_limited"}
+        ]));
+        finish_overviews_protected(&mut saved, &ids, &result, &Default::default()).unwrap();
+        assert_eq!(saved["a"]["state"], "ready", "a neighbour's failure does not fail this message");
+        assert_eq!(saved["b"]["state"], "failed");
+        assert_eq!(saved["b"]["reason"], overview_failure(Some("overview_ai_refused")));
+        assert_eq!(saved["b"]["attempts"], 1);
+        assert_eq!(saved["c"]["reason"], overview_failure(Some("ai_rate_limited")));
+        assert_eq!(saved["c"]["attempts"], 0, "a busy service is not the message's fault");
+    }
+
+    #[test]
+    fn preparation_and_batch_failures_never_count_as_attempts() {
+        let at = now();
+        let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|id| id.to_string()).collect();
+        let mut saved = json!({});
+        claim_overviews(&mut saved, &ids, false, at).unwrap();
+        finish_overviews_protected(&mut saved, &ids, &Err("overview_unsupported_claim"), &Default::default()).unwrap();
+        assert!(ids.iter().all(|id| saved[id]["attempts"] == 0), "a batch-wide failure is no one message's fault");
+        claim_overviews(&mut saved, &ids, true, at + 1).unwrap();
+        let result = Ok(json!([
+            {"id":"a","error":"gmail_not_found","stage":"prepare"},
+            {"id":"b","error":"gmail_http_failed"},
+            {"id":"c","error":"overview_unsupported_claim"},
+            {"id":"d","error":"overview_unsupported_claim","stage":"batch"}
+        ]));
+        finish_overviews_protected(&mut saved, &ids, &result, &Default::default()).unwrap();
+        assert_eq!(saved["d"]["attempts"], 0, "a writer failure spread over the batch is no one message's fault");
+        // The phone counts it, so mail that can never be prepared gives up instead of waiting forever.
+        assert_eq!(saved["a"]["attempts"], u64::from(PHONE_WRITER), "mail that could not be prepared cost nothing");
+        assert_eq!(saved["b"]["attempts"], 0, "a network failure is not the message's fault");
+        assert_eq!(saved["c"]["attempts"], 1);
+        assert!(service_failure("local_disk_full") && service_failure("inbox_storage_invalid") && !service_failure("gmail_not_found"));
+    }
+
+    #[cfg(feature = "mobile")]
+    #[test]
+    fn retry_forgives_every_failed_message() {
+        let later = now() + 3_600_000;
+        let mut saved = json!({
+            "capped": {"state":"failed","updated":now(),"version":2,"attempts":3},
+            "ready": {"state":"ready","text":"Receipt","version":2,"expiresAt":0}
+        });
+        forgive_attempts(&mut saved).unwrap();
+        assert_eq!(saved["capped"]["attempts"], 0);
+        assert!(overview_due(&saved["capped"], false, later), "the next poll asks again without another Retry");
+        assert!(saved["ready"].get("attempts").is_none());
+    }
+
+    #[test]
+    fn a_message_that_fails_three_times_waits_for_retry_on_the_phone() {
+        let later = now() + 3_600_000;
+        let row = |attempts: u64| json!({"state":"failed","updated":now(),"version":2,"attempts":attempts});
+        assert!(overview_due(&row(2), false, later));
+        assert_eq!(overview_due(&row(3), false, later), !cfg!(feature = "mobile"));
+        assert!(overview_due(&row(3), true, later), "Retry always asks again");
+        let mut saved = json!({"m": row(3)});
+        claim_overviews(&mut saved, &["m".to_string()], true, later).unwrap();
+        assert_eq!(saved["m"]["attempts"], 3, "a claim carries the count forward");
+        assert!(service_failure("ai_daily_limit") && !service_failure("overview_unsupported_claim"));
+    }
+
+    fn point(revision: u64) -> Value {
+        json!({"state":"ready","text":"Pay the invoice by Friday.","version":2,"promptRevision":revision,"updated":now(),"expiresAt":0})
+    }
+
+    #[test]
+    fn the_phone_is_told_to_ask_again_only_when_the_engine_would_write_the_point_again() {
+        let at = now();
+        let rewriting = |state: &str, since: i64| {
+            let mut row = point(1);
+            row["rewriteState"] = json!(state);
+            row["rewriteAt"] = json!(at - since);
+            row
+        };
+        let saved = json!({
+            "old": point(1),
+            "current": point(POINT_REVISION),
+            "running": rewriting("running", 1_000),
+            "failed": rewriting("failed", 1_000),
+            "stuck": rewriting("running", 900_001),
+        });
+        let shown = overview_snapshot(saved, at).unwrap();
+        assert_eq!(shown["old"]["refresh"], true);
+        assert_eq!(shown["stuck"]["refresh"], true, "a rewrite that never finished is asked for again");
+        for id in ["current", "running", "failed"] {
+            assert!(shown[id].get("refresh").is_none(), "{id}: the engine would not take it now");
+            assert_eq!(shown[id]["text"], "Pay the invoice by Friday.", "{id}: the Point stays in view");
+        }
+        assert!(!overview_due(&shown["running"], false, at) && overview_due(&shown["stuck"], false, at));
+    }
+
+    #[test]
+    fn a_point_written_from_the_email_alone_is_written_again_once_context_may_be_sent() {
+        use std::sync::atomic::Ordering;
+        let at = now();
+        let mut plain = point(POINT_REVISION);
+        plain["personal"] = json!(false);
+        let mut personal = point(POINT_REVISION);
+        personal["personal"] = json!(true);
+        let before = PERSONAL.load(Ordering::Acquire);
+        PERSONAL.store(false, Ordering::Release);
+        assert!(!overview_due(&plain, false, at), "nothing better can be written yet");
+        PERSONAL.store(true, Ordering::Release);
+        let plain_due = overview_due(&plain, false, at);
+        let personal_due = overview_due(&personal, false, at);
+        let legacy_due = overview_due(&point(POINT_REVISION), false, at);
+        let mut running = plain.clone();
+        running["rewriteState"] = json!("running");
+        running["rewriteAt"] = json!(at - 1_000);
+        let running_due = overview_due(&running, false, at);
+        PERSONAL.store(before, Ordering::Release);
+        assert!(plain_due, "written again once the owner's context may be sent");
+        assert!(!personal_due && !legacy_due, "a Point written with context, or with no marker, stays");
+        assert!(!running_due, "not while its rewrite is running");
+    }
+
+    #[test]
+    fn a_finished_point_records_whether_it_was_written_with_the_owners_context() {
+        let ids = ["with".to_string(), "without".to_string(), "unmarked".to_string()];
+        let mut saved = json!({"with":{"state":"running","updated":now(),"version":2},"without":{"state":"running","updated":now(),"version":2},"unmarked":{"state":"running","updated":now(),"version":2}});
+        let rows = json!([
+            {"id":"with","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true},
+            {"id":"without","text":"Pay the invoice by Friday.","expiresAt":0,"personal":false},
+            {"id":"unmarked","text":"Pay the invoice by Friday.","expiresAt":0},
+        ]);
+        finish_overviews_protected(&mut saved, &ids, &Ok(rows), &Default::default()).unwrap();
+        assert_eq!(saved["with"]["personal"], true);
+        assert_eq!(saved["without"]["personal"], false);
+        assert!(saved["unmarked"].get("personal").is_none());
+    }
+
+    #[test]
+    fn a_point_whose_thread_or_todo_changed_is_written_again_and_keeps_its_new_key() {
+        let at = now();
+        let written = json!({"sent":"aaaa","todos":"bbbb"});
+        let point = json!({"state":"ready","text":"Maeve needs your receipts by Sunday.","version":2,"promptRevision":POINT_REVISION,"personal":true,"updated":at,"expiresAt":0,"contextKey":written});
+        assert!(!overview_due(&point, false, at));
+        let mut changed = point.clone();
+        changed["contextChanged"] = json!(true);
+        assert!(overview_due(&changed, false, at), "written again");
+        let shown = overview_snapshot(json!({"m":changed.clone()}), at).unwrap();
+        assert_eq!(shown["m"]["refresh"], true, "the app asks for it");
+        assert_eq!(shown["m"]["text"], "Maeve needs your receipts by Sunday.", "the old Point stays in view meanwhile");
+
+        let fresh = json!({"sent":"cccc","todos":"bbbb"});
+        let ids = ["m".to_string(), "odd".to_string(), "loose".to_string()];
+        let mut saved = json!({"m":changed,"odd":{"state":"running","updated":at,"version":2},"loose":{"state":"running","updated":at,"version":2}});
+        let rows = json!([
+            {"id":"m","text":"You sent Maeve the receipts.","expiresAt":0,"personal":true,"contextKey":fresh},
+            {"id":"odd","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true,"contextKey":{"sent":5}},
+            {"id":"loose","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true,"contextKey":"aaaa"},
+        ]);
+        finish_overviews_protected(&mut saved, &ids, &Ok(rows), &Default::default()).unwrap();
+        assert_eq!(saved["m"]["text"], "You sent Maeve the receipts.");
+        assert_eq!(saved["m"]["contextKey"], fresh, "the new Point keeps what it was written against");
+        assert!(saved["m"].get("contextChanged").is_none());
+        assert!(!overview_due(&saved["m"], false, now()));
+        assert!(saved["odd"].get("contextKey").is_none() && saved["loose"].get("contextKey").is_none(), "only a key of the right shape is kept");
+    }
+
+    #[test]
+    fn a_rewrite_that_keeps_failing_stops_until_retry_and_the_point_stays() {
+        let at = now();
+        let mut saved = json!({"m":{"state":"ready","text":"Maeve needs your receipts by Sunday.","version":2,"promptRevision":POINT_REVISION,"personal":true,"updated":at,"expiresAt":0,"contextKey":{"sent":"a"},"contextChanged":true}});
+        let ids = ["m".to_string()];
+        for attempt in 1..=RETRY_LIMIT {
+            saved["m"]["rewriteState"] = json!("running");
+            saved["m"]["rewriteAt"] = json!(now());
+            finish_overviews_protected(&mut saved, &ids, &Ok(json!([{"id":"m","error":"overview_invalid"}])), &Default::default()).unwrap();
+            assert_eq!(saved["m"]["rewriteAttempts"], attempt);
+            assert_eq!(saved["m"]["text"], "Maeve needs your receipts by Sunday.", "the Point stays");
+        }
+        let later = now() + 16 * 60_000;
+        assert!(!overview_due(&saved["m"], false, later), "not asked again by itself");
+        assert!(overview_due(&saved["m"], true, later), "Retry asks again");
+        saved["m"]["rewriteState"] = json!("running");
+        saved["m"]["rewriteAt"] = json!(now());
+        finish_overviews_protected(&mut saved, &ids, &Err("ai_unavailable"), &Default::default()).unwrap();
+        assert_eq!(saved["m"]["rewriteAttempts"], RETRY_LIMIT, "a failure that says nothing about the message is not counted");
+    }
+}
+
+#[cfg(all(test, feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
+mod phone_writer_tests {
+    use super::*;
+
+    fn finish(saved: &mut Value, id: &str, result: Result<Value, &'static str>) {
+        finish_overviews_protected(saved, &[id.to_owned()], &result, &Default::default()).unwrap();
+    }
+
+    #[test]
+    fn a_message_claude_could_not_take_waits_for_the_shared_backoff_and_is_never_counted_as_failed() {
+        let at = now();
+        for (error, stage) in [("ai_unreachable", Some("batch")), (INTERRUPTED, Some("batch")), ("ai_daily_limit", Some("batch")), ("ai_unreachable", None)] {
+            let mut saved = json!({});
+            claim_overviews(&mut saved, &["m".to_owned()], false, at).unwrap();
+            let result = match stage {
+                Some(stage) => Ok(json!([{"id":"m","error":error,"stage":stage}])),
+                None => Err(error),
+            };
+            finish(&mut saved, "m", result);
+            let row = &saved["m"];
+            assert_eq!(row["state"], "waiting", "{error}");
+            assert_eq!(row["attempts"], 0, "{error}");
+            assert!(row.get("retryAt").is_none(), "{error}: claude::ready decides when to ask again");
+            assert!(overview_due(row, false, at), "{error}: due as soon as Claude can be asked");
+        }
+    }
+
+    #[test]
+    fn a_message_whose_own_request_claude_failed_waits_a_minute_doubling_so_the_others_go_first() {
+        let at = now();
+        let mut saved = json!({});
+        let id = "m".to_owned();
+        let mut waits = Vec::new();
+        for error in ["ai_unreachable", "ai_rate_limited", "ai_unavailable"] {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":error}])));
+            assert_eq!((saved["m"]["state"].as_str(), saved["m"]["attempts"].as_u64()), (Some("waiting"), Some(0)), "{error}");
+            waits.push(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap());
+        }
+        assert_eq!(waits, [60_000, 120_000, 240_000]);
+        let next = saved["m"]["retryAt"].as_i64().unwrap();
+        assert!(!overview_due(&saved["m"], false, next - 1) && overview_due(&saved["m"], false, next));
+        assert!(overview_due(&saved["m"], true, next - 1), "Retry asks at once");
+        claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+        finish(&mut saved, "m", Ok(json!([{"id":"m","error":"ai_unreachable","stage":"batch"}])));
+        assert!(saved["m"].get("retryAt").is_none(), "not asked, so due when Claude can be asked");
+        assert_eq!(saved["m"]["waits"], 3, "a message that was not asked keeps its count");
+        claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+        finish(&mut saved, "m", Ok(json!([{"id":"m","error":"ai_unreachable"}])));
+        assert_eq!(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap(), 480_000);
+    }
+
+    #[test]
+    fn a_mail_problem_waits_15_seconds_doubling_and_a_messages_own_failure_after_1_then_5_minutes() {
+        let at = now();
+        let mut saved = json!({});
+        let id = "m".to_owned();
+        let mut waits = Vec::new();
+        for _ in 0..3 {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":"gmail_timeout","stage":"prepare"}])));
+            assert_eq!(saved["m"]["state"], "waiting");
+            waits.push(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap());
+        }
+        assert_eq!(waits, [15_000, 30_000, 60_000]);
+        let next = saved["m"]["retryAt"].as_i64().unwrap();
+        assert!(!overview_due(&saved["m"], false, next - 1) && overview_due(&saved["m"], false, next));
+        assert!(overview_due(&saved["m"], true, next - 1), "Retry asks at once");
+        let mut saved = json!({});
+        let mut retries = Vec::new();
+        for attempt in 1..=3 {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":"overview_invalid_response"}])));
+            assert_eq!((saved["m"]["state"].as_str(), saved["m"]["attempts"].as_u64()), (Some("failed"), Some(attempt)));
+            retries.push(saved["m"]["retryAt"].as_i64().map(|retry| retry - saved["m"]["updated"].as_i64().unwrap()));
+        }
+        assert_eq!(retries, [Some(60_000), Some(300_000), None]);
+        assert!(!overview_due(&saved["m"], false, at + 86_400_000), "after the third failure it waits for Retry");
+        forgive_attempts(&mut saved).unwrap();
+        assert_eq!((saved["m"]["attempts"].as_u64(), saved["m"]["retryAt"].as_i64()), (Some(0), Some(0)));
+        assert!(overview_due(&saved["m"], false, at), "Retry makes every unfinished message due at once");
+    }
+
+    #[test]
+    fn a_foreground_request_is_refused_once_the_app_has_left_but_background_describing_is_not() {
+        fn away() -> bool {
+            false
+        }
+        fn here() -> bool {
+            true
+        }
+        assert!(left_foreground(None, away));
+        assert!(!left_foreground(None, here));
+        assert!(!left_foreground(Some(std::time::Duration::from_secs(14)), away), "background describing runs while the app is away");
+    }
+
+    #[test]
+    fn a_description_left_running_by_an_ended_app_is_asked_again_at_once() {
+        STARTED.store(500, std::sync::atomic::Ordering::Release);
+        let orphan = json!({"state":"running","updated":100,"version":2,"attempts":1});
+        let current = json!({"state":"running","updated":900,"version":2});
+        assert!(overview_due(&orphan, false, 1_000));
+        assert!(!overview_due(&current, false, 1_000));
+        let snapshot = overview_snapshot(json!({"o":orphan,"c":current}), 1_000).unwrap();
+        STARTED.store(i64::MIN, std::sync::atomic::Ordering::Release);
+        assert_eq!((snapshot["o"]["state"].as_str(), snapshot["c"]["state"].as_str()), (Some("waiting"), Some("running")));
+        let mut saved = json!({"o":{"state":"running","updated":100,"version":2,"attempts":1,"waits":2}});
+        claim_overviews(&mut saved, &["o".to_owned()], true, 1_000).unwrap();
+        assert_eq!((saved["o"]["attempts"].as_u64(), saved["o"]["waits"].as_u64()), (Some(1), Some(2)), "a claim carries both counts forward");
     }
 }
 
@@ -255,5 +1704,379 @@ mod overview_failure_tests {
         assert!(overview_failure(Some("overview_ai_unavailable")).contains("respond"));
         assert!(!overview_failure(Some("secret mail or credential")).contains("secret"));
         assert!(overview_failure(None).contains("omitted"));
+        assert!(overview_failure(Some("ai_key_invalid")).contains("API key"));
+        assert!(overview_failure(Some("ai_billing")).contains("billing"));
+        assert!(overview_failure(Some("ai_rate_limited")).contains("retry"));
+    }
+}
+
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
+mod overview_storage_tests {
+    use super::{claim_overviews, finish_overviews};
+    use serde_json::{Value, json};
+
+    #[test]
+    fn descriptions_expire_against_generation_date_even_when_completion_crosses_midnight() {
+        let mut saved = json!({});
+        finish_overviews(&mut saved, &["dated".into(),"static".into()], &Ok(json!([
+            {"id":"dated","text":"Reminder — Your bill was due yesterday","timeSensitive":false,"expiresAt":1000},
+            {"id":"static","text":"Receipt — R780 received for invoice INV-520","timeSensitive":false,"expiresAt":0}
+        ]))).unwrap();
+        assert_eq!(saved["dated"]["expiresAt"], 1000);
+        assert!(!super::overview_current(&saved["dated"], 1000));
+        assert!(super::overview_current(&saved["static"], 2000));
+        let snapshot = super::overview_snapshot(saved, 2000).unwrap();
+        assert_eq!(snapshot["dated"]["state"], "stale");
+        assert!(snapshot["dated"].get("text").is_none());
+        assert!(snapshot["static"]["text"].is_string());
+    }
+
+    #[test]
+    fn old_descriptions_are_hidden_and_admitted_for_regeneration() {
+        let mut saved = json!({"legacy":{"state":"ready","text":"Old overview","version":1},"missing":{"state":"ready","text":"Missing expiry","version":2}});
+        let snapshot = super::overview_snapshot(saved.clone(), 1000).unwrap();
+        assert!(
+            snapshot
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|value| value.get("text").is_none())
+        );
+        let ids = vec!["legacy".into(), "missing".into()];
+        assert_eq!(claim_overviews(&mut saved, &ids, false, 1000).unwrap(), ids);
+    }
+
+    #[test]
+    fn expired_overview_failure_accepts_the_full_persisted_timestamp_range() {
+        let mut saved = json!({"message": {"state":"failed", "updated":i64::MIN}});
+        let ids = vec!["message".to_owned()];
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, false, 1_000_000).unwrap(),
+            ids
+        );
+        assert_eq!(saved["message"]["state"], "running");
+    }
+
+    #[test]
+    fn overview_completion_rejects_nonobject_storage_without_mutation() {
+        for mut saved in [Value::Null, json!([]), json!("replaced"), json!(7)] {
+            let before = saved.clone();
+            assert_eq!(
+                finish_overviews(&mut saved, &["message".into()], &Ok(json!([]))),
+                Err("inbox_storage_invalid")
+            );
+            assert_eq!(saved, before);
+        }
+    }
+
+    #[test]
+    fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
+        let original = json!({
+            "ready": {"text":"saved summary", "version":2,"promptRevision":super::POINT_REVISION,"state":"ready","expiresAt":0},
+            "recent": {"state":"failed", "updated":100_001},
+            "expired": {"state":"failed", "updated":100_000}
+        });
+        let ids = vec!["ready".into(), "recent".into(), "expired".into()];
+        let mut saved = original.clone();
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, false, 1_000_000).unwrap(),
+            vec!["expired"]
+        );
+        assert_eq!(saved["ready"], original["ready"]);
+        assert_eq!(saved["recent"], original["recent"]);
+        saved = original.clone();
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, true, 1_000_000).unwrap(),
+            vec!["recent", "expired"]
+        );
+        assert_eq!(saved["ready"], original["ready"]);
+    }
+
+    #[test]
+    fn old_prompt_descriptions_are_rewritten_only_when_selected_for_preparation() {
+        let old = json!({"version":2,"state":"ready","text":"Receipt — Your payment arrived","expiresAt":0});
+        let mut saved = json!({"inbox":old,"archive":old});
+        assert!(super::overview_current(&saved["archive"], 1000));
+        assert_eq!(claim_overviews(&mut saved, &["inbox".into()], false, 1000).unwrap(), vec!["inbox"]);
+        assert_eq!(saved["archive"], old, "unselected archived descriptions stay available");
+        assert!(super::overview_current(&saved["inbox"], 1001), "rewriting must not hide an existing Inbox row");
+        assert!(super::overview_claimed(&saved["inbox"], 1000));
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 1001).unwrap().is_empty());
+        finish_overviews(&mut saved, &["inbox".into()], &Err("overview_ai_unavailable")).unwrap();
+        assert_eq!(saved["inbox"]["text"], old["text"], "failed rewrite preserves valid text");
+        assert!(super::overview_current(&saved["inbox"], 1001));
+        finish_overviews(&mut saved, &["inbox".into()], &Ok(json!([{"id":"inbox","text":"Your payment of €20 has arrived","timeSensitive":false}]))).unwrap();
+        assert_eq!(saved["inbox"]["promptRevision"], super::POINT_REVISION);
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 2000).unwrap().is_empty());
+    }
+
+    #[test]
+    fn overview_completion_keeps_recent_results_when_pruning_old_records() {
+        let mut saved = json!({});
+        for index in 0..5001 {
+            saved[index.to_string()] = json!({"updated":index});
+        }
+        finish_overviews(
+            &mut saved,
+            &["message".into()],
+            &Ok(json!([{"id":"message", "text":"fresh summary"}])),
+        )
+        .unwrap();
+        assert_eq!(saved.as_object().unwrap().len(), 4002);
+        assert!(saved.get("0").is_none());
+        assert!(saved.get("999").is_none());
+        assert!(saved.get("1000").is_some());
+        assert_eq!(saved["message"]["state"], "ready");
+        assert_eq!(saved["message"]["text"], "fresh summary");
+    }
+}
+
+#[cfg(feature = "mobile")]
+pub(crate) fn forget_phone_account(account: &str) -> Result<(), &'static str> {
+    use crate::platform::{dirs::AppDirs, private_fs};
+    let Some(dir) =
+        private_fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], false)?
+    else {
+        return Ok(());
+    };
+    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
+    let contacts = store::key(&["contacts", account]);
+    private_fs::remove_owned(&dir, &contacts)?;
+    for name in private_fs::names(&dir)? {
+        if !name.starts_with("avatar-") {
+            continue;
+        }
+        if let Some(row) = store::read(&name)? {
+            if row.get("owner").is_none() || row["owner"] == account {
+                private_fs::remove_owned(&dir, &name)?;
+            }
+        }
+    }
+    private_fs::sync_dir(&dir)
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod tier_tests {
+    use super::*;
+    use picker::Tier;
+
+    fn prepared() -> Value {
+        json!([{"id":"news"},{"id":"friend"},{"id":"clinic"},{"id":"shop"}])
+    }
+
+    fn written(group: &Value) -> Value {
+        json!(group.as_array().unwrap().iter().map(|message| json!({"id":message["id"],"text":"A Point."})).collect::<Vec<_>>())
+    }
+
+    #[tokio::test]
+    async fn each_tier_is_written_with_its_own_model_haiku_first_and_each_row_says_which() {
+        let tiers = [Tier::Haiku, Tier::Sonnet, Tier::Opus, Tier::Haiku];
+        let mut asked = Vec::new();
+        let rows = tiered(&prepared(), &tiers, false, |group, tier| {
+            asked.push((tier, group.as_array().unwrap().iter().map(|message| message["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>()));
+            std::future::ready(Ok(written(&group)))
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, vec![(Tier::Haiku, vec!["news".to_owned(), "shop".to_owned()]), (Tier::Sonnet, vec!["friend".to_owned()]), (Tier::Opus, vec!["clinic".to_owned()])]);
+        let tier_of = |id: &str| rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap()["tier"].clone();
+        assert_eq!([tier_of("news"), tier_of("friend"), tier_of("clinic"), tier_of("shop")], [json!("haiku"), json!("sonnet"), json!("opus"), json!("haiku")]);
+    }
+
+    #[tokio::test]
+    async fn the_short_background_run_asks_only_haiku_and_leaves_the_rest_for_the_app() {
+        let tiers = [Tier::Haiku, Tier::Sonnet, Tier::Opus, Tier::Haiku];
+        let mut asked = Vec::new();
+        let rows = tiered(&prepared(), &tiers, true, |group, tier| {
+            asked.push(tier);
+            std::future::ready(Ok(written(&group)))
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, vec![Tier::Haiku]);
+        for id in ["friend", "clinic"] {
+            let row = rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap();
+            assert_eq!((row["error"].as_str(), row["stage"].as_str()), (Some(WAITS_FOR_APP), Some("batch")), "{row}");
+        }
+        assert!(service_failure(WAITS_FOR_APP), "waiting for the app is not an attempt");
+    }
+
+    #[tokio::test]
+    async fn one_tiers_failure_marks_only_its_own_messages_and_a_single_tiers_is_the_batchs() {
+        let tiers = [Tier::Haiku, Tier::Opus, Tier::Opus, Tier::Haiku];
+        let rows = tiered(&prepared(), &tiers, false, |group, tier| {
+            std::future::ready(if tier == Tier::Opus { Err("overview_ai_paused") } else { Ok(written(&group)) })
+        })
+        .await
+        .unwrap();
+        let error_of = |id: &str| rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap()["error"].clone();
+        assert_eq!([error_of("news"), error_of("friend"), error_of("clinic")], [Value::Null, json!("overview_ai_paused"), json!("overview_ai_paused")]);
+        let single = tiered(&prepared(), &[Tier::Sonnet; 4], false, |_, _| std::future::ready(Err("overview_ai_unavailable"))).await;
+        let single = single.unwrap();
+        assert!(single.as_array().unwrap().iter().all(|row| row["error"] == "overview_ai_unavailable" && row["stage"] == "batch"));
+        let mut saved = json!({});
+        finish_overviews_protected(&mut saved, &["news".into()], &Ok(single), &Default::default()).unwrap();
+        assert_eq!(saved["news"]["attempts"], 0, "a whole-batch failure still does not count against the message");
+        if !PHONE_WRITER { assert!(saved["news"]["details"]["createMs"].is_u64()); }
+        let account = tiered(&prepared(), &tiers, false, |group, tier| {
+            std::future::ready(if tier == Tier::Opus { Err("gmail_account_unknown") } else { Ok(written(&group)) })
+        })
+        .await;
+        assert_eq!(account.unwrap_err(), "gmail_account_unknown", "an account's failure stops the batch");
+        assert!(service_failure("overview_ai_paused"), "every subscription being out is not the message's attempt");
+        assert!(overview_failure(Some("overview_ai_paused")).contains("subscription"));
+    }
+
+    #[test]
+    fn an_unfinished_row_names_a_problem_that_holds_every_point_but_not_the_messages_own() {
+        for (error, problem) in [("overview_ai_paused", json!("overview_ai_paused")), ("overview_ai_unavailable", json!("overview_ai_unavailable")), ("overview_unsupported_claim", Value::Null), ("gmail_account_unknown", Value::Null)] {
+            let mut saved = json!({"a":{"state":"running","updated":1,"version":2,"pendingSince":1}});
+            finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","error":error,"stage":"batch"}])), &Default::default()).unwrap();
+            assert_ne!(saved["a"]["state"], "ready", "{error}");
+            assert_eq!(saved["a"]["problem"], problem, "{error}: {}", saved["a"]);
+        }
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Err("overview_ai_paused"), &Default::default()).unwrap();
+        assert_eq!(saved["a"]["problem"], "overview_ai_paused", "a batch-wide failure is named too");
+    }
+
+    #[test]
+    fn a_ready_row_keeps_its_tier_and_a_message_left_for_the_app_is_marked() {
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","text":"Your R780 payment arrived.","tier":"opus"}])), &Default::default()).unwrap();
+        assert_eq!((saved["a"]["state"].as_str(), saved["a"]["tier"].as_str()), (Some("ready"), Some("opus")));
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","text":"x","tier":"fable"}])), &Default::default()).unwrap();
+        assert!(saved["a"].get("tier").is_none(), "only a known tier is kept");
+        let mut current = json!({"a":{"state":"ready","text":"An earlier Point.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"rewriteState":"running","rewriteAt":5}});
+        finish_overviews_protected(&mut current, &["a".to_owned()], &Ok(json!([{"id":"a","error":WAITS_FOR_APP,"stage":"batch"}])), &Default::default()).unwrap();
+        assert_eq!((current["a"]["text"].as_str(), current["a"]["foreground"].as_bool()), (Some("An earlier Point."), Some(true)), "the old Point stays until the app writes the new one");
+        let saved = json!({"left":{"state":"waiting","version":2,"foreground":true},"new":{}});
+        let ids = ["left".to_owned(), "new".to_owned()];
+        assert_eq!(background_due(&saved, &ids, now()), vec!["new".to_owned()], "the background run leaves a Sonnet or Opus message for the app");
+        if PHONE_WRITER {
+            let row = phone_unfinished(&json!({}), Some(WAITS_FOR_APP), false, false, 0, 1, 2);
+            assert_eq!((row["state"].as_str(), row["foreground"].as_bool()), (Some("waiting"), Some(true)));
+            assert!(row.get("retryAt").is_none(), "due as soon as the app is in the foreground");
+        }
+    }
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod point_detail_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fallback_models_are_not_overwritten_and_group_time_is_shared() {
+        let prepared = json!([{"id":"a"},{"id":"b"}]);
+        let rows = tiered(&prepared, &[picker::Tier::Sonnet; 2], false, |_,_| async {
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            Ok(json!([{"id":"a","text":"Payment arrived.","tier":"haiku"}, {"id":"b","text":"Reply to Sam.","tier":"haiku"}]))
+        }).await.unwrap();
+        for row in rows.as_array().unwrap() {
+            assert_eq!(row["tier"], "haiku");
+            assert_eq!(row["details"]["requestedModel"], if PHONE_WRITER { "claude-sonnet-5-5" } else { "sonnet" });
+            if !PHONE_WRITER {
+                assert!(row["details"]["createMs"].as_u64().unwrap() >= 50);
+                assert_eq!(row["details"]["batchSize"],2);
+            }
+        }
+    }
+
+    #[test]
+    fn expired_rewrites_remain_quiet_through_claim_failure_and_account_change() {
+        for state in ["ready", "stale", "running"] {
+            let mut value = json!({"state":state,"version":2,"text":"Expired.","expiresAt":1,"previousPoint":true});
+            reset_overview_after_account_change(&mut value, 1000);
+            assert_eq!(value["previousPoint"],true);
+            let mut saved = json!({"a":value});
+            assert_eq!(claim_overviews(&mut saved,&["a".into()],true,1001).unwrap(),["a"]);
+            assert_eq!(saved["a"]["previousPoint"],true);
+            finish_overviews_protected(&mut saved,&["a".into()],&Err("overview_ai_unavailable"),&Default::default()).unwrap();
+            assert_eq!(saved["a"]["previousPoint"],true);
+        }
+    }
+
+    #[test]
+    fn failed_rewrite_keeps_the_displayed_points_details_and_success_replaces_them() {
+        let mut saved = json!({"a":{"state":"ready","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"text":"Your payment arrived.","details":{"requestedModel":"opus","createMs":900,"contextTokens":1000,"contextTokensPartial":false}}});
+        let failed = Ok(json!([{"id":"a","error":"overview_ai_unavailable","stage":"batch","details":{"requestedModel":"haiku","createMs":22,"contextTokens":25,"contextTokensPartial":true}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&failed,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"]["createMs"],900);
+        assert_eq!(saved["a"]["lastAttempt"]["createMs"],22);
+        assert_eq!(saved["a"]["details"]["contextTokens"],1000);
+        assert_eq!(saved["a"]["details"]["contextTokensPartial"],false);
+        assert_eq!(saved["a"]["lastAttempt"]["contextTokens"],25);
+        assert_eq!(saved["a"]["lastAttempt"]["contextTokensPartial"],true);
+        let malformed = Ok(json!([{"id":"a","text":"Bad\u{200b} text.","details":{"createMs":7}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&malformed,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"]["createMs"],900,"rejected provider text cannot replace the retained Point's provenance");
+        assert_eq!(saved["a"]["lastAttempt"]["createMs"],7);
+        let success = Ok(json!([{"id":"a","text":"Sam wants a reply.","details":{"requestedModel":"sonnet","createMs":23,"contextTokens":250,"contextTokensPartial":false,"private":"not stored"}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&success,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"], json!({"requestedModel":"sonnet","createMs":23,"contextTokens":250,"contextTokensPartial":false}));
+        assert!(saved["a"]["lastAttempt"].is_null());
+        let snapshot = overview_snapshot(saved,now()).unwrap();
+        assert_eq!(snapshot["a"]["details"]["createMs"],23);
+        assert_eq!(snapshot["a"]["details"]["contextTokens"],250);
+    }
+}
+
+#[cfg(all(test, feature = "mobile"))]
+mod mobile_overview_tests {
+    use super::*;
+    use crate::mail::tests::{account_fixture, isolated};
+
+    #[tokio::test]
+    async fn phone_page_preserves_saved_details_without_exposing_internal_or_other_account_data() {
+        if isolated() { return; }
+        let _fixture = account_fixture(json!({"version":1,"activeId":"owner@example.test","accounts":[
+            {"provider":"gmail","email":"owner@example.test"}, {"provider":"gmail","email":"other@example.test"}
+        ]}));
+        let id = "18c2f0a1b2c3d4e5";
+        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions","contextTokens":12345,"contextTokensPartial":false,
+            "downloadRun":{"origin":"backgroundRefresh","startedAt":100,"finishedAt":200,"startedActive":false,"finishedActive":false,"leftApp":false},
+            "createRun":{"origin":"app","startedAt":300,"finishedAt":400,"startedActive":true,"finishedActive":false,"leftApp":true}});
+        let mut row = json!({"state":"ready","text":"Sam needs your reply.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"updated":now(),"tier":"sonnet","details":details,"contextKey":{"private":"not for the phone"},"lastAttempt":{"createMs":4},"internal":"private"});
+        row["details"]["private"] = json!("not for the phone");
+        store::write(&store::key(&["overviews","owner@example.test"]), &json!({id:row,"ab12":{"state":"ready","text":"Not requested."}})).unwrap();
+        store::write(&store::key(&["overviews","other@example.test"]), &json!({id:{"state":"ready","text":"Other account.","version":2,"expiresAt":0,"details":{"createMs":99}}})).unwrap();
+        let engine = crate::backend::Engine::default();
+        let page = engine.mobile_overviews(&json!({"accountId":"owner@example.test","ids":[id]})).await.unwrap();
+        assert_eq!(page["overviews"].as_object().unwrap().len(), 1);
+        assert_eq!(page["overviews"][id]["details"], details);
+        assert_eq!(page["overviews"][id]["tier"], "sonnet");
+        assert_eq!(page["overviews"][id]["text"], "Sam needs your reply.");
+        for field in ["contextKey", "lastAttempt", "internal"] { assert!(page["overviews"][id].get(field).is_none(), "{field}"); }
+        let other = engine.mobile_overviews(&json!({"accountId":"other@example.test","ids":[id]})).await.unwrap();
+        assert_eq!(other["overviews"][id]["details"]["createMs"], 99);
+        assert!(engine.mobile_overviews(&json!({"accountId":"unknown@example.test","ids":[id]})).await.is_err());
+        engine.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn phone_page_preserves_rewrite_history_and_rejects_unbounded_metadata() {
+        if isolated() { return; }
+        let _fixture = account_fixture(json!({"version":1,"activeId":"owner@example.test","accounts":[{"provider":"gmail","email":"owner@example.test"}]}));
+        let rows = json!({
+            "ab10":{"state":"failed","previousPoint":true,"details":{"requestedModel":"opus","createMs":900},"lastAttempt":{"requestedModel":"haiku","createMs":7}},
+            "ab11":{"state":"ready","text":"Your earlier Point.","version":2,"expiresAt":1,"tier":"haiku"},
+            "ab12":{"state":"waiting","previousPoint":true,"details":{"gmailMs":0,"decideMs":-1,"createMs":86400001,"requestedModel":"<img>","model":"claude-haiku-5-5","extra":"private"},"tier":"<img>"}
+        });
+        store::write(&store::key(&["overviews","owner@example.test"]), &rows).unwrap();
+        let engine = crate::backend::Engine::default();
+        let page = engine.mobile_overviews(&json!({"accountId":"owner@example.test","ids":["ab10","ab11","ab12"]})).await.unwrap();
+        let shown = &page["overviews"];
+        assert_eq!(shown["ab10"]["previousPoint"], true);
+        assert_eq!(shown["ab10"]["details"], json!({"requestedModel":"opus","createMs":900}));
+        assert!(shown["ab10"].get("lastAttempt").is_none());
+        assert_eq!(shown["ab11"]["state"], "stale");
+        assert_eq!(shown["ab11"]["tier"], "haiku");
+        assert!(shown["ab11"].get("text").is_none());
+        assert!(shown["ab11"].get("details").is_none(), "do not invent historical timings");
+        assert_eq!(shown["ab12"]["previousPoint"], true);
+        assert_eq!(shown["ab12"]["details"], json!({"gmailMs":0,"model":"claude-haiku-5-5"}));
+        assert!(shown["ab12"].get("tier").is_none());
+        engine.shutdown().await.unwrap();
     }
 }

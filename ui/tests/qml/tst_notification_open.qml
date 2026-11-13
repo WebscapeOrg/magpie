@@ -37,8 +37,6 @@ Item {
     Account.NewMailNotification {
       pluginDir: "/tmp/omamail-test"
       accountId: "imap:plain@example.org"
-      notificationForeground: "#112233"
-      notificationAccent: "#445566"
       nativeNotifications: true
     }
   }
@@ -48,8 +46,6 @@ Item {
     Account.NewMailNotification {
       pluginDir: "/tmp/omamail-test"
       accountId: "imap:plain@example.org"
-      notificationForeground: "#112233"
-      notificationAccent: "#445566"
       nativeNotifications: false
       pluginNotifications: false
     }
@@ -65,6 +61,7 @@ Item {
 
     function init() {
       app.close()
+      app.backToList()
       var list = Accounts.emptyList()
       list = Accounts.add(list, { email: first, provider: "gmail" })
       list = Accounts.add(list, { email: second, provider: "gmail" })
@@ -72,12 +69,14 @@ Item {
       service.accountsLoaded = true
       service.activeIndex = -1
       service.refreshCurrent()
+      service.setUnifiedMailboxes(false)
+      service.eachHost(function(account) { account.clearSelection() })
       host.opens = 0
       Quickshell.notifications = []
     }
 
     function notification(account, arrivals) {
-      account.notify(arrivals)
+      account.deliverNotification(arrivals)
       var process = latestNotification(account)
       verify(!!process, "Notification must listen for a click instead of being detached")
       return process
@@ -86,8 +85,8 @@ Item {
     function latestNotification(item) {
       if (item.command && item.command[1] === service.pluginDir + "/scripts/notify-mail.py") return item
       var children = item.data || []
-      for (var i = children.length - 1; i >= 0; i--) {
-        var process = latestNotification(children[i])
+      for (var childIndex = children.length - 1; childIndex >= 0; childIndex--) {
+        var process = latestNotification(children[childIndex])
         if (process) return process
       }
       return null
@@ -124,28 +123,48 @@ Item {
       compare(host.opens, 2)
     }
 
-    function test_new_notifications_follow_theme_without_bar_foreground() {
+    function test_new_notifications_carry_only_the_message_text() {
       var account = service.findAccount(second)
-      var firstNotice = notification(account, [{ id: "one" }])
-      compare(firstNotice.command[2], String(Commons.Color.foreground))
-      compare(firstNotice.command[3], String(Commons.Color.accent))
-      var previous = Commons.Color.foreground
-      try {
-        Commons.Color.foreground = Qt.rgba(0.1, 0.2, 0.3, 1)
-        var nextNotice = notification(account, [{ id: "two" }])
-        compare(nextNotice.command[2], String(Commons.Color.foreground))
-        verify(firstNotice.command[2] !== nextNotice.command[2])
-        finish(firstNotice, "")
-        finish(nextNotice, "")
-      } finally {
-        Commons.Color.foreground = previous
-      }
+      var notice = notification(account, [{ id: "one" }])
+      compare(notice.command.length, 5)
+      compare(notice.command[2], "--")
+      finish(notice, "")
     }
 
     function test_removed_account_is_ignored() {
       service.openNotification("gone@example.org", "message")
       compare(host.opens, 0)
       compare(service.activeAccountId, first)
+    }
+
+    function test_stale_payload_cannot_select_another_accounts_message() {
+      app.open(JSON.stringify({accountId: "gone@example.org", messageId: "same-local-id"}))
+      wait(0)
+      compare(service.activeAccountId, first)
+      compare(service.selectedId, "")
+    }
+
+    function test_payload_mailbox_belongs_to_the_target_account() {
+      service.findAccount(first).mailboxKey = "inbox"
+      service.findAccount(second).mailboxKey = "inbox"
+      app.open(JSON.stringify({accountId: second, mailbox: "trash"}))
+      compare(service.findAccount(first).mailboxKey, "inbox")
+      compare(service.findAccount(second).mailboxKey, "trash")
+    }
+
+    function test_a_later_account_switch_cancels_deferred_selection() {
+      app.open(JSON.stringify({accountId: first, messageId: "same-local-id"}))
+      service.switchTo(second)
+      wait(0)
+      compare(service.selectedId, "")
+    }
+
+    function test_notification_routes_in_unified_view() {
+      service.setUnifiedMailboxes(true)
+      app.open(JSON.stringify({accountId: second, messageId: "unified-message"}))
+      tryCompare(service.findAccount(second), "selectedId", "unified-message")
+      compare(service.reading, service.findAccount(second))
+      compare(service.findAccount(first).selectedId, "")
     }
 
     function test_dismissal_does_not_open_mail() {

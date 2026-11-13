@@ -1,11 +1,11 @@
-//! Loopback OAuth listener. PKCE and state never leave the pending Rust flow.
+//! Loopback OAuth listener with pending PKCE and state owned by Rust.
 use super::*;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::Mutex,
     task::JoinHandle,
 };
@@ -22,10 +22,10 @@ fn random() -> Result<String, &'static str> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, &'static str> {
-    params[key]
+fn text<'a>(parameters: &'a Value, key: &str) -> Result<&'a str, &'static str> {
+    parameters[key]
         .as_str()
-        .filter(|s| s.len() <= 8192 && !s.chars().any(char::is_control))
+        .filter(|value| value.len() <= 8192 && !value.chars().any(char::is_control))
         .ok_or("invalid_params")
 }
 
@@ -36,11 +36,19 @@ pub(super) fn form(fields: &[(&str, &str)]) -> String {
 }
 
 impl Flows {
-    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+    pub async fn shutdown(&self) {
+        let tasks: Vec<_> = self.0.lock().await.drain().map(|(_, task)| task).collect();
+        for task in tasks {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         match method {
-            "auth.begin" => self.begin(params).await,
+            "auth.begin" => self.begin(parameters).await,
             "auth.poll" | "auth.cancel" => {
-                let id = text(params, "id")?;
+                let id = text(parameters, "id")?;
                 let mut flows = self.0.lock().await;
                 let task = flows.get(id).ok_or("auth_flow_missing")?;
                 if method == "auth.cancel" {
@@ -59,29 +67,30 @@ impl Flows {
         }
     }
 
-    async fn begin(&self, params: &Value) -> Result<Value, &'static str> {
+    async fn begin(&self, parameters: &Value) -> Result<Value, &'static str> {
         let id = random()?;
         let verifier = random()?;
         let state = random()?;
-        let client_id = text(params, "clientId")?.to_owned();
+        let client_id = text(parameters, "clientId")?.to_owned();
         if client_id.is_empty() {
             return Err("invalid_params");
         }
-        let secret = text(params, "clientSecret")?.to_owned();
-        let hint = text(params, "loginHint")?.to_owned();
-        let port = params["port"]
+        let secret = text(parameters, "clientSecret")?.to_owned();
+        let hint = text(parameters, "loginHint")?.to_owned();
+        let port = parameters["port"]
             .as_u64()
-            .filter(|p| (1024..=65535).contains(p))
+            .filter(|port| (1024..=65535).contains(port))
             .ok_or("invalid_params")? as u16;
-        let scopes = params["scopes"].as_array().ok_or("invalid_params")?;
+        let scopes = parameters["scopes"].as_array().ok_or("invalid_params")?;
         if scopes.len() > 32 {
             return Err("invalid_params");
         }
         let scopes: Vec<&str> = scopes
             .iter()
-            .map(|s| {
-                s.as_str()
-                    .filter(|s| s.len() < 512 && !s.chars().any(char::is_whitespace))
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| value.len() < 512 && !value.chars().any(char::is_whitespace))
                     .ok_or("invalid_params")
             })
             .collect::<Result<_, _>>()?;
@@ -136,7 +145,10 @@ impl Flows {
     }
 }
 
-async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'static str> {
+pub(super) async fn finish_google(
+    mut response: Value,
+    client_id: &str,
+) -> Result<Value, &'static str> {
     if response["status"] != 200 {
         return Ok(response);
     }
@@ -147,10 +159,6 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
     for required in [
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/calendar.events",
-        // Calendar discovery lists the account's calendars; OAuth.SCOPES asks
-        // for it and AuthManager refuses a grant without it, so this does too.
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
     ] {
         if !granted.split_whitespace().any(|scope| scope == required) {
             return Err("auth_missing_scope");
@@ -162,24 +170,26 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
     let profile = crate::providers::gmail_http::get(&["profile"], &[], access).await?;
     let account = profile["emailAddress"]
         .as_str()
-        .filter(|s| {
-            s.contains('@')
-                && s.len() <= 1024
-                && !s.chars().any(|c| c.is_control() || c.is_whitespace())
+        .filter(|value| {
+            value.contains('@')
+                && value.len() <= 1024
+                && !value
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace())
         })
         .ok_or("auth_invalid_profile")?;
-    if let Some(refresh) = token["refresh_token"].as_str().filter(|s| !s.is_empty()) {
-        credentials::store_google(client_id, account, refresh).await?;
-        // The grant is already saved to the verified mailbox, before the UI
-        // starts any mailbox requests; never create an unnamed keyring item.
-        token
-            .as_object_mut()
-            .ok_or("auth_invalid_response")?
-            .remove("refresh_token");
-        response["body"] = Value::String(token.to_string());
-    } else {
-        return Err("auth_offline_access_missing");
-    }
+    let refresh = token["refresh_token"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or("auth_offline_access_missing")?;
+    credentials::store_google(client_id, account, refresh).await?;
+    // Invariant: The grant is already saved to the verified mailbox, before the UI
+    // starts any mailbox requests; never create an unnamed keyring item.
+    token
+        .as_object_mut()
+        .ok_or("auth_invalid_response")?
+        .remove("refresh_token");
+    response["body"] = Value::String(token.to_string());
     response["profile"] = profile;
     Ok(response)
 }
@@ -206,7 +216,7 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     }
     let hosts: Vec<_> = lines
         .filter_map(|line| line.split_once(':'))
-        .filter(|(k, _)| k.eq_ignore_ascii_case("host"))
+        .filter(|(key, _)| key.eq_ignore_ascii_case("host"))
         .collect();
     if hosts.len() != 1 || hosts[0].1.trim() != format!("127.0.0.1:{port}") {
         return Err("auth_invalid_callback");
@@ -214,8 +224,8 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     let mut raw = fields[1].bytes();
     while let Some(byte) = raw.next() {
         if byte == b'%'
-            && (!raw.next().is_some_and(|b| b.is_ascii_hexdigit())
-                || !raw.next().is_some_and(|b| b.is_ascii_hexdigit()))
+            && (!raw.next().is_some_and(|byte| byte.is_ascii_hexdigit())
+                || !raw.next().is_some_and(|byte| byte.is_ascii_hexdigit()))
         {
             return Err("auth_invalid_callback");
         }
@@ -223,21 +233,51 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     let url = reqwest::Url::parse(&format!("http://127.0.0.1:{}{}", port, fields[1]))
         .map_err(|_| "auth_invalid_callback")?;
     let pairs: Vec<_> = url.query_pairs().collect();
-    let states: Vec<_> = pairs.iter().filter(|(k, _)| k == "state").collect();
-    let codes: Vec<_> = pairs.iter().filter(|(k, _)| k == "code").collect();
+    let states: Vec<_> = pairs.iter().filter(|(key, _)| key == "state").collect();
+    let codes: Vec<_> = pairs.iter().filter(|(key, _)| key == "code").collect();
     if states.len() != 1
         || states[0].1 != state
         || codes.len() != 1
         || codes[0].1.is_empty()
-        || pairs.iter().any(|(k, _)| k == "error")
-        || codes[0]
-            .1
-            .chars()
-            .any(|c| !c.is_ascii() || c.is_ascii_control() || c.is_whitespace())
+        || pairs.iter().any(|(key, _)| key == "error")
+        || codes[0].1.chars().any(|character| {
+            !character.is_ascii() || character.is_ascii_control() || character.is_whitespace()
+        })
     {
         return Err("auth_invalid_callback");
     }
     Ok(codes[0].1.to_string())
+}
+
+async fn read_callback(
+    socket: &mut TcpStream,
+    state: &str,
+    port: u16,
+) -> Result<String, &'static str> {
+    let mut request = Vec::new();
+    let mut byte = [0];
+    while request.len() < 16384 {
+        if socket
+            .read(&mut byte)
+            .await
+            .map_err(|_| "auth_invalid_callback")?
+            == 0
+        {
+            break;
+        }
+        request.push(byte[0]);
+        if request.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    if !request.ends_with(b"\r\n\r\n") {
+        return Err("auth_invalid_callback");
+    }
+    callback(
+        std::str::from_utf8(&request).map_err(|_| "auth_invalid_callback")?,
+        state,
+        port,
+    )
 }
 
 async fn receive(listener: TcpListener, state: &str, port: u16) -> Result<String, &'static str> {
@@ -249,35 +289,13 @@ async fn receive(listener: TcpListener, state: &str, port: u16) -> Result<String
         if !peer.ip().is_loopback() {
             continue;
         }
-        let result = tokio::time::timeout(Duration::from_secs(3), async {
-            let mut request = Vec::new();
-            let mut byte = [0];
-            while request.len() < 16384 {
-                if socket
-                    .read(&mut byte)
-                    .await
-                    .map_err(|_| "auth_invalid_callback")?
-                    == 0
-                {
-                    break;
-                }
-                request.push(byte[0]);
-                if request.ends_with(b"\r\n\r\n") {
-                    break;
-                }
-            }
-            if !request.ends_with(b"\r\n\r\n") {
-                return Err("auth_invalid_callback");
-            }
-            callback(
-                std::str::from_utf8(&request).map_err(|_| "auth_invalid_callback")?,
-                state,
-                port,
-            )
-        })
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            read_callback(&mut socket, state, port),
+        )
         .await
         .unwrap_or(Err("auth_invalid_callback"));
-        let body = "Sign-in received. You can close this page and return to Omamail.";
+        let body = "Sign-in received. You can close this page and return to Magpie Mail.";
         let response = if result.is_ok() {
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -338,7 +356,7 @@ mod tests {
             assert!(std::str::from_utf8(&bytes).unwrap().contains(expected));
         }
         assert_eq!(task.await.unwrap().unwrap(), "synthetic-code");
-        // Parallel tests spawn Node and transport fixtures. Between fork and
+        // Invariant: Parallel tests spawn Node and transport fixtures. Between fork and
         // exec a child briefly retains the listener despite CLOEXEC, even
         // after this task has dropped its own descriptor. Require actual
         // connection refusal within a bound, not closure at one scheduling
@@ -352,7 +370,7 @@ mod tests {
     #[tokio::test]
     async fn cancelled_flow_releases_its_listener_and_does_not_exchange_a_code() {
         let flows = Flows::default();
-        // Port zero chooses a candidate, not a reservation that can survive
+        // Invariant: Port zero chooses a candidate, not a reservation that can survive
         // closing it. Other parallel listeners or fork-before-exec children
         // can own that port before begin binds it. Retry only admission's
         // explicit busy-port error and require a real bound flow to proceed.
@@ -361,8 +379,8 @@ mod tests {
                 let reservation=TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let port=reservation.local_addr().unwrap().port();
                 drop(reservation);
-                let params=json!({"clientId":"synthetic-client", "clientSecret":"synthetic-secret", "loginHint":"", "port":port, "scopes":["openid"]});
-                match flows.begin(&params).await {
+                let parameters=json!({"clientId":"synthetic-client", "clientSecret":"synthetic-secret", "loginHint":"", "port":port, "scopes":["openid"]});
+                match flows.begin(&parameters).await {
                     Ok(answer)=>return (port,answer),
                     Err("auth_port_unavailable")=>{
                         assert!(flows.0.lock().await.is_empty(),"Refused admission cannot register a flow");
@@ -384,7 +402,7 @@ mod tests {
             .call("auth.cancel", &json!({"id":answer["id"]}))
             .await
             .unwrap();
-        // Task abortion and a parallel child's fork/exec descriptor window
+        // Invariant: Task abortion and a parallel child's fork/exec descriptor window
         // are asynchronous. Require an actual successful rebind, bounded in
         // time; an unrelated bind error must never count as released.
         let rebound = tokio::time::timeout(Duration::from_secs(1), async {
@@ -419,10 +437,11 @@ mod tests {
 
     #[test]
     fn callback_checks_exact_route_host_and_single_state() {
-        let req = |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
+        let request_for =
+            |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
         assert_eq!(
             callback(
-                &req(
+                &request_for(
                     "/oauth2callback?code=good&state=expected",
                     "127.0.0.1:53682"
                 ),
@@ -439,11 +458,11 @@ mod tests {
             "/oauth2callback/../?code=x&state=expected",
             "/oauth2callback?code=%00&state=expected",
         ] {
-            assert!(callback(&req(path, "127.0.0.1:53682"), "expected", 53682).is_err());
+            assert!(callback(&request_for(path, "127.0.0.1:53682"), "expected", 53682).is_err());
         }
         assert!(
             callback(
-                &req("/oauth2callback?code=good&state=expected", "evil.test"),
+                &request_for("/oauth2callback?code=good&state=expected", "evil.test"),
                 "expected",
                 53682
             )

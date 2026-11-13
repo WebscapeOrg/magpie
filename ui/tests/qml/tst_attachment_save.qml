@@ -2,11 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// An attachment row has two verbs now, and they must not be one.
-//
-// The filename opens — which is what a filename does everywhere else — and
-// saving is its own target. A single click meaning both, or the wrong one,
-// is the mistake worth a test.
 Item {
   width: 500
   height: 240
@@ -43,8 +38,8 @@ Item {
       if (!node) return null
       if (node.objectName === objectName) return node
       var children = node.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = find(objectName, children[i])
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = find(objectName, children[childIndex])
         if (found) return found
       }
       return null
@@ -81,21 +76,20 @@ Item {
       compare(saveSpy.count, 0)
     }
 
-    // The two sit in the same row, so the size label has to give up the space
-    // rather than the button landing on top of it.
     function test_the_button_does_not_overlap_the_size() {
       var save = find("attachment-save-button")
+      var labels = save.parent.children.filter(function(child) { return child.text !== undefined })
+      compare(labels.length, 1, "the details row has one size label")
+      var sizeLabel = labels[0]
+      var sizeRight = sizeLabel.mapToItem(row, sizeLabel.width, 0).x
       var saveLeft = save.mapToItem(row, 0, 0).x
+      verify(sizeRight <= saveLeft, "the size label ends before the save button")
       verify(saveLeft > 0)
       verify(saveLeft + save.width <= row.width + 1,
         "the button stays inside the row horizontally")
     }
 
-    // A save already running is not started again. The script refuses to
-    // overwrite and numbers the name instead, so a second fetch of the same
-    // attachment does not fail loudly — it succeeds quietly, and the folder
-    // gains an identical "statement (2).pdf" that nothing told the reader
-    // about. The button is the only place that can refuse it.
+    // Invariant: A duplicate save would create a numbered second file; the busy control must prevent another fetch.
     function test_a_second_click_while_saving_is_refused() {
       var save = find("attachment-save-button")
       mouseClick(save, save.width / 2, save.height / 2)
@@ -110,8 +104,6 @@ Item {
       compare(saveSpy.count, 2, "and it can be saved again once that one is done")
     }
 
-    // Dim would have said "you cannot"; the truth is "already doing it", which
-    // is what the shared button's busy state is for.
     function test_the_button_says_the_save_is_running() {
       var save = find("attachment-save-button")
       compare(save.busy, false)
@@ -121,10 +113,6 @@ Item {
       row.saving = false
     }
 
-    // And vertically, which is the half that was missing. A 24px control in a
-    // row measured from 15px of caption text hangs out of both ends and the
-    // reader's scroller clips it, leaving the filename as the only thing that
-    // can be clicked — so the row reports a height that holds it.
     function test_the_button_fits_inside_the_row() {
       var save = find("attachment-save-button")
       verify(row.implicitHeight >= save.implicitHeight,

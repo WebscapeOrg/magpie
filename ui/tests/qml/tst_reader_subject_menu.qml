@@ -1,11 +1,8 @@
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// A right-click on the reader's subject: one row, the subject as written,
-// copied through the host.
 Item {
   width: 900
   height: 600
@@ -36,6 +33,7 @@ Item {
     property bool selectedReaderTooHeavy: rendered.reader.tooHeavy
     property bool selectedReaderEmpty: rendered.reader.empty
     property int selectedRemoteImages: rendered.remoteImages
+    property int selectedReaderRemoteImages: rendered.reader.blockedImages
     property bool remoteImagesAllowed: false
     property bool selectedTooHeavy: rendered.tooHeavy
     property string unsubscribeLabel: ""
@@ -80,32 +78,25 @@ Item {
     name: "ReaderSubjectMenu"
     when: windowShown
 
-    function named(item, name) {
-      if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
-      }
-      return null
-    }
-
     function subjectLine() {
-      var line = named(reader, "reader-subject")
+      var line = findChild(reader, "reader-subject")
       verify(line, "the reader draws its subject in a Text")
       return line
     }
 
     function menu() {
-      var found = named(reader, "reader-subject-menu")
+      var found = findChild(reader, "reader-subject-menu")
       verify(found, "the reader owns a subject menu")
       return found
     }
 
+    function setSubject(subject) {
+      mailService.selectedMessage = Object.assign({}, mailService.selectedMessage, { subject: subject })
+    }
+
     function init() {
       menu().close()
-      mailService.selectedMessage.subject = "Activity on Sprint board"
+      setSubject("Activity on Sprint board")
       mailService.copied = []
     }
 
@@ -136,7 +127,7 @@ Item {
     }
 
     function test_an_empty_subject_does_not_open_the_menu() {
-      mailService.selectedMessage.subject = ""
+      setSubject("")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       wait(20)
       compare(menu().opened, false)
@@ -144,7 +135,7 @@ Item {
     }
 
     function test_a_whitespace_only_subject_does_not_open_the_menu() {
-      mailService.selectedMessage.subject = "   "
+      setSubject("   ")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       wait(20)
       compare(menu().opened, false)
@@ -156,7 +147,7 @@ Item {
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       tryVerify(function() { return menu().opened })
       compare(subjectLine().selected, true)
-      var selection = named(reader, "reader-subject-selection")
+      var selection = findChild(reader, "reader-subject-selection")
       verify(selection.visible)
       verify(selection.color.a > 0)
       compare(selection.height, subjectLine().height)
@@ -168,7 +159,8 @@ Item {
 
     function test_keyboard_activation_copies_the_snapshot_verbatim() {
       var subject = "  --version \\ <工单> \"quoted\"\nline two  "
-      mailService.selectedMessage.subject = subject
+      setSubject(subject)
+      compare(subjectLine().text, subject, "the displayed subject matches the copy target")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       tryVerify(function() { return menu().opened })
       keyClick(Qt.Key_Return)

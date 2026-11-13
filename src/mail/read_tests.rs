@@ -33,7 +33,7 @@ impl ReadAdapter for RecordingAdapter {
 fn request() -> ReadRequest {
     ReadRequest {
         account: Account {
-            id: "gmail:reader@example.org".into(),
+            id: "reader@example.org".into(),
             provider: Provider::Gmail,
         },
         id: "message-1".into(),
@@ -81,7 +81,7 @@ async fn read_returns_only_safe_reader_content_without_conversation_metadata() {
     .await
     .unwrap();
 
-    assert_eq!(result["accountId"], "gmail:reader@example.org");
+    assert_eq!(result["accountId"], "reader@example.org");
     assert_eq!(
         result["message"]["nativeContent"]["body"]["text"],
         "Safe text"
@@ -102,7 +102,7 @@ async fn read_returns_only_safe_reader_content_without_conversation_metadata() {
     let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, "reader.open");
-    assert_eq!(calls[0].1["accountId"], "gmail:reader@example.org");
+    assert_eq!(calls[0].1["accountId"], "reader@example.org");
     assert_eq!(calls[0].1["id"], "message-1");
     assert!(
         calls[0].1["requestId"]
@@ -119,13 +119,7 @@ async fn read_returns_only_safe_reader_content_without_conversation_metadata() {
 
 #[tokio::test]
 async fn read_exposes_links_and_unsubscribe_metadata_without_fetching_destinations() {
-    for provider in [
-        Provider::Gmail,
-        Provider::Outlook,
-        Provider::Imap,
-        Provider::Jmap,
-        Provider::Hey,
-    ] {
+    for provider in [Provider::Gmail] {
         let mut response = cached_mime_reader_fixture();
         response["payload"]["headers"] = json!([
             {"name":"lIsT-UnSuBsCrIbE", "value":"<https://news.example.org/leave?a=1&b=2>, <mailto:leave@example.org?subject=unsubscribe>"},

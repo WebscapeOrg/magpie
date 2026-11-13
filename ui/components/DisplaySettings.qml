@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls as Controls
 import qs.Commons
+import qs.Commons as Commons
 import "../settings"
 
 Column {
@@ -15,7 +16,7 @@ Column {
   readonly property var families: {
     var result = ["System UI font"]
     var installed = Qt.fontFamilies()
-    for (var i = 0; i < installed.length; i++) result.push(installed[i])
+    for (var entryIndex = 0; entryIndex < installed.length; entryIndex++) result.push(installed[entryIndex])
     return result
   }
 
@@ -75,9 +76,9 @@ Column {
         currentIndex: Math.max(0, root.families.indexOf(region.family || "System UI font"))
         font.family: MailStyle.family
         font.pixelSize: MailStyle.body
-        palette.base: Color.popups.background
-        palette.button: Color.popups.background
-        palette.window: Color.popups.background
+        palette.base: Commons.Color.popups.background
+        palette.button: Commons.Color.popups.background
+        palette.window: Commons.Color.popups.background
         palette.text: root.textColor
         palette.buttonText: root.textColor
         palette.highlight: root.accentColor
@@ -94,9 +95,9 @@ Column {
           editable: true
           font.family: MailStyle.family
           font.pixelSize: MailStyle.body
-          palette.base: Color.popups.background
-        palette.button: Color.popups.background
-        palette.window: Color.popups.background
+          palette.base: Commons.Color.popups.background
+        palette.button: Commons.Color.popups.background
+        palette.window: Commons.Color.popups.background
         palette.text: root.textColor
           palette.buttonText: root.textColor
           palette.highlight: root.accentColor

@@ -1,23 +1,22 @@
 kind = "app"
-name = "Omamail"
-summary = "Native mail and calendar app for Gmail, Outlook, HEY, JMAP and IMAP, with multiple accounts and keyboard navigation."
+name = "Magpie Mail"
+summary = "Native mail for Gmail and Google Workspace, with multiple accounts, readable Points and keyboard navigation."
 categories = ["Network", "Email", "Office"]
-icon = "app/resources/icons/omamail.svg"
+icon = "ui/assets/magpie-mail.png"
 screenshots = [
   "docs/images/full-mail.webp",
-  "docs/images/full-calendar.webp",
   "docs/images/full-compose.webp",
   "docs/images/mini-list.webp",
 ]
 
-# The release also ships the Omarchy plugin backend (omamail-linux-*.tar.gz);
+# Invariant: the release ships the native app and its matching backend;
 # OmaStore installs the standalone desktop app and launches its Qt host.
 [linux.x86_64]
 asset = "omamail-app-linux-x86_64.tar.gz"
 exec = "omamail.app/bin/omamail-app"
 
-# Not published yet: until it is, the app is not installable on ARM rather than
-# getting the plugin backend in its place.
+# Invariant: ARM remains unavailable until a standalone asset exists; the plugin
+# backend is not a compatible desktop application.
 [linux.aarch64]
 asset = "omamail-app-linux-aarch64.tar.gz"
 exec = "omamail.app/bin/omamail-app"

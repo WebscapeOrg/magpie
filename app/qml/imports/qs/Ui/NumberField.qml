@@ -27,6 +27,7 @@ Item {
   implicitHeight: Math.max(labelText.implicitHeight, spinBox.implicitHeight)
 
   Text {
+    textFormat: Text.PlainText
     id: labelText
     anchors.left: parent.left
     anchors.verticalCenter: parent.verticalCenter
@@ -38,6 +39,7 @@ Item {
 
   QQC.SpinBox {
     id: spinBox
+    Accessible.name: root.label
     objectName: "number-field-input"
     anchors.right: parent.right
     anchors.verticalCenter: parent.verticalCenter

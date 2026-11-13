@@ -1,10 +1,8 @@
 import QtQuick
 
 Rectangle {
+  id: root
   property string text: ""
-  // The kit's Button renders one when it is set; a stub only has to accept it,
-  // because a property the real component has and this one does not is a
-  // component that will not instantiate here and does instantiate in the shell.
   property string tooltipText: ""
   property color foreground: Qt.rgba(1, 1, 1, 1)
   property color accent: Qt.rgba(1, 0.5, 0, 1)
@@ -41,6 +39,14 @@ Rectangle {
   MouseArea {
     id: mouseArea
     anchors.fill: parent
-    onClicked: parent.clicked()
+    hoverEnabled: true
+    onClicked: {
+      if (root.focusable) root.forceActiveFocus()
+      root.clicked()
+    }
+  }
+
+  HoverHandler {
+    onHoveredChanged: root.hovered(hovered)
   }
 }

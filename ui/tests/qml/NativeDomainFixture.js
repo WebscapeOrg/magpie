@@ -7,8 +7,7 @@
 .import "../../../benchmarks/mail/baseline/ui/message/Direction.js" as Direction
 .import "../../../benchmarks/mail/baseline/ui/message/Html.js" as Html
 
-// Pure JavaScript oracles verify the UI RPC contract. Rust golden tests verify
-// the native implementation independently; this helper never sends mail.
+// Invariant: UI contract fixtures use independent pure JS oracles and never send mail.
 function summary(message, now) {
   var value = Mail.summarize(message, now)
   value.subjectDirection = Direction.resolveSubject(value.subject, Direction.AUTO)
@@ -21,45 +20,46 @@ function body(payload) {
   return value
 }
 
-function conversation(params) {
-  var thread = Conversation.blockOf(params.thread)
-  var summaries = params.summaries || ({})
-  if (params.operation === "select") thread = Conversation.threadAfterSelect(thread, params.selectedId, params.summary)
-  if (params.operation === "merge") summaries = Conversation.mergedSummaries(summaries, params.additions, 500, thread ? thread.memberIds : [])
-  if (params.operation === "seed") {
+function conversation(parameters) {
+  var thread = Conversation.blockOf(parameters.thread)
+  var summaries = parameters.summaries || ({})
+  if (parameters.operation === "select") thread = Conversation.threadAfterSelect(thread, parameters.selectedId, parameters.summary)
+  if (parameters.operation === "merge") summaries = Conversation.mergedSummaries(summaries, parameters.additions, 500, thread ? thread.memberIds : [])
+  if (parameters.operation === "seed") {
     var additions = ({})
-    var rows = (params.messages || []).concat(params.previewMessages || [])
+    var rows = (parameters.messages || []).concat(parameters.previewMessages || [])
     var ids = thread ? thread.memberIds : []
-    for (var i = 0; i < ids.length; i++) {
-      if (summaries[ids[i]]) continue
-      for (var j = 0; j < rows.length; j++) {
-        if (rows[j].id === ids[i]) { additions[ids[i]] = rows[j]; break }
+    for (var messageIndex = 0; messageIndex < ids.length; messageIndex++) {
+      if (summaries[ids[messageIndex]]) continue
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        if (rows[rowIndex].id !== ids[messageIndex]) continue
+        additions[ids[messageIndex]] = rows[rowIndex]
+        break
       }
     }
     summaries = Conversation.mergedSummaries(summaries, additions, 500, ids)
   }
-  var view = Conversation.viewedMailboxKey(params.mailboxKey, params.searching)
+  var view = Conversation.viewedMailboxKey(parameters.mailboxKey, parameters.searching)
   var members = thread ? thread.memberIds : []
   var navigation = ({})
-  for (var k = 0; k < members.length; k++) navigation[members[k]] = {
-    previous: Conversation.memberStep(thread, members[k], -1),
-    next: Conversation.memberStep(thread, members[k], 1),
-    neighbor: Conversation.neighbourStop(thread, members[k])
+  for (var memberIndex = 0; memberIndex < members.length; memberIndex++) navigation[members[memberIndex]] = {
+    previous: Conversation.memberStep(thread, members[memberIndex], -1),
+    next: Conversation.memberStep(thread, members[memberIndex], 1),
+    neighbor: Conversation.neighbourStop(thread, members[memberIndex])
   }
   return { thread: thread, summaries: summaries, missing: Conversation.missingMemberIds(thread, summaries),
-    showsRail: Conversation.drawsRail(params.conversations, thread), viewedMailboxKey: view,
-    stops: Conversation.stops(thread, summaries, params.selectedId, view, params.mailboxes),
+    showsRail: Conversation.drawsRail(parameters.conversations, thread), viewedMailboxKey: view,
+    stops: Conversation.stops(thread, summaries, parameters.selectedId, view, parameters.mailboxes),
     caption: Conversation.caption(thread, summaries), navigation: navigation, memberIds: members,
     first: members.length ? members[members.length - 1] : "", last: members.length ? members[0] : "" }
 }
 
-// Match the native reader boundary: sender HTML and ordinary MIME bytes stay
-// behind the backend; only prepared display data and calendar locators cross.
-function readerProjection(message, params) {
-  var prepared = {summary: summary(message, new Date(params.now || Date.now())),
+// Invariant: Fixtures expose prepared display data and calendar locators; raw sender HTML and MIME remain behind the native boundary.
+function readerProjection(message, parameters) {
+  var prepared = {summary: summary(message, new Date(parameters.now || Date.now())),
     body: body(message.payload), attachments: Mail.attachments(message.payload)}
   var html = Mail.extractHtml(message.payload)
-  var options = Object.assign({}, params.options || {},
+  var options = Object.assign({}, parameters.options || {},
     {withReader: true, withPlainText: prepared.body.source === "html"})
   var rendered = Html.sanitize(html, options)
   if (rendered.plainText) {
@@ -72,45 +72,44 @@ function readerProjection(message, params) {
       calendars.push(part); return
     }
     var parts = part.parts || []
-    for (var i = 0; i < parts.length; i++) visit(parts[i])
+    for (var partIndex = 0; partIndex < parts.length; partIndex++) visit(parts[partIndex])
   }
   visit(message.payload)
   return {id: message.id, threadId: message.threadId || "", labelIds: message.labelIds || [],
-    readerKey: "fixture-reader-" + String(params.accountId) + "-" + message.id,
+    readerKey: "fixture-reader-" + String(parameters.accountId) + "-" + message.id,
     hasHtml: html !== "", nativeSummary: prepared.summary, nativeContent: prepared,
     nativeRender: rendered, payload: {mimeType: "multipart/mixed", headers: message.payload.headers || [], parts: calendars}}
 }
 
-function answer(method, params) {
+function answer(method, parameters) {
   if (method === "providers.resolve") {
-    if (params.operation === "query") return { value: ProviderOracle.query(params.provider, params.mailbox, params.search, params.defaultQuery) }
-    if (params.operation === "addressQuery") return { value: ProviderOracle.addressQuery(params.provider, params.field, params.value) }
-    return { value: ProviderOracle[params.operation](params.provider, params.value) }
+    if (parameters.operation === "query") return { value: ProviderOracle.query(parameters.provider, parameters.mailbox, parameters.search, parameters.defaultQuery) }
+    if (parameters.operation === "addressQuery") return { value: ProviderOracle.addressQuery(parameters.provider, parameters.field, parameters.value) }
+    return { value: ProviderOracle[parameters.operation](parameters.provider, parameters.value) }
   }
   if (method === "reader.cancel") return {cancelled: true}
-  if (method === "reader.open" && params.cacheOnly) return null
-  if (method === "account.conversation") return conversation(params)
-  if (method === "account.identities") return { identities: Senders.identities(params.mailboxes) }
-  // Default to a cache miss; cache-hit tests supply an explicit resource.
+  if (method === "reader.open" && parameters.cacheOnly) return null
+  if (method === "account.conversation") return conversation(parameters)
+  if (method === "account.identities") return { identities: Senders.identities(parameters.mailboxes) }
   if (method === "cache.resourceRead" || method === "message.prepareCached") return null
   if (method === "cache.resourcePut") return { stored: true }
-  var now = new Date(params.now === undefined ? Date.now() : params.now)
-  if (method === "message.compose") return Mail.buildSendPayload(params.fields)
-  if (method === "message.summarize") return summary(params.message, now)
-  if (method === "message.summaries") return { summaries: params.messages.map(function(message) { return summary(message, now) }) }
+  var now = new Date(parameters.now === undefined ? Date.now() : parameters.now)
+  if (method === "message.compose") return Mail.buildSendPayload(parameters.fields)
+  if (method === "message.summarize") return summary(parameters.message, now)
+  if (method === "message.summaries") return { summaries: parameters.messages.map(function(message) { return summary(message, now) }) }
   if (method === "message.prepare") return {
-    summary: summary(params.message, now), body: body(params.message.payload),
-    html: Mail.extractHtml(params.message.payload), attachments: Mail.attachments(params.message.payload)
+    summary: summary(parameters.message, now), body: body(parameters.message.payload),
+    html: Mail.extractHtml(parameters.message.payload), attachments: Mail.attachments(parameters.message.payload)
   }
   if (method === "message.composeText") {
-    var quote = params.body === undefined ? String(params.quote || "") : Mail.quoteBody(params.summary, params.body)
-    return { body: Mail.composeBody(params.signature, quote), quote: quote,
-      replySubject: Mail.replySubject(params.subject === undefined ? (params.summary || {}).subject : params.subject) }
+    var quote = parameters.body === undefined ? String(parameters.quote || "") : Mail.quoteBody(parameters.summary, parameters.body)
+    return { body: Mail.composeBody(parameters.signature, quote), quote: quote,
+      replySubject: Mail.replySubject(parameters.subject === undefined ? (parameters.summary || {}).subject : parameters.subject) }
   }
   if (method === "model.apply") {
-    if (params.operation === "batch") return params.calls.map(function(call) { return answer(method, call) })
-    if (typeof Model[params.operation] !== "function") throw new Error("Unknown model fixture operation: " + params.operation)
-    return Model[params.operation].apply(null, params.args || [])
+    if (parameters.operation === "batch") return parameters.calls.map(function(call) { return answer(method, call) })
+    if (typeof Model[parameters.operation] !== "function") throw new Error("Unknown model fixture operation: " + parameters.operation)
+    return Model[parameters.operation].apply(null, parameters.args || [])
   }
   return undefined
 }

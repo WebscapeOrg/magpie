@@ -2,15 +2,8 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// Whose identity a draft writes with, when the mailbox it belongs to is not
-// the mailbox on screen.
-//
-// `begin` gets the owner right — `accountId` comes from `composeAccountId` —
-// and then two things went on asking the *active* account instead: the
-// sign-off placed in the body, and the address reply-all leaves off the Cc.
-// Both put one identity's details into another identity's outgoing mail, so
-// they are held here rather than in tst_signature.qml, which has one account
-// and cannot tell the two apart.
+// Invariant: draft ownership can differ from the active mailbox. A single-account fixture misses
+// cross-account signature, reply-all, and send-routing regressions.
 Item {
   width: 900
   height: 600
@@ -23,14 +16,13 @@ Item {
     property bool signedIn: true
   }
 
-  // Two mailboxes, A active. The draft under test belongs to B.
   QtObject {
     id: mailService
     property bool holdNativeText: false
     property var pendingNativeText: []
-    property var backend: ({call: function(method, params, callback) {
+    property var backend: ({call: function(method, parameters, callback) {
       if (method !== "message.composeText") return
-      var result = {body: String(params.signature || ""), quote: "", replySubject: "Re: Invoice"}
+      var result = {body: String(parameters.signature || ""), quote: "", replySubject: "Re: Invoice"}
       if (mailService.holdNativeText) mailService.pendingNativeText.push({callback:callback,result:result})
       else callback(result, null)
     }})
@@ -51,8 +43,6 @@ Item {
     property string accountEmail: adaId
     property string activeSignature: "Ada\nada.example.org"
 
-    // Which mailbox the next draft belongs to. The window seeds this from the
-    // message being answered; here it is set by the test.
     property string composeAccountId: adaId
 
     property var accountSignatures: [
@@ -61,22 +51,21 @@ Item {
     ]
 
     function signatureFor(id) {
-      var want = String(id || "")
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].signature || "")
+      var accountId = String(id || "")
+      for (var accountIndex = 0; accountIndex < accountSignatures.length; accountIndex++)
+        if (accountSignatures[accountIndex].id === accountId)
+          return String(accountSignatures[accountIndex].signature || "")
       return ""
     }
 
     function accountEmailFor(id) {
-      var want = String(id || "")
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].email || "")
+      var accountId = String(id || "")
+      for (var accountIndex = 0; accountIndex < accountSignatures.length; accountIndex++)
+        if (accountSignatures[accountIndex].id === accountId)
+          return String(accountSignatures[accountIndex].email || "")
       return ""
     }
 
-    // What `submit()` handed over, so the account it named can be asserted.
     property var submitted: null
     function preferredSendAs(_recipients) { return null }
     function switchTo(_id) { return true }
@@ -124,7 +113,7 @@ Item {
       var snapshot = compose.snapshotDraft()
       var key = compose.currentFields().draftKey
       compose.replaceBody("AI replacement")
-      var editor = named(compose, "compose-body-editor")
+      var editor = findChild(compose, "compose-body-editor")
       verify(editor.canUndo)
       editor.undo()
       if (editor.text === "") editor.undo()
@@ -243,21 +232,9 @@ Item {
       compare(compose.currentFields().envelope.replyQuote, quote)
     }
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
+    function bodyText() { return findChild(compose, "compose-body-editor").text }
+    function ccText() { return findChild(compose, "compose-cc-field").text.toLowerCase() }
 
-    function bodyText() { return named(compose, "compose-body-editor").text }
-    function ccText() { return named(compose, "compose-cc-field").text.toLowerCase() }
-
-    // A message addressed to both mailboxes, from somebody else.
     function incoming() {
       return {
         id: "1",
@@ -271,18 +248,17 @@ Item {
       }
     }
 
-    // ------------------------------------------------------- the sign-off
 
     function test_late_native_body_does_not_overwrite_typing() {
       mailService.holdNativeText = true
       mailService.pendingNativeText = []
       mailService.composeAccountId = bobId
       compose.begin("reply", incoming(), "Original body", [])
-      var field = named(compose, "compose-body-editor")
+      var field = findChild(compose, "compose-body-editor")
       verify(field !== null)
       field.text = "Text entered while the backend was preparing the quote"
-      for (var i = 0; i < mailService.pendingNativeText.length; i++) {
-        var pending = mailService.pendingNativeText[i]
+      for (var requestIndex = 0; requestIndex < mailService.pendingNativeText.length; requestIndex++) {
+        var pending = mailService.pendingNativeText[requestIndex]
         pending.callback(pending.result, null)
       }
       compare(field.text, "Text entered while the backend was preparing the quote")
@@ -302,8 +278,6 @@ Item {
         "A's name and address are nowhere in a message A is not sending")
     }
 
-    // The single-mailbox case, which is every account's own reply and must
-    // keep working: owner and active are the same, and the answer is the same.
     function test_a_draft_from_the_active_mailbox_is_signed_by_it() {
       mailService.composeAccountId = adaId
       compose.begin("reply", incoming(), "Original body", [])
@@ -312,12 +286,8 @@ Item {
       compare(compose.accountSignature, "Ada\nada.example.org")
     }
 
-    // ------------------------------------------------------- reply-all
 
-    // The original went to both mailboxes. Replying from B, the Cc is
-    // everybody except B — so A stays on it and B comes off. Reading the
-    // active account's address inverted exactly that: it dropped A, the real
-    // recipient, and copied B, the sender.
+    // Invariant: reply-all excludes draft owner B and retains active account A; using the active address reversed both.
     function test_reply_all_drops_the_sender_rather_than_the_active_mailbox() {
       mailService.composeAccountId = bobId
       compose.begin("replyAll", incoming(), "Original body", [])
@@ -328,13 +298,8 @@ Item {
         "B is writing it, so B is not copied on it")
     }
 
-    // ------------------------------------------------------- the send
 
-    // The service can only route a submission to the mailbox that owns it if
-    // the submission says which that is. Without it the service fell back to
-    // matching the From address against each account in turn, so two
-    // mailboxes sharing a send-as alias sent B's draft from whichever came
-    // first — and that fallback cannot tell the difference.
+    // Invariant: shared send-as aliases cannot identify the owning mailbox; submission must carry its account ID.
     function test_a_submission_names_the_mailbox_it_belongs_to() {
       mailService.composeAccountId = bobId
       mailService.submitted = null

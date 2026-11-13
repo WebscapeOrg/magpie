@@ -184,7 +184,7 @@ fn rollback_replays_later_intent_and_restores_settled_order() {
         &json!([{"operation":"rebaseIntents","args":[entries,1]}]),
         false,
     );
-    // Function descriptors deliberately survive native replay, unlike JSON's function omission.
+    // Invariant: Function descriptors deliberately survive native replay, unlike JSON's function omission.
     assert_eq!(result["summary"], oracle_value[0]["summary"]);
     assert_eq!(
         result["entries"][0]["before"],
@@ -195,9 +195,9 @@ fn rollback_replays_later_intent_and_restores_settled_order() {
     compare(json!([{"operation":"listAfterRestore","args":[[],r,true,true,[r],0]}]));
 }
 #[test]
-fn unified_large_list_account_collision_watermark_and_capabilities() {
+fn unified_large_list_account_collision_watermark_and_status() {
     let messages:Vec<_>=(0..4000).map(|i|json!({"id":format!("{i}:Sent Items"),"date":chrono::DateTime::from_timestamp_millis(1_000_000+i).unwrap().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"thread":{"memberIds":["a","b"],"count":2}})).collect();
-    let sources = json!([{"id":"imap:a@example.org","messages":messages},{"id":"imap:b@example.org","messages":messages}]);
+    let sources = json!([{"id":"a@example.org","messages":messages},{"id":"b@example.org","messages":messages}]);
     let merged = super::super::unified::merge(&sources);
     assert_eq!(
         json!(merged),
@@ -208,9 +208,27 @@ fn unified_large_list_account_collision_watermark_and_capabilities() {
     );
     assert_eq!(merged.len(), 8000);
     assert_ne!(merged[0]["id"], merged[1]["id"]);
-    let snapshot=super::super::unified::apply(&json!({"sources":[],"abilities":[{"archive":true,"mailboxes":[{"key":"inbox"},{"key":"archive"}]},{"archive":false,"mailboxes":[{"key":"inbox"}]}],"states":[{"loaded":true},{"error":"offline","loading":false}],"summaries":[{"unread":3},{"unread":4}]})).unwrap();
-    assert_eq!(snapshot["capabilities"]["archive"], false);
-    assert_eq!(snapshot["mailboxes"], json!([{"key":"inbox"}]));
+    let snapshot=super::super::unified::apply(&json!({"sources":[],"states":[{"loaded":true},{"error":"offline","loading":false}],"summaries":[{"unread":3},{"unread":4}]})).unwrap();
+    assert!(snapshot.get("capabilities").is_none());
+    assert!(snapshot.get("mailboxes").is_none());
     assert_eq!(snapshot["loaded"], true);
     assert_eq!(snapshot["totalUnread"], 7);
+}
+
+#[test]
+fn round2_rebase_refuses_nonobject_intent_entries() {
+    for invalid in [json!("not a record"), json!(true), json!(7), Value::Null] {
+        let entries = json!([{"token":1,"before":{"id":"message"}}, invalid]);
+        for request in [
+            json!({"operation":"rebaseIntents","args":[entries,1]}),
+            json!({"operation":"intentsSettled","args":[{"message":entries},"message",1,true,null]}),
+        ] {
+            let result = std::panic::catch_unwind(|| apply(&request));
+            assert!(
+                result.is_ok(),
+                "malformed intent records must not unwind the backend request"
+            );
+            assert_eq!(result.unwrap(), Err("model_invalid"));
+        }
+    }
 }

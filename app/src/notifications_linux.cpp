@@ -69,7 +69,7 @@ public:
         QVariantMap hints;
         hints.insert(QStringLiteral("desktop-entry"), QStringLiteral("omamail"));
         const QList<QVariant> arguments{
-            QStringLiteral("Omamail"), replacesId, QString{},
+            QStringLiteral("Magpie Mail"), replacesId, QString{},
             notification.title,
             notificationMarkupText(notification.body), actions, hints, -1};
 

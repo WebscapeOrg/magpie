@@ -4,8 +4,7 @@ use std::{sync::OnceLock, time::Duration};
 
 mod callback;
 mod credentials;
-mod graph;
-pub use credentials::{access_token, access_token_readonly, password, settings, settings_readonly};
+pub use credentials::{settings, settings_readonly};
 
 #[derive(Default)]
 pub struct Session {
@@ -13,14 +12,13 @@ pub struct Session {
 }
 
 static CLIENT: OnceLock<Result<reqwest::Client, &'static str>> = OnceLock::new();
-const LIMIT: usize = 256 * 1024;
+const MAX_AUTH_PAYLOAD_BYTES: usize = 256 * 1024;
 
 fn client() -> Result<&'static reqwest::Client, &'static str> {
     CLIENT
         .get_or_init(|| {
-            reqwest::Client::builder()
+            crate::platform::http_client()
                 .https_only(true)
-                .hickory_dns(true)
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
@@ -29,43 +27,22 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
                 .map_err(|_| "auth_transport_failed")
         })
         .as_ref()
-        .map_err(|e| *e)
+        .map_err(|error| *error)
 }
 
-fn destination(params: &Value) -> Result<String, &'static str> {
-    let p = params.as_object().ok_or("invalid_params")?;
-    if p.keys()
-        .any(|k| !["provider", "endpoint", "tenant", "body"].contains(&k.as_str()))
+fn destination(parameters: &Value) -> Result<String, &'static str> {
+    let fields = parameters.as_object().ok_or("invalid_params")?;
+    if fields
+        .keys()
+        .any(|key| !["provider", "endpoint", "body"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
-    match (params["provider"].as_str(), params["endpoint"].as_str()) {
+    match (
+        parameters["provider"].as_str(),
+        parameters["endpoint"].as_str(),
+    ) {
         (Some("gmail"), Some("token")) => Ok("https://oauth2.googleapis.com/token".into()),
-        (Some("outlook"), Some(endpoint @ ("token" | "device"))) => {
-            let tenant = params
-                .get("tenant")
-                .map(|v| v.as_str().ok_or("invalid_params"))
-                .transpose()?
-                .unwrap_or("consumers");
-            if tenant.is_empty()
-                || tenant.len() > 255
-                || tenant.contains("..")
-                || !tenant.as_bytes()[0].is_ascii_alphanumeric()
-                || !tenant
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
-            {
-                return Err("invalid_params");
-            }
-            Ok(format!(
-                "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/{}",
-                if endpoint == "device" {
-                    "devicecode"
-                } else {
-                    "token"
-                }
-            ))
-        }
         _ => Err("invalid_params"),
     }
 }
@@ -95,7 +72,10 @@ async fn post_with_deadline(
         if status.is_redirection() {
             return Err("auth_redirect_refused");
         }
-        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_AUTH_PAYLOAD_BYTES as u64)
+        {
             return Err("auth_response_too_large");
         }
         let mut bytes = Vec::new();
@@ -104,7 +84,7 @@ async fn post_with_deadline(
             .await
             .map_err(|_| "auth_transport_failed")?
         {
-            if chunk.len() > LIMIT - bytes.len() {
+            if chunk.len() > MAX_AUTH_PAYLOAD_BYTES - bytes.len() {
                 return Err("auth_response_too_large");
             }
             bytes.extend_from_slice(&chunk);
@@ -121,62 +101,17 @@ async fn post_with_deadline(
 }
 
 impl Session {
-    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
-        if matches!(method, "auth.store" | "auth.clear") {
-            if params
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| !["accountId", "clientId", "token"].contains(&key.as_str()))
-            {
-                return Err("invalid_params");
-            }
-            return credentials::change_outlook(params, method == "auth.clear").await;
-        }
-        if method == "auth.token" {
-            if params
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| !["provider", "accountId", "resource"].contains(&key.as_str()))
-            {
-                return Err("invalid_params");
-            }
-            if params["provider"] != "outlook" {
-                return Err("invalid_params");
-            }
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            let resource = params
-                .get("resource")
-                .map(|v| v.as_str().ok_or("invalid_params"))
-                .transpose()?
-                .unwrap_or("mail");
-            let access = access_token("outlook", account, resource).await?;
-            let scope = credentials::scope(resource)?;
-            return Ok(json!({"access_token":access,"expires_in":60,"scope":scope}));
-        }
-        if method == "auth.invalidate" {
-            if params
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| key != "accountId")
-            {
-                return Err("invalid_params");
-            }
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            credentials::invalidate(account).await?;
-            return Ok(json!({"invalidated":true}));
-        }
-        if method == "outlook.graphSend" {
-            return graph::send(params).await;
-        }
+    pub async fn shutdown(&self) {
+        self.flows.shutdown().await;
+    }
+    pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         if method != "auth.form" {
-            return self.flows.call(method, params).await;
+            return self.flows.call(method, parameters).await;
         }
-        let url = destination(params)?;
-        let body = params["body"].as_str().ok_or("invalid_params")?;
-        if body.len() > LIMIT || body.bytes().any(|b| b < 32 || b == 127) {
+        let url = destination(parameters)?;
+        let body = parameters["body"].as_str().ok_or("invalid_params")?;
+        if body.len() > MAX_AUTH_PAYLOAD_BYTES || body.bytes().any(|byte| byte < 32 || byte == 127)
+        {
             return Err("invalid_params");
         }
         post(client()?, &url, body.into()).await
@@ -201,7 +136,7 @@ mod tests {
                 .unwrap();
             assert_eq!(ended, 0, "deadline must close the outstanding request");
         });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::platform::http_client().no_proxy().build().unwrap();
         assert_eq!(
             post_with_deadline(
                 &client,
@@ -229,12 +164,16 @@ mod tests {
             assert!(socket.read(&mut request).await.unwrap() > 0);
             socket
                 .write_all(
-                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", LIMIT + 1).as_bytes(),
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                        MAX_AUTH_PAYLOAD_BYTES + 1
+                    )
+                    .as_bytes(),
                 )
                 .await
                 .unwrap();
         });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::platform::http_client().no_proxy().build().unwrap();
         assert_eq!(
             post(
                 &client,
@@ -265,12 +204,15 @@ mod tests {
             );
         }
         assert_eq!(
-            destination(
-                &json!({"provider":"outlook","endpoint":"device","tenant":"organizations"})
-            )
-            .unwrap(),
-            "https://login.microsoftonline.com/organizations/oauth2/v2.0/devicecode"
+            destination(&json!({"provider":"gmail","endpoint":"token"})).unwrap(),
+            "https://oauth2.googleapis.com/token"
         );
+        for provider in ["outlook", "imap", "jmap", "hey", "caldav"] {
+            assert_eq!(
+                destination(&json!({"provider":provider,"endpoint":"token"})),
+                Err("invalid_params")
+            );
+        }
         assert!(
             destination(&json!({"provider":"gmail","endpoint":"token","url":"https://evil.test"}))
                 .is_err()
@@ -283,7 +225,7 @@ mod tests {
             net::TcpListener,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+        let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut bytes = [0; 4096];
@@ -295,15 +237,66 @@ mod tests {
                     .is_err()
             );
         });
-        let client = reqwest::Client::builder()
+        let client = crate::platform::http_client()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap();
         assert_eq!(
-            post(&client, &format!("http://{addr}"), "token=synthetic".into()).await,
+            post(
+                &client,
+                &format!("http://{address}"),
+                "token=synthetic".into()
+            )
+            .await,
             Err("auth_redirect_refused")
         );
         server.await.unwrap();
     }
+}
+
+#[cfg(feature = "mobile")]
+pub async fn mobile_exchange(params: &Value) -> Result<Value, &'static str> {
+    let client_id = params["clientId"].as_str().ok_or("invalid_params")?;
+    let code = params["code"].as_str().ok_or("invalid_params")?;
+    let verifier = params["verifier"].as_str().ok_or("invalid_params")?;
+    let redirect = params["redirectURI"].as_str().ok_or("invalid_params")?;
+    let prefix = client_id
+        .strip_suffix(".apps.googleusercontent.com")
+        .ok_or("invalid_params")?;
+    if prefix.len() > 512
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !prefix.contains('-')
+        || !(43..=128).contains(&verifier.len())
+        || !verifier
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
+        || code.is_empty()
+        || code.len() > 16384
+        || code.chars().any(char::is_control)
+        || redirect != format!("com.googleusercontent.apps.{prefix}:/oauthredirect")
+    {
+        return Err("invalid_params");
+    }
+    let body = reqwest::Url::parse_with_params(
+        "https://unused.invalid/",
+        &[
+            ("client_id", client_id),
+            ("code", code),
+            ("code_verifier", verifier),
+            ("redirect_uri", redirect),
+            ("grant_type", "authorization_code"),
+        ],
+    )
+    .map_err(|_| "invalid_params")?
+    .query()
+    .unwrap_or("")
+    .to_owned();
+    callback::finish_google(
+        post(client()?, "https://oauth2.googleapis.com/token", body).await?,
+        client_id,
+    )
+    .await
 }

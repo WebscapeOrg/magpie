@@ -91,12 +91,12 @@ async fn server(response: Vec<u8>) -> (SocketAddr, tokio::task::JoinHandle<Strin
         let mut request = Vec::new();
         let mut block = [0; 1024];
         loop {
-            let n = stream.read(&mut block).await.unwrap();
-            if n == 0 {
+            let read_bytes = stream.read(&mut block).await.unwrap();
+            if read_bytes == 0 {
                 break;
             }
-            request.extend_from_slice(&block[..n]);
-            if request.windows(4).any(|v| v == b"\r\n\r\n") {
+            request.extend_from_slice(&block[..read_bytes]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
                 let is_post = request.starts_with(b"POST ");
                 if !is_post || request.ends_with(b"List-Unsubscribe=One-Click") {
                     break;
@@ -109,7 +109,7 @@ async fn server(response: Vec<u8>) -> (SocketAddr, tokio::task::JoinHandle<Strin
     (address, job)
 }
 
-// This private test client pins a synthetic public name to the local harness.
+// Invariant: This private test client pins a synthetic public name to the local harness.
 // Production has no endpoint override, certificate bypass or private-IP switch.
 fn test_client(address: SocketAddr) -> Client {
     client_builder()
@@ -132,28 +132,36 @@ async fn forbidden_literal_never_connects() {
 
 #[tokio::test]
 async fn connection_is_pinned_and_original_host_is_preserved() {
-    let (address, server) = server(
-        b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\n\r\n\x89PNG\r\n\x1a\n"
-            .to_vec(),
+    let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGNkAAAAASUVORK5CYII=";
+    let image = STANDARD.decode(encoded).unwrap();
+    let mut reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n",
+        image.len()
     )
-    .await;
+    .into_bytes();
+    reply.extend_from_slice(&image);
+    let (address, server) = server(reply).await;
     let response = execute(
         &test_client(address),
         parse_url("http://sender.example/image", false).unwrap(),
         Method::GET,
-        MAX_IMAGE,
+        MAX_IMAGE_BYTES,
         DEADLINE,
     )
     .await
     .unwrap();
     assert_eq!(
         image_data(response).unwrap(),
-        "data:image/png;base64,iVBORw0KGgo="
+        format!("data:image/png;base64,{encoded}")
     );
     let request = server.await.unwrap();
     assert!(request.to_lowercase().contains("host: sender.example\r\n"));
     assert!(!request.to_lowercase().contains("authorization:"));
-    assert!(request.to_lowercase().contains("user-agent: magpie/0.11\r\n"));
+    assert!(
+        request
+            .to_lowercase()
+            .contains("user-agent: magpie/0.11\r\n")
+    );
 }
 
 #[tokio::test]
@@ -294,7 +302,7 @@ async fn tls_verifies_issuer_and_original_hostname_before_http() {
         .add_root_certificate(certificate)
         .build()
         .unwrap();
-    // Both requests connect to the pinned address, retaining sender.example as
+    // Invariant: Both requests connect to the pinned address, retaining sender.example as
     // the TLS name. Trusting the issuer alone must not trust its localhost name.
     for client in [test_client(address), trusted] {
         let result = execute(
@@ -311,4 +319,33 @@ async fn tls_verifies_issuer_and_original_hostname_before_http() {
         assert_eq!(report.trim(), "tls-refused-no-http");
     }
     assert!(peer.wait().unwrap().success());
+}
+
+#[test]
+fn image_data_refuses_unknown_or_excessive_decoded_dimensions() {
+    let valid = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGNkAAAAASUVORK5CYII=").unwrap();
+    let mut oversized = valid.clone();
+    oversized[16..20].copy_from_slice(&100_000u32.to_be_bytes());
+    oversized[20..24].copy_from_slice(&100_000u32.to_be_bytes());
+    for body in [b"\x89PNG\r\n\x1a\n".to_vec(), oversized] {
+        let result = image_data(Response {
+            status: 200,
+            content_type: "image/png".into(),
+            body,
+        });
+        assert_eq!(
+            result,
+            Err("public_image_refused"),
+            "unbounded images must never become data URIs for Qt"
+        );
+    }
+    assert!(
+        image_data(Response {
+            status: 200,
+            content_type: "image/png".into(),
+            body: valid
+        })
+        .unwrap()
+        .starts_with("data:image/png;base64,")
+    );
 }

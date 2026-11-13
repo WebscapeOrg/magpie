@@ -1,9 +1,51 @@
 use super::*;
 #[test]
 fn smoke() {
-    let out = sanitize("<p>Hello <b>world</b></p>", &json!({"withReader":true})).unwrap();
-    assert_eq!(out["html"], "<p>Hello <b>world</b></p>");
-    assert_eq!(out["reader"]["html"], "<p>Hello <strong>world</strong></p>");
+    let result = sanitize("<p>Hello <b>world</b></p>", &json!({"withReader":true})).unwrap();
+    assert_eq!(result["html"], "<p>Hello <b>world</b></p>");
+    assert_eq!(
+        result["reader"]["html"],
+        "<p>Hello <strong>world</strong></p>"
+    );
+}
+
+#[test]
+fn reader_hidden_content_never_reaches_list_pre_or_table_output() {
+    for (source, expected) in [
+        (
+            "<ul><li hidden>SECRET</li><li>Visible</li></ul>",
+            "<ul><li>Visible</li></ul>",
+        ),
+        (
+            "<ul><div style='display:none'><li>SECRET</li></div><li>Visible</li></ul>",
+            "<ul><li>Visible</li></ul>",
+        ),
+        (
+            "<pre>A<span style='visibility:hidden'>SECRET</span>B</pre>",
+            "<pre>AB</pre>",
+        ),
+        (
+            "<table><tr><td hidden>SECRET</td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>",
+            "<table><tr><td></td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>",
+        ),
+        (
+            "<table><tr hidden><td>SECRET</td><td>SECRET</td></tr><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+        ),
+        (
+            "<table><tbody hidden><tr><td>SECRET</td><td>SECRET</td></tr></tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+        ),
+    ] {
+        let result = sanitize(source, &json!({"withReader":true})).unwrap();
+        assert_eq!(result["reader"]["html"], expected, "{source}");
+        assert!(
+            !result["reader"]["html"]
+                .as_str()
+                .unwrap()
+                .contains("SECRET")
+        );
+    }
 }
 
 #[test]
@@ -191,7 +233,7 @@ fn native_output_cannot_trigger_qt_resource_requests() {
                     seen.fetch_add(1, Ordering::SeqCst);
                     let _=stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nContent-Type: image/png\r\nConnection: close\r\n\r\n\x89PNG\r\n\x1a\n");
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(2))
                 }
                 Err(_) => break,
@@ -209,7 +251,7 @@ fn native_output_cannot_trigger_qt_resource_requests() {
     std::fs::create_dir(&directory).unwrap();
     let run = |documents: Vec<String>| {
         let qml = format!(
-            "import QtQuick\nimport QtTest\nItem {{ width:400; height:200; property var documents: {}\nTextEdit {{ id: reader; width:400; height:200; textFormat: TextEdit.RichText }}\nTestCase {{ name: \"NativeHtmlResources\"; when: windowShown; function test_documents() {{ for (var i=0;i<documents.length;i++) {{ reader.text=documents[i]; wait(100); }} }} }}\n}}",
+            "import QtQuick\nimport QtTest\nItem {{ width:400; height:200; property var documents: {}\nTextEdit {{ id: reader; width:400; height:200; textFormat: TextEdit.RichText }}\nTestCase {{ name: \"NativeHtmlResources\"; when: windowShown; function test_documents() {{ for (var documentIndex=0;documentIndex<documents.length;documentIndex++) {{ reader.text=documents[documentIndex]; wait(100); }} }} }}\n}}",
             serde_json::to_string(&documents).unwrap()
         );
         let path = directory.join("tst_native.qml");
@@ -308,13 +350,13 @@ fn attribute_names_and_nonanchor_urls_cannot_create_resource_markup() {
     }
 }
 
-// A picture the reader approved arrives as a data URI in the document. Its
-// bytes are not markup Qt has to lay out, so one large picture must not turn a
-// small message into the plain-text refusal the moment its pictures load.
+// Invariant: approved raster payloads must not inflate the markup complexity that selects the plain-text fallback.
 #[test]
 fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
     png.resize(300_000, 0);
     let data = format!("data:image/png;base64,{}", STANDARD.encode(&png));
     let source = "<p>Hello</p><img src='https://cdn.example.com/hero.png'><p>Bye</p>";
@@ -337,14 +379,13 @@ fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
         "{}",
         shown["reader"]["complexity"]
     );
-    // The bound on markup itself still holds.
     let markup = format!("<p>{}</p>", "x".repeat(130_000));
     assert_eq!(sanitize(&markup, &json!({})).unwrap()["tooHeavy"], true);
 }
 
 #[test]
 fn inline_and_remote_images_share_the_count_budget() {
-    let data = "DATA:image/png;base64,iVBORw0KGgoA";
+    let data = sized_png_data(3, 3).replacen("data:", "DATA:", 1);
     let source = format!(
         "<p>Body</p>{}<img src='https://cdn.example.com/remote'>",
         format!("<img src='{data}' alt='inline'>").repeat(1000)
@@ -369,7 +410,9 @@ fn inline_and_remote_images_share_the_count_budget() {
 #[test]
 fn rendered_remote_image_bytes_have_an_aggregate_budget() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
     png.resize(4 * 1024 * 1024, 0);
     let data = format!("data:image/png;base64,{}", STANDARD.encode(png));
     let source = "<p>Body remains visible</p><img src='https://cdn.example.com/hero'>".to_owned()
@@ -388,5 +431,204 @@ fn rendered_remote_image_bytes_have_an_aggregate_budget() {
         assert_eq!(value["blockedImages"], 2);
         assert_eq!(value["tooHeavy"], false);
         assert!(!html.contains("https://"));
+    }
+}
+
+#[test]
+fn image_policy_hidden_images_are_not_offered_for_fetch_or_rendered() {
+    let source = "https://cdn.example.com/hidden.png";
+    let prepared = sized_png_data(3, 3);
+    let hidden_parent = sanitize(
+        &format!("<p>Visible body</p><div hidden><img src='{source}'></div>"),
+        &json!({"withReader":true,"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+    )
+    .unwrap();
+    assert_eq!(
+        hidden_parent["remoteImageSources"],
+        json!([]),
+        "a hidden ancestor cannot offer a fetch"
+    );
+    for document in [&hidden_parent, &hidden_parent["reader"]] {
+        assert!(!document["html"].as_str().unwrap().contains("<img"));
+    }
+    for attributes in [
+        "hidden",
+        "hidden='false'",
+        "style='display:none'",
+        "style='visibility:hidden'",
+    ] {
+        let result = sanitize(
+            &format!("<p>Visible body</p><img src='{source}' {attributes}>"),
+            &json!({"withReader":true,"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+        ).unwrap();
+        assert_eq!(
+            result["remoteImageSources"],
+            json!([]),
+            "{attributes} must never become a fetch candidate"
+        );
+        assert_eq!(result["remoteImages"], 0);
+        for document in [&result, &result["reader"]] {
+            assert!(
+                !document["html"].as_str().unwrap().contains("<img"),
+                "{attributes} must never reach Qt"
+            );
+            assert!(document["html"].as_str().unwrap().contains("Visible body"));
+        }
+    }
+    for attributes in [
+        "style='font-size:0'",
+        "style='max-height:0'",
+        "style='mso-hide:all'",
+    ] {
+        let result = sanitize(
+            &format!("<img src='{source}' {attributes}>"),
+            &json!({"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+        )
+        .unwrap();
+        assert!(
+            result["html"].as_str().unwrap().contains("<img"),
+            "{attributes} alone does not hide a formatted image"
+        );
+    }
+}
+
+#[test]
+fn image_policy_inline_trackers_never_reach_either_renderer() {
+    for source in ["cid:tracking-pixel", "data:image/png;base64,iVBORw0KGgoA"] {
+        for attributes in ["width='1' height='1'", "style='height:1px'"] {
+            let result = sanitize(
+                &format!("<p>Visible body</p><img src='{source}' {attributes}>"),
+                &json!({"withReader":true}),
+            )
+            .unwrap();
+            for document in [&result, &result["reader"]] {
+                assert!(
+                    !document["html"].as_str().unwrap().contains("<img"),
+                    "{source} {attributes}"
+                );
+                assert!(document["html"].as_str().unwrap().contains("Visible body"));
+            }
+        }
+    }
+}
+
+#[test]
+fn image_policy_encoded_inline_bytes_share_the_rendered_budget() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
+    png.resize(4 * 1024 * 1024, 0);
+    let data = format!("data:image/png;base64,{}", STANDARD.encode(png));
+    let encoded = data.replacen("data:", "&#100;ata:", 1);
+    let source = format!("<p>Visible body</p><img src='{encoded}'>")
+        + &"<img src='https://cdn.example.com/hero'>".repeat(3);
+    let result = sanitize(
+        &source,
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/hero":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert_eq!(
+            html.matches("<img ").count(),
+            2,
+            "the normalized inline image consumes one budget slot of bytes"
+        );
+        assert!(
+            html.len() < 16 * 1024 * 1024,
+            "refused embedded bytes must not reach Qt"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(
+            document["images"], 1,
+            "the exposed count remains remote-only"
+        );
+        assert_eq!(document["blockedImages"], 2);
+        assert_eq!(document["tooHeavy"], false);
+    }
+}
+
+fn sized_png_data(width: u32, height: u32) -> String {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let mut png = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAAF0lEQVQImWM09U9nYGBgYGBgYoABBAsAGfoA8cw8ZQIAAAAASUVORK5CYII=").unwrap();
+    // Invariant: only metadata changes, so exercising admission never allocates the declared pixels.
+    png[16..20].copy_from_slice(&width.to_be_bytes());
+    png[20..24].copy_from_slice(&height.to_be_bytes());
+    let mut checksum = !0u32;
+    for byte in &png[12..29] {
+        checksum ^= u32::from(*byte);
+        for _ in 0..8 {
+            checksum = (checksum >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(checksum & 1));
+        }
+    }
+    png[29..33].copy_from_slice(&(!checksum).to_be_bytes());
+    format!("data:image/png;base64,{}", STANDARD.encode(png))
+}
+
+#[test]
+fn decoded_image_policy_refuses_oversized_inline_and_prepared_images_before_qt() {
+    let data = sized_png_data(4096, 4096);
+    let encoded = data.replacen("data:", "&#100;ata:", 1);
+    let result = sanitize(
+        &format!(
+            "<p>Visible body</p><img src='{encoded}'><img src='https://cdn.example.com/oversized'>"
+        ),
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/oversized":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert!(
+            !html.contains("<img"),
+            "oversized metadata must not reach Qt"
+        );
+        assert!(html.contains("Visible body"));
+    }
+}
+
+#[test]
+fn decoded_image_policy_inline_and_remote_images_share_the_pixel_budget() {
+    let data = sized_png_data(2048, 2048);
+    let source = format!(
+        "<p>Visible body</p><img src='{data}'><img src='https://cdn.example.com/large'><img src='{data}'><img src='https://cdn.example.com/large'><img src='{data}'>"
+    );
+    let result = sanitize(
+        &source,
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/large":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert_eq!(
+            html.matches("<img ").count(),
+            4,
+            "the fifth image would exceed 128 MiB of decoded pixels"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(document["images"], 2);
+        assert_eq!(document["blockedImages"], 1);
+        assert_eq!(document["tooHeavy"], false);
+    }
+}
+
+#[test]
+fn decoded_image_policy_unresolved_cid_never_reaches_qt() {
+    let result = sanitize(
+        "<p>Visible body</p><img src='cid:message-logo' alt='Logo'>",
+        &json!({"withReader":true}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert!(
+            !html.contains("<img"),
+            "unresolved bytes cannot be admitted without a pixel bound"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(document["blockedImages"], 1);
     }
 }

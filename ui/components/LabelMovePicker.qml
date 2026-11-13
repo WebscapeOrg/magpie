@@ -5,11 +5,7 @@ import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
-import "Menu.js" as Menu
 
-// Where a label goes: the top level, or under another label. The rows are
-// `Model.labelMoveTargets` — not the label itself, nothing beneath it, not
-// the parent it already has — walked with j/k and taken with Enter or o.
 Item {
   id: root
 
@@ -21,8 +17,7 @@ Item {
   required property string panelFontFamily
 
   property string labelId: ""
-  // Whose label this is: the account open when the popup opened, by id,
-  // so the answer goes to it even if the window has moved on since.
+  // Invariant: label mutations retain the account that owned the popup when it opened.
   property string accountId: ""
   property var targets: []
   property int cursorIndex: 0
@@ -37,6 +32,7 @@ Item {
     labelId = String(id || "")
     targets = Array.isArray(rows) ? rows : []
     cursorIndex = 0
+    flick.contentY = 0
     menu.open()
   }
 
@@ -46,6 +42,12 @@ Item {
     var count = targets.length
     if (count === 0) return
     cursorIndex = Model.wrappedIndex(cursorIndex, delta, count)
+    var row = targetRows.itemAt(cursorIndex)
+    if (!row) return
+    if (row.y < flick.contentY) flick.contentY = row.y
+    else if (row.y + row.height > flick.contentY + flick.height) {
+      flick.contentY = row.y + row.height - flick.height
+    }
   }
 
   function choose(index) {
@@ -73,6 +75,7 @@ Item {
 
     contentItem: Flickable {
       id: flick
+      objectName: "label-move-scroll"
       WheelScroller { view: flick }
       contentWidth: width
       contentHeight: list.implicitHeight
@@ -108,6 +111,8 @@ Item {
         }
 
         Repeater {
+          id: targetRows
+          objectName: "label-move-targets"
           model: root.targets
 
           Rectangle {

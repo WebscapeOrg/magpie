@@ -1,8 +1,10 @@
 #include "file_store.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
@@ -11,11 +13,58 @@
 
 namespace {
 constexpr qint64 maximumTextFileBytes = 16 * 1024 * 1024;
+constexpr qint64 maximumClientFileBytes = 1024 * 1024;
 
 QVariantMap result(bool ok, const QString &text = {}, const QString &error = {})
 {
     return {{QStringLiteral("ok"), ok}, {QStringLiteral("text"), text},
             {QStringLiteral("error"), error}};
+}
+
+bool acceptsGoogleClients(const QByteArray &bytes, QString *error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (bytes.size() > maximumClientFileBytes
+        || parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        *error = QStringLiteral("Could not validate OAuth clients. The file has not been changed.");
+        return false;
+    }
+    const auto supported = [](const QJsonValue &provider) {
+        return provider.isUndefined() || provider.isNull()
+            || (provider.isString() && (provider.toString().trimmed().isEmpty()
+                || provider.toString().trimmed().compare(QStringLiteral("gmail"),
+                                                        Qt::CaseInsensitive) == 0));
+    };
+    const auto supportedRecord = [&](const QJsonObject &record) {
+        return supported(record.value(QStringLiteral("provider")))
+            && supported(record.value(QStringLiteral("installed")).toObject().value(QStringLiteral("provider")))
+            && supported(record.value(QStringLiteral("web")).toObject().value(QStringLiteral("provider")));
+    };
+    const QJsonObject object = document.object();
+    bool accepted = supportedRecord(object);
+    for (const QJsonValue &entry : object.value(QStringLiteral("accounts")).toArray())
+        accepted = accepted && supportedRecord(entry.toObject());
+    if (!accepted)
+        *error = QStringLiteral("Only Gmail accounts are supported. Your saved credentials have not been changed.");
+    return accepted;
+}
+
+bool acceptsCredentialReplacement(const QString &path, const QByteArray &bytes, QString *error)
+{
+    if (!acceptsGoogleClients(bytes, error)) return false;
+    const QFileInfo existing(path);
+    if (existing.isSymLink()) {
+        *error = QStringLiteral("Could not validate saved OAuth clients. The file has not been changed.");
+        return false;
+    }
+    if (!existing.exists()) return true;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > maximumClientFileBytes) {
+        *error = QStringLiteral("Could not read saved OAuth clients. The file has not been changed.");
+        return false;
+    }
+    return acceptsGoogleClients(file.read(maximumClientFileBytes + 1), error);
 }
 
 const QSet<QString> &allowedSettings()
@@ -27,7 +76,10 @@ const QSet<QString> &allowedSettings()
         QStringLiteral("oauthPort"), QStringLiteral("undoSendSeconds"),
         QStringLiteral("unifiedCalendarView"), QStringLiteral("openOnClick"),
         QStringLiteral("showBarIcon"), QStringLiteral("suggestEvents"),
-        QStringLiteral("unifiedMailboxes")};
+        QStringLiteral("unifiedMailboxes"), QStringLiteral("appearance"),
+        QStringLiteral("calendarRemindersEnabled"), QStringLiteral("calendarSnoozeMinutes"),
+        QStringLiteral("previewOnCursor"), QStringLiteral("markReadDelaySec"),
+        QStringLiteral("aiAgent"), QStringLiteral("aiModel"), QStringLiteral("aiChatResetAt")};
     return keys;
 }
 
@@ -56,6 +108,47 @@ bool parseSettingsFile(const QString &path, QVariantMap *settings, QString *erro
     *settings = document.object().toVariantMap();
     return SettingsStore::accepts(*settings, error);
 }
+
+bool migrateLegacyFile(const QString &source, const QString &target, bool settings)
+{
+    const QFileInfo sourceInfo(source);
+    const QFileInfo targetInfo(target);
+    if (!sourceInfo.exists()) return true;
+    if (targetInfo.exists() || targetInfo.isSymLink()) return true;
+    if (sourceInfo.isSymLink() || !sourceInfo.isFile()) return false;
+    QFile input(source);
+    if (!input.open(QIODevice::ReadOnly) || input.size() > maximumTextFileBytes) return false;
+    const QByteArray bytes = input.read(maximumTextFileBytes + 1);
+    if (settings) {
+        QVariantMap values;
+        if (!parseSettingsFile(source, &values, nullptr)) return false;
+    } else {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) return false;
+    }
+    if (!QDir().mkpath(QFileInfo(target).absolutePath())) return false;
+    QSaveFile output(target);
+    if (!output.open(QIODevice::WriteOnly)) return false;
+    output.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    return output.write(bytes) == bytes.size() && output.commit();
+}
+
+void migrateLegacySettings(const QString &target)
+{
+    const QByteArray configured = qgetenv("XDG_CONFIG_HOME");
+    const QString configHome = configured.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.config")
+        : QString::fromLocal8Bit(configured);
+    const QString shared = QDir(configHome).filePath(QStringLiteral("omamail"));
+    const QString native = QFileInfo(target).absolutePath();
+    if (!migrateLegacyFile(QDir(shared).filePath(QStringLiteral("settings.json")),
+                           QDir(native).filePath(QStringLiteral("settings.json")), true))
+        qWarning() << "Magpie Mail could not migrate the existing settings.json";
+    if (!migrateLegacyFile(QDir(shared).filePath(QStringLiteral("notification-routes.json")),
+                           QDir(native).filePath(QStringLiteral("notification-routes.json")), false))
+        qWarning() << "Magpie Mail could not migrate notification routes";
+}
 }
 
 FileStore::FileStore(QObject *parent)
@@ -68,17 +161,15 @@ FileStore::FileStore(QObject *parent)
     });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this,
             [this](const QString &directory) {
-        for (const QString &path : std::as_const(m_watchedFiles)) {
+        for (const QString &path : m_watchSubscribers.keys()) {
             const QFileInfo info(path);
             if (info.absolutePath() != directory && info.absoluteFilePath() != directory)
                 continue;
-            const bool exists = QFileInfo::exists(path);
-            // A watched directory may be a symlink such as Omarchy's
+            // Invariant: A watched directory may be a symlink such as Omarchy's
             // `current` theme entry. Its existence can stay true while its
             // target is atomically replaced, so any relevant directory event
             // invalidates the watched path.
             emit changed(path);
-            m_lastExists.insert(path, exists);
         }
         restoreWatches();
     });
@@ -112,17 +203,22 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
         emit failed(path, error);
         return result(false, {}, error);
     }
+    const QByteArray bytes = text.toUtf8();
+    QString error;
+    if (QFileInfo(path).fileName() == QStringLiteral("credentials.json")
+        && !acceptsCredentialReplacement(path, bytes, &error)) {
+        emit failed(path, error);
+        return result(false, {}, error);
+    }
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
         const QString error = QStringLiteral("Could not create the parent directory");
         emit failed(path, error);
         return result(false, {}, error);
     }
-    const QByteArray bytes = text.toUtf8();
-    QString error;
     bool ok = false;
     if (atomic) {
-        // Replacing a file on Windows fails with a sharing violation while
-        // the virus scanner or the indexer still holds the one it replaces,
+        // Invariant: Replacing a file on Windows fails with a sharing violation while
+        // the virus scanner or the indexer still holds the file being replaced,
         // which is often the case a moment after it was written. A few short
         // waits outlast that; a file held for good still fails.
 #ifdef Q_OS_WIN
@@ -149,7 +245,7 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
         emit failed(path, error);
         return result(false, {}, error);
     }
-    if (m_watchedFiles.contains(QFileInfo(path).absoluteFilePath()))
+    if (m_watchSubscribers.contains(QFileInfo(path).absoluteFilePath()))
         emit changed(QFileInfo(path).absoluteFilePath());
     restoreWatches();
     return result(true);
@@ -159,31 +255,31 @@ void FileStore::watch(const QString &path, bool enabled)
 {
     const QString absolute = QFileInfo(path).absoluteFilePath();
     if (enabled) {
-        m_watchedFiles.insert(absolute);
-        m_lastExists.insert(absolute, QFileInfo::exists(absolute));
-    } else {
-        m_watchedFiles.remove(absolute);
-        m_lastExists.remove(absolute);
+        ++m_watchSubscribers[absolute];
+    } else if (auto subscription = m_watchSubscribers.find(absolute);
+               subscription != m_watchSubscribers.end()) {
+        if (--subscription.value() == 0) m_watchSubscribers.erase(subscription);
     }
     restoreWatches();
 }
 
-// Only the difference is applied. Re-adding a directory that is already
-// watched makes Qt's FSEvents engine list it afresh, and it lists without
+// Invariant: Only the difference is applied. Re-adding a directory that is already
+// watched makes Qt's FSEvents engine list it afresh, and the engine lists without
 // hidden entries then checks with them, so a directory holding a dotfile
 // (the backend's lock files) reported itself changed after every re-arm.
 // With every directory event re-arming the watches, that never ended.
 void FileStore::restoreWatches()
 {
     QSet<QString> wanted;
-    for (const QString &file : std::as_const(m_watchedFiles)) {
+    for (const QString &file : m_watchSubscribers.keys()) {
         const bool exists = QFileInfo::exists(file);
-        m_lastExists.insert(file, exists);
         if (exists) wanted.insert(file);
         wanted.insert(QFileInfo(file).absolutePath());
     }
-    const QSet<QString> current = QSet<QString>(m_watcher.files().cbegin(), m_watcher.files().cend())
-        | QSet<QString>(m_watcher.directories().cbegin(), m_watcher.directories().cend());
+    const QStringList files = m_watcher.files();
+    const QStringList directories = m_watcher.directories();
+    const QSet<QString> current = QSet<QString>(files.cbegin(), files.cend())
+        | QSet<QString>(directories.cbegin(), directories.cend());
     const QStringList stale = (current - wanted).values();
     if (!stale.isEmpty()) m_watcher.removePaths(stale);
     const QStringList missing = (wanted - current).values();
@@ -196,6 +292,7 @@ SettingsStore::SettingsStore(QString path)
     if (m_path.isEmpty()) {
         m_path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
             .filePath(QStringLiteral("settings.json"));
+        migrateLegacySettings(m_path);
     }
 }
 
@@ -208,11 +305,10 @@ QVariantMap SettingsStore::load(QString *error) const
 
 bool SettingsStore::accepts(const QVariantMap &settings, QString *error)
 {
-    for (auto it = settings.cbegin(); it != settings.cend(); ++it) {
-        if (!allowedSettings().contains(it.key())) {
-            if (error) *error = QStringLiteral("Setting is not allowed: %1").arg(it.key());
-            return false;
-        }
+    for (auto setting = settings.cbegin(); setting != settings.cend(); ++setting) {
+        if (allowedSettings().contains(setting.key())) continue;
+        if (error) *error = QStringLiteral("Setting is not allowed: %1").arg(setting.key());
+        return false;
     }
     if (error) error->clear();
     return true;

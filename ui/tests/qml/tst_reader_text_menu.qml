@@ -1,11 +1,8 @@
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// A right-click on the message body: Copy for what is selected, and Open and
-// Copy URL when the click lands on a link.
 Item {
   width: 900
   height: 600
@@ -20,6 +17,9 @@ Item {
 
     property var copied: []
     property var opened: []
+    property var openedFrom: []
+    property var notes: []
+    readonly property var reading: ({ accountId: "gmail:reader@example.com" })
 
     property string selectedId: "message-9"
     property var selectedMessage: ({
@@ -38,6 +38,7 @@ Item {
     property bool selectedReaderTooHeavy: rendered.reader.tooHeavy
     property bool selectedReaderEmpty: rendered.reader.empty
     property int selectedRemoteImages: rendered.remoteImages
+    property int selectedReaderRemoteImages: rendered.reader.blockedImages
     property bool remoteImagesAllowed: false
     property bool selectedTooHeavy: rendered.tooHeavy
     property string unsubscribeLabel: ""
@@ -56,7 +57,12 @@ Item {
     function getMessage() {}
     function showRemoteImages() {}
     function copyText(text) { copied = copied.concat([String(text)]); return true }
-    function openExternal(url) { opened = opened.concat([String(url)]); return true }
+    function note(text) { notes = notes.concat([String(text)]) }
+    function openMessageLink(url, accountId) {
+      opened = opened.concat([String(url)])
+      openedFrom = openedFrom.concat([String(accountId)])
+      return true
+    }
   }
 
   Omamail.MessageReader {
@@ -82,62 +88,52 @@ Item {
     name: "ReaderTextMenu"
     when: windowShown
 
-    function found(item, type) {
+    function findByType(item, typeName) {
       if (!item) return null
-      if (item.toString().indexOf(type) === 0) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = found(values[i], type)
-        if (hit) return hit
+      if (item.toString().indexOf(typeName) === 0) return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findByType(children[index], typeName)
+        if (match) return match
       }
       return null
     }
 
-    function named(item, name) {
-      if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
-      }
-      return null
-    }
-
-    function body() {
-      var edit = found(reader, "QQuickTextEdit")
-      verify(edit, "the reader draws its message in a TextEdit")
-      return edit
+    function bodyEditor() {
+      var editor = findByType(reader, "QQuickTextEdit")
+      verify(editor, "the reader draws its message in a TextEdit")
+      return editor
     }
 
     function menu() {
-      var found = named(reader, "reader-text-menu")
+      var found = findChild(reader, "reader-text-menu")
       verify(found, "the reader owns a text menu")
       return found
     }
 
-    // Where a run of text sits in the body, by the first character of it.
-    function pointOf(edit, needle) {
-      var plain = edit.getText(0, edit.length)
-      var at = plain.indexOf(needle)
-      verify(at >= 0, "the body holds " + needle)
-      var rect = edit.positionToRectangle(at)
-      return { x: rect.x + 3, y: rect.y + rect.height / 2 }
+    function pointOf(editor, needle) {
+      var plain = editor.getText(0, editor.length)
+      var characterIndex = plain.indexOf(needle)
+      verify(characterIndex >= 0, "the body holds " + needle)
+      var rectangle = editor.positionToRectangle(characterIndex)
+      return { x: rectangle.x + 3, y: rectangle.y + rectangle.height / 2 }
     }
 
     function init() {
       menu().close()
-      body().deselect()
+      bodyEditor().deselect()
       mailService.copied = []
       mailService.opened = []
+      mailService.openedFrom = []
+      mailService.notes = []
     }
 
     function cleanup() { menu().close() }
 
     function test_a_right_click_on_the_body_opens_the_menu() {
-      var edit = body()
-      var point = pointOf(edit, "Person 1")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Person 1")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       compare(menu().opened, true)
       compare(menu().editable, false)
@@ -145,22 +141,22 @@ Item {
     }
 
     function test_a_right_click_keeps_the_selection_and_copy_copies_it() {
-      var edit = body()
-      var start = edit.getText(0, edit.length).indexOf("moved")
-      edit.select(start, start + 5)
-      var point = pointOf(edit, "Person 1")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var start = editor.getText(0, editor.length).indexOf("moved")
+      editor.select(start, start + 5)
+      var point = pointOf(editor, "Person 1")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
-      compare(edit.selectedText, "moved")
+      compare(editor.selectedText, "moved")
       compare(menu().copyRow.enabled, true)
       menu().copyRow.activated()
       compare(mailService.copied, ["moved"])
     }
 
     function test_a_right_click_on_a_link_offers_it() {
-      var edit = body()
-      var point = pointOf(edit, "Open the board")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Open the board")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       compare(menu().opened, true)
       compare(menu().link, "https://example.com/board")
@@ -169,12 +165,24 @@ Item {
     }
 
     function test_open_link_opens_it_outside() {
-      var edit = body()
-      var point = pointOf(edit, "Open the board")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Open the board")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       menu().openLinkRow.activated()
       compare(mailService.opened, ["https://example.com/board"])
+      compare(mailService.openedFrom, ["gmail:reader@example.com"])
+      compare(mailService.notes, [])
+    }
+
+    function test_a_link_magpie_will_not_open_says_so_without_naming_it() {
+      var links = ["http://192.168.1.1/admin", "https://printer.local/", "javascript:alert(1)",
+                   "file:///etc/passwd", "https://example.com&sol;@10.0.0.1/"]
+      for (var index = 0; index < links.length; index++) reader.openLink(links[index])
+      compare(mailService.opened, [])
+      compare(mailService.notes.length, links.length)
+      for (var noteIndex = 0; noteIndex < links.length; noteIndex++)
+        compare(mailService.notes[noteIndex], "Magpie Mail did not open the link, because it is not a public web address.")
     }
   }
 }

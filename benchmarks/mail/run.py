@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure synthetic mail CPU work in frozen JS and native Rust; no network."""
+"""Invariant: CPU comparisons use synthetic mail and exclude network work."""
 import argparse
 import hashlib
 import json
@@ -39,29 +39,38 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
+def fingerprints(paths):
+    return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+
+
+def verify_unchanged(expected):
+    if fingerprints(Path(path) for path in expected) != expected:
+        raise RuntimeError('Source or binary changed during measurement')
+
+
 def mime_semantics(value):
-    # Compare wire headers, MIME structure, names and exact decoded bytes. The
-    # attachmentId is a backend locator, not parsed mail content.
+    # Invariant: attachmentId is a backend locator, not parsed mail content;
+    # compare wire headers, MIME structure, names and exact decoded bytes.
     import base64
     body=value.get('body',{})
     data=body.get('data','')
     decoded=base64.urlsafe_b64decode(data+'='*((-len(data))%4))
     return dict(mimeType=value.get('mimeType',''),filename=value.get('filename',''),
-        headers=[dict(name=h['name'].lower(),value=h['value']) for h in value.get('headers',[])],
+        headers=[dict(name=header['name'].lower(),value=header['value']) for header in value.get('headers',[])],
         bodyBytes=len(decoded),bodySha256=hashlib.sha256(decoded).hexdigest(),
-        parts=[mime_semantics(p) for p in value.get('parts',[])])
+        parts=[mime_semantics(part) for part in value.get('parts',[])])
 
 
 def html_semantics(value):
-    # Tree caches and absent default fields are implementation details; preserve
+    # Invariant: tree caches and absent defaults are implementation details; preserve
     # every renderable node, attribute, text byte, child order and result field.
-    def node(n):
-        kind=n['type']
-        if kind=='text':return dict(type=kind,text=n.get('text',''))
-        children=[node(c) for c in n.get('children',[])]
+    def node(current):
+        kind=current['type']
+        if kind=='text':return dict(type=kind,text=current.get('text',''))
+        children=[node(child) for child in current.get('children',[])]
         if kind=='root':return dict(type=kind,children=children)
-        return dict(type=kind,name=n['name'],attrs=n.get('attrs',[]),
-                    selfClosing=n.get('selfClosing',False),children=children)
+        return dict(type=kind,name=current['name'],attrs=current.get('attrs',[]),
+                    selfClosing=current.get('selfClosing',False),children=children)
     result=dict(value)
     result['document']=node(value['document'])
     if value.get('reader'):
@@ -70,17 +79,23 @@ def html_semantics(value):
     return result
 
 
-def difference(a,b,path='$'):
-    if type(a)!=type(b):return path+': differing types'
-    if isinstance(a,dict):
-        if a.keys()!=b.keys():return path+': differing keys'
-        for key in a:
-            if a[key]!=b[key]:return difference(a[key],b[key],path+'.'+key)
-    elif isinstance(a,list):
-        if len(a)!=len(b):return path+': differing lengths'
-        for i,(x,y) in enumerate(zip(a,b)):
-            if x!=y:return difference(x,y,path+f'[{i}]')
-    elif a!=b:return path+': differing values'
+def difference(expected, actual, path='$'):
+    if type(expected) != type(actual):
+        return path + ': differing types'
+    if isinstance(expected, dict):
+        if expected.keys() != actual.keys():
+            return path + ': differing keys'
+        for key in expected:
+            if expected[key] != actual[key]:
+                return difference(expected[key], actual[key], path + '.' + key)
+    elif isinstance(expected, list):
+        if len(expected) != len(actual):
+            return path + ': differing lengths'
+        for index, (expected_item, actual_item) in enumerate(zip(expected, actual)):
+            if expected_item != actual_item:
+                return difference(expected_item, actual_item, path + f'[{index}]')
+    elif expected != actual:
+        return path + ': differing values'
     return ''
 
 
@@ -88,6 +103,26 @@ def stats(row):
     values=sorted(row['samplesUs'])
     return dict(coldUs=row['coldUs'],medianUs=statistics.median(values),
         p95Us=values[min(len(values)-1,math.ceil(len(values)*.95)-1)],samplesUs=row['samplesUs'])
+
+
+def measured_cases(measured, payload):
+    cases = measured.get('cases', [])
+    expected = [(case['name'], phase) for case in payload['cases'] for phase in payload['phases']]
+    actual = [(case.get('name'), case.get('phase')) for case in cases]
+    if actual != expected:
+        raise RuntimeError('Missing, duplicated or reordered benchmark operations')
+    for case in cases:
+        validate_samples(case, payload['samples'])
+    return cases
+
+
+def validate_samples(row, count):
+    samples = row.get('samplesUs', [])
+    if len(samples) != count:
+        raise RuntimeError('Missing benchmark samples')
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+           for value in [row.get('coldUs'), *samples]):
+        raise RuntimeError('Invalid benchmark sample')
 
 
 def main():
@@ -114,40 +149,41 @@ def main():
     build_started=time.perf_counter()
     subprocess.run(['cargo','build','--locked','--release','--example','mail_bench','--target-dir',str(ROOT/'target')],cwd=ROOT,check=True)
     build_seconds=time.perf_counter()-build_started
+    binary=ROOT/'target/release/examples/mail_bench'
+    sources=sorted((ROOT/'src/message').rglob('*.rs'))
+    provenance=fingerprints([binary,*sources])
     with tempfile.TemporaryDirectory(prefix='omamail-mail-bench-') as directory:
         directory=Path(directory)
         js,js_process=run_process(['node',str(HERE/'node.cjs')],payload,directory,'node')
-        native,native_process=run_process([str(ROOT/'target/release/examples/mail_bench')],payload,directory,'rust')
+        native,native_process=run_process([str(binary)],payload,directory,'rust')
         qml=None
         qml_process=None
         if args.qml:
             qml_file=directory/'benchmark.qml'
             qml_file.write_text(qml_source(payload,HERE/'baseline/ui'))
             qml,qml_process=run_process(['/usr/lib/qt6/bin/qml',str(qml_file)],{},directory,'qml')
-        expected=len(payload['cases'])*len(payload['phases'])
         for measured in [js,native]+([qml] if qml else []):
-            if len(measured['cases'])!=expected:raise RuntimeError('Missing benchmark operations')
+            measured_cases(measured, payload)
         results=[]
-        for index,(old,new) in enumerate(zip(js['cases'],native['cases'],strict=True)):
-            assert(old['name'],old['phase'])==(new['name'],new['phase'])
-            canonical=mime_semantics if old['phase']=='mime' else html_semantics
-            a,b=canonical(old['result']),canonical(new['result'])
-            results.append(dict(name=old['name'],phase=old['phase'],semanticMatch=a==b,
-                semanticDifference=difference(a,b),jsDigest=digest(a),rustDigest=digest(b),
-                node=stats(old),rust=stats(new),speedup=statistics.median(old['samplesUs'])/statistics.median(new['samplesUs'])))
+        for index,(baseline_case,native_case) in enumerate(zip(js['cases'],native['cases'],strict=True)):
+            canonical=mime_semantics if baseline_case['phase']=='mime' else html_semantics
+            baseline_result,native_result=canonical(baseline_case['result']),canonical(native_case['result'])
+            results.append(dict(name=baseline_case['name'],phase=baseline_case['phase'],semanticMatch=baseline_result==native_result,
+                semanticDifference=difference(baseline_result,native_result),jsDigest=digest(baseline_result),rustDigest=digest(native_result),
+                node=stats(baseline_case),rust=stats(native_case),speedup=statistics.median(baseline_case['samplesUs'])/statistics.median(native_case['samplesUs'])))
             if qml:
                 actual=qml['cases'][index]
-                assert(actual['name'],actual['phase'])==(old['name'],old['phase'])
                 results[-1]['qml']=stats(actual)
                 results[-1]['qml']['batch']=actual['batch']
-                results[-1]['qmlSemanticMatch']=canonical(actual['result'])==a
-                results[-1]['qmlSpeedup']=statistics.median(actual['samplesUs'])/statistics.median(new['samplesUs'])
+                results[-1]['qmlSemanticMatch']=canonical(actual['result'])==baseline_result
+                results[-1]['qmlSpeedup']=statistics.median(actual['samplesUs'])/statistics.median(native_case['samplesUs'])
+    verify_unchanged(provenance)
     cpu=next((line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'unknown')
     report=dict(date=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),machine=dict(cpu=cpu,platform=platform.platform(),logicalCpus=os.cpu_count(),loadAverageBefore=load_before,loadAverageAfter=os.getloadavg()),
         versions=dict(qml=subprocess.check_output(['/usr/lib/qt6/bin/qml','--version'],text=True,env=dict(os.environ,QT_QPA_PLATFORMTHEME='',GSETTINGS_BACKEND='memory'),stderr=subprocess.DEVNULL).strip() if args.qml else None,node=js['engine'],rust=subprocess.check_output(['rustc','--version'],text=True).strip()),
         conditions=args.conditions,commandWallSeconds=time.perf_counter()-command_started,buildWallSeconds=build_seconds,
-        baseline=manifest,nativeBinarySha256=hashlib.sha256((ROOT/"target/release/examples/mail_bench").read_bytes()).hexdigest(),
-        nativeSourceSha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT/"src/message").rglob("*.rs"))},
+        baseline=manifest,nativeBinarySha256=provenance[str(binary)],
+        nativeSourceSha256={str(path.relative_to(ROOT)):provenance[str(path)] for path in sources},
         samples=args.samples,batch=args.batch,warmupOperations=5,attachmentMiB=args.attachment_mib,
         corpus=[{k:v for k,v in c.items() if k not in ('raw','html')} for c in payload['cases']],
         nodeProcess=js_process,rustProcess=native_process,qmlProcess=qml_process,results=results)

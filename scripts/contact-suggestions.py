@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import configparser
+from contextlib import closing
 import json
 import os
 import re
@@ -8,19 +9,19 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import quote
 
-# The one gate every harvested address passes, because the harvesters below
+# Invariant: every harvested address passes this gate because the harvesters below
 # read files this program did not write and shapes it did not choose. "@ is
 # somewhere in the string" is not that gate: a JSON value stringified by
 # accident contains one, and what reached the picker was a whole serialised
 # object offered as an address to send mail to.
 ADDRESS = re.compile(r"^[^\s@<>,;\"\\]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 
-# A recipient list longer than this is a bulk send rather than a conversation.
+# Invariant: bulk-recipient lists must not displace curated contacts.
 # Harvesting one puts fifty strangers who happened to share a mailing with the
 # user into the address completion, ahead of the addresses they curated.
 MAX_HARVESTED_RECIPIENTS = 5
 
-# The cache holds every query the panel has ever run. This is the ceiling on
+# Performance: the cache holds every query the panel has ever run. This is the ceiling on
 # what any one of them may contribute, so a single large mailbox cannot fill
 # the picker on its own.
 MAX_CACHE_CONTACTS = 2000
@@ -30,7 +31,7 @@ def is_address(value: str) -> bool:
     return bool(ADDRESS.match(value))
 
 
-# `Message.parseAddress` fills a missing display name from the local part
+# Invariant: `Message.parseAddress` fills a missing display name from the local part
 # verbatim, so a sender with no name of its own arrives here calling itself
 # "noreply". That is not a name anybody wrote, and offering it as one puts
 # `noreply <noreply@example.com>` into a To: field.
@@ -78,18 +79,17 @@ def databases(profile: Path) -> list[Path]:
 def records(database: Path) -> list[dict[str, str]]:
     uri = "file:" + quote(str(database), safe="/") + "?mode=ro"
     try:
-        connection = sqlite3.connect(uri, uri=True, timeout=0.2)
-        rows = connection.execute(
-            """
-            SELECT card,
-                   MAX(CASE WHEN name = 'DisplayName' THEN value ELSE '' END),
-                   MAX(CASE WHEN name = 'PrimaryEmail' THEN value ELSE '' END),
-                   MAX(CASE WHEN name = 'SecondEmail' THEN value ELSE '' END)
-              FROM properties
-             GROUP BY card
-            """
-        ).fetchall()
-        connection.close()
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.2)) as connection:
+            rows = connection.execute(
+                """
+                SELECT card,
+                       MAX(CASE WHEN name = 'DisplayName' THEN value ELSE '' END),
+                       MAX(CASE WHEN name = 'PrimaryEmail' THEN value ELSE '' END),
+                       MAX(CASE WHEN name = 'SecondEmail' THEN value ELSE '' END)
+                  FROM properties
+                 GROUP BY card
+                """
+            ).fetchall()
     except (OSError, sqlite3.Error):
         return []
 
@@ -111,7 +111,7 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     except OSError:
         return []
 
-    # vCard folds a value past ~75 characters onto a continuation line marked
+    # Invariant: vCard folds a value past ~75 characters onto a continuation line marked
     # by a leading space or tab. Stripping every line first turns those into
     # unrecognised properties, which truncates long names and long addresses at
     # the fold — and exports from Google Contacts and iOS fold routinely.
@@ -122,7 +122,7 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     current_emails: list[str] = []
     for line in unfolded.splitlines():
         line = line.strip()
-        # Per line, not per file. One property without a colon used to raise
+        # Invariant: reject malformed properties per line. One missing colon used to raise
         # out of the whole loop and silently discard every remaining card.
         try:
             if line.startswith("BEGIN:VCARD"):
@@ -142,62 +142,67 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     return contacts
 
 
-# Everybody the panel has already shown the user, out of the pages it cached.
-#
-# Bounded on both sides. A recipient list longer than MAX_HARVESTED_RECIPIENTS
-# is a bulk send, and every stranger who shared that mailing is not a contact —
-# harvesting them buries the addresses the user actually corresponds with under
-# a list they never chose. Bcc is left out entirely: in a received message it
-# is either empty or the reader's own address.
+def cached_messages(account: Path):
+    try:
+        data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    queries = data.get("queries", {})
+    if not isinstance(queries, dict):
+        return
+    for entry in queries.values():
+        if not isinstance(entry, dict):
+            continue
+        rows = entry.get("summaries", []) or entry.get("messages", [])
+        if not isinstance(rows, list):
+            continue
+        yield from (message for message in rows if isinstance(message, dict))
+
+
+def message_contacts(message):
+    # Invariant: bulk recipients are not contacts; received Bcc is empty or the reader.
+    for field in ("from", "replyTo"):
+        yield message.get(field)
+    for field in ("to", "cc"):
+        people = message.get(field)
+        if not isinstance(people, list) or len(people) > MAX_HARVESTED_RECIPIENTS:
+            continue
+        yield from people
+
+
+def harvested_contact(value):
+    if not isinstance(value, dict):
+        return None
+    email = str(value.get("email") or "").strip()
+    if not is_address(email):
+        return None
+    name = str(value.get("name") or value.get("display") or "").strip()
+    return {"name": real_name(name, email), "email": email}
+
+
+def cached_contacts(account: Path):
+    for message in cached_messages(account):
+        for value in message_contacts(message):
+            contact = harvested_contact(value)
+            if contact is not None:
+                yield contact
+
+
 def omamail_cache_records(cache_dir: Path) -> list[dict[str, str]]:
     if not cache_dir.is_dir():
         return []
     contacts: list[dict[str, str]] = []
-
-    def take(value: object) -> None:
-        if not isinstance(value, dict):
-            return
-        email = str(value.get("email") or "").strip()
-        if not is_address(email):
-            return
-        name = str(value.get("name") or value.get("display") or "").strip()
-        contacts.append({"name": real_name(name, email), "email": email})
-
     for account in sorted(cache_dir.glob("account-*.json")):
-        try:
-            data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, ValueError):
-            continue
-        queries = data.get("queries", {})
-        if not isinstance(queries, dict):
-            continue
-        for entry in queries.values():
-            if not isinstance(entry, dict):
-                continue
-            rows = entry.get("summaries", []) or entry.get("messages", [])
-            if not isinstance(rows, list):
-                continue
-            for message in rows:
-                if not isinstance(message, dict):
-                    continue
-                if len(contacts) >= MAX_CACHE_CONTACTS:
-                    return contacts
-                for field in ("from", "replyTo"):
-                    take(message.get(field))
-                for field in ("to", "cc"):
-                    people = message.get(field)
-                    if not isinstance(people, list):
-                        continue
-                    if len(people) > MAX_HARVESTED_RECIPIENTS:
-                        continue
-                    for person in people:
-                        take(person)
+        for contact in cached_contacts(account):
+            if len(contacts) >= MAX_CACHE_CONTACTS:
+                return contacts
+            contacts.append(contact)
     return contacts
 
 
-# A hand-written address book, in either of the two shapes somebody would
-# reasonably write one in: a list of objects, or a mapping.
-#
+# Invariant: address mappings contain strings, not stringified JSON containers.
 # The mapping branch used to ask whether `str(value)` contained an "@", which
 # is true of a stringified list — so the natural wrapper `{"contacts": [...]}`
 # produced a contact named "contacts" whose address was the whole serialised

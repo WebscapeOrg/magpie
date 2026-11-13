@@ -36,12 +36,13 @@ Item {
   implicitHeight: Math.max(rowHeight, labelText.visible ? labelText.implicitHeight : 0)
 
   function indexForValue(wanted) {
-    for (var i = 0; i < options.length; i++)
-      if (String(options[i].value) === String(wanted)) return i
+    for (var optionIndex = 0; optionIndex < options.length; optionIndex++)
+      if (String(options[optionIndex].value) === String(wanted)) return optionIndex
     return -1
   }
 
   Text {
+    textFormat: Text.PlainText
     id: labelText
     visible: root.showLabel && root.label !== ""
     anchors.left: parent.left
@@ -54,6 +55,7 @@ Item {
 
   QQC.ComboBox {
     id: combo
+    Accessible.name: root.label
     objectName: "dropdown-input"
     anchors.left: labelText.visible ? labelText.right : parent.left
     anchors.leftMargin: labelText.visible ? Style.spacing.controlGap : 0
@@ -70,9 +72,6 @@ Item {
     palette.window: root.background
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
-    // One row per option at the shell's popup row height: the cursor row takes
-    // the hover fill, the chosen one a check, and neither is coloured with the
-    // accent.
     delegate: QQC.ItemDelegate {
       id: option
       required property var modelData

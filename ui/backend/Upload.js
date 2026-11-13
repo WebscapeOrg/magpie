@@ -5,13 +5,12 @@ var MAX_MESSAGE = 16 * 1024 * 1024
 var MAX_REQUEST = 64 * 1024 * 1024
 var MAX_CHUNK = 64 * 1024
 
-// RFC 822 transports supply a byte-string, not Unicode text. Encoding it as
-// UTF-8 would change attachment bytes and legacy charset bodies.
+// Invariant: RFC822 input is a byte string; UTF-8 encoding would alter binary attachments and legacy charsets.
 function chunk(raw, offset, size) {
   var bytes = []
   var end = Math.min(raw.length, offset + size)
-  for (var i = offset; i < end; i++) {
-    var byte = raw.charCodeAt(i)
+  for (var byteIndex = offset; byteIndex < end; byteIndex++) {
+    var byte = raw.charCodeAt(byteIndex)
     if (byte > 255) return null
     bytes.push(byte)
   }
@@ -24,9 +23,9 @@ function parse(raw, call, connected, callback, queue) {
   }, callback, MAX_MESSAGE, queue)
 }
 
-function request(method, params, call, connected, callback, queue) {
+function request(method, parameters, call, connected, callback, queue) {
   var raw
-  try { raw = Message.bytesToLatin1(Message.utf8Bytes(JSON.stringify(params))) }
+  try { raw = Message.bytesToLatin1(Message.utf8Bytes(JSON.stringify(parameters))) }
   catch (error) { callback(null, {code:-32602,message:"Invalid upload params"}); return }
   return transfer(raw, call, connected, function(upload, done) {
     return call("request.upload", {method:method, upload:upload}, done)
@@ -40,9 +39,7 @@ function putBody(accountId, id, body, call, connected, callback, queue) {
   }, callback, MAX_MESSAGE, queue)
 }
 
-// The limits are those of the pinned backend. Reserve declared bytes as well
-// as slots; eight valid 64 MiB requests still cannot fit its 128 MiB store.
-// This state belongs to one Backend instance, never to the shared JS library.
+// Invariant: Reserve both upload slots and declared bytes per Backend instance; individually valid uploads can exceed aggregate storage.
 function makeQueue(cleanupFailed) {
   var queue = { waiting: [], active: [], bytes: 0, pumping: false }
   queue.pump = function() {
@@ -75,8 +72,8 @@ function makeQueue(cleanupFailed) {
     queue.waiting = []
     queue.active = []
     queue.bytes = 0
-    for (var i = 0; i < tasks.length; i++) {
-      try { tasks[i].fail(error) }
+    for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+      try { tasks[taskIndex].fail(error) }
       catch (failure) { console.warn("Backend upload callback failed") }
     }
   }
@@ -90,6 +87,7 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
   var cancelled = false
   var started = false
   var current = null
+  var chunkSize = 0
   var task = { size: typeof raw === "string" ? raw.length : 0 }
   function finish(result, error) {
     if (finished) return
@@ -100,8 +98,7 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
       if (!cancelled && typeof callback === "function") callback(result, error)
     }
     if (error && upload && connected()) {
-      // Keep the reservation until cleanup answers, even when the transport
-      // queue is full. A refused discard must not open another upload slot.
+      // Invariant: Keep upload reservations until cleanup answers, even while the RPC queue is saturated.
       call("upload.discard", { upload: upload }, function(reply, failure) {
         if (failure && connected() && failure.message !== "upload_not_found" && queue
             && typeof queue.cleanupFailed === "function") queue.cleanupFailed()
@@ -126,40 +123,41 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
     invalid()
     return
   }
+  function append(offset) {
+    if (stopped()) return
+    if (offset === raw.length) {
+      current = complete(upload, function(payload, failure) {
+        if (finished) return
+        finish(payload, failure)
+      })
+      return
+    }
+    var part = chunk(raw, offset, chunkSize)
+    if (!part) { invalid(); return }
+    current = call("upload.append", { upload: upload, offset: offset, data: part.data }, function(reply, failure) {
+      if (stopped()) return
+      if (failure) { finish(null, failure); return }
+      if (!reply || reply.offset !== part.offset) { invalid(); return }
+      append(part.offset)
+    })
+  }
+  function begun(result, error) {
+    if (finished) return
+    if (result && typeof result.upload === "string") upload = result.upload
+    if (stopped()) return
+    if (error) { finish(null, error); return }
+    if (!upload || !result || typeof result.chunkSize !== "number"
+        || !isFinite(result.chunkSize) || result.chunkSize < 1
+        || Math.floor(result.chunkSize) !== result.chunkSize) {
+      invalid()
+      return
+    }
+    chunkSize = Math.min(MAX_CHUNK, result.chunkSize)
+    append(0)
+  }
   task.start = function() {
     started = true
-    current = call("upload.begin", { size: raw.length }, function(result, error) {
-      if (finished) return
-      if (result && typeof result.upload === "string") upload = result.upload
-      if (stopped()) return
-      if (error) { finish(null, error); return }
-      if (!upload || !result || typeof result.chunkSize !== "number"
-          || !isFinite(result.chunkSize) || result.chunkSize < 1
-          || Math.floor(result.chunkSize) !== result.chunkSize) {
-        invalid()
-        return
-      }
-      var size = Math.min(MAX_CHUNK, result.chunkSize)
-      function append(offset) {
-        if (stopped()) return
-        if (offset === raw.length) {
-          current = complete(upload, function(payload, failure) {
-            if (finished) return
-            finish(payload, failure)
-          })
-          return
-        }
-        var part = chunk(raw, offset, size)
-        if (!part) { invalid(); return }
-        current = call("upload.append", { upload: upload, offset: offset, data: part.data }, function(reply, failure) {
-          if (stopped()) return
-          if (failure) { finish(null, failure); return }
-          if (!reply || reply.offset !== part.offset) { invalid(); return }
-          append(part.offset)
-        })
-      }
-      append(0)
-    })
+    current = call("upload.begin", { size: raw.length }, begun)
   }
   if (queue) queue.add(task)
   else task.start()
@@ -168,7 +166,6 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
     cancelled = true
     if (!started || (current && current.withdraw && current.withdraw()))
       finish(null, { code: -32010, message: "Request cancelled" })
-    // An in-flight begin may still return its ID. Its callback owns cleanup;
-    // do not detach it or release a reservation the backend still holds.
+    // Invariant: An in-flight begin still owns its eventual upload id and reservation; its callback must remain available for cleanup.
   } }
 }

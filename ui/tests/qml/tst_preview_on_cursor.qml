@@ -2,8 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// Keyboard movement opens the reader immediately through explicit selection.
-// No preview preference, settling delay, or dwell can delay that selection.
 Item {
   width: 1200
   height: 700
@@ -72,6 +70,9 @@ Item {
     property var calendarController: null
     property var selectedBody: ({ text: "body", source: "plain" })
     property var selectedMessage: null
+    property var agentJobs: ({})
+    property var agentAttentionByMessage: ({})
+    property string contentDirection: "auto"
 
     readonly property var initialMessages: [
       { id: "m1", subject: "first", unread: true, from: { email: "a@x", display: "A" },
@@ -84,9 +85,7 @@ Item {
 
     property var messages: initialMessages.slice()
 
-    // What the panel asked for.
     property string selectedId: ""
-    property int selectCount: 0
     property int previewSelects: 0
     property int openSelects: 0
     property var markedRead: []
@@ -94,31 +93,14 @@ Item {
     function select(id, previewOnly) {
       selectedId = String(id || "")
       selectedMessage = messages.filter(function(row) { return row.id === selectedId })[0] || null
-      selectCount += 1
-      // What `MailAccount.select` records, because two decisions in the window
-      // now turn on it.
       selectionIsPreview = previewOnly === true
       if (previewOnly === true) previewSelects += 1
       else openSelects += 1
     }
 
-    // A body that has not landed. `select` puts the reader into this state on
-    // the real service; here the test says when it comes out of it, which is
-    // what a slow fetch and a failed one differ by.
-    function beginFetch() {
-      detailLoading = true
-      detailPainted = false
-    }
-
     function finishFetch() {
       detailLoading = false
       detailPainted = true
-    }
-
-    // A fetch that failed: it stopped, and nothing was painted.
-    function failFetch() {
-      detailLoading = false
-      detailPainted = false
     }
 
     function markPreviewRead(id) {
@@ -130,10 +112,10 @@ Item {
 
     function cursorOffset(id, delta) {
       if (messages.length === 0) return ""
-      var at = -1
-      for (var i = 0; i < messages.length; i++) if (messages[i].id === id) at = i
-      if (at < 0) return delta < 0 ? messages[messages.length - 1].id : messages[0].id
-      var next = at + delta
+      var currentIndex = -1
+      for (var index = 0; index < messages.length; index++) if (messages[index].id === id) currentIndex = index
+      if (currentIndex < 0) return delta < 0 ? messages[messages.length - 1].id : messages[0].id
+      var next = currentIndex + delta
       return messages[Math.max(0, Math.min(messages.length - 1, next))].id
     }
 
@@ -142,11 +124,11 @@ Item {
       selectionIsPreview = false
     }
     function refreshRecipientContacts() {}
-    function preferredSendAs(_r) { return null }
-    function loadAttachments(_i, _a, cb) { cb([], "") }
-    function fail(_t) {}
-    function note(_t) {}
-    function act(_i, _a, _q) { return true }
+    function preferredSendAs(_recipients) { return null }
+    function loadAttachments(_messageId, _attachments, callback) { callback([], "") }
+    function fail(_text) {}
+    function note(_text) {}
+    function act(_messageId, _action, _options) { return true }
     signal replySent()
   }
 
@@ -160,33 +142,32 @@ Item {
     name: "KeyboardReaderNavigation"
     when: windowShown
 
-    // The FloatingWindow, found by its title the way the other App tests find
-    // it: `children[0]` is not reliably the window.
-    function window() {
-      return having(app, function(it) { return it.title === "🐦 Magpie" })
+    // Invariant: the App window is identified by its title, not unstable child ordering.
+    function appWindow() {
+      return findMatching(app, function(item) { return item.title === "✉️ Magpie Mail" })
     }
 
-    // The reader panel, found by the one property only it has. It draws no
-    // objectName and `children[0]` is not reliably anything.
+    // Invariant: the reader has no objectName; identify its public forceRichAnyway property.
     function readerView() {
-      return having(app, function(it) { return it.forceRichAnyway !== undefined })
+      return findMatching(app, function(item) { return item.forceRichAnyway !== undefined })
     }
 
-    function having(item, accept) {
+    function findMatching(item, accept) {
       if (!item) return null
       if (accept(item)) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = having(children[i], accept)
+      for (var index = 0; index < children.length; index++) {
+        var found = findMatching(children[index], accept)
         if (found) return found
       }
       return null
     }
 
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       app.opened = true
-      window().width = 1200
-      window().height = 700
+      appWindow().width = 1200
+      appWindow().height = 700
       waitForRendering(app)
       app.resetNavigation()
       app.cursorId = ""
@@ -198,7 +179,6 @@ Item {
       mailService.previewOnCursor = true
       mailService.markReadDelaySec = 2
       mailService.selectedId = ""
-      mailService.selectCount = 0
       mailService.previewSelects = 0
       mailService.openSelects = 0
       mailService.markedRead = []
@@ -207,7 +187,7 @@ Item {
     }
 
     function test_real_j_and_k_keys_keep_focus_parked_while_opening_rows() {
-      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      var scope = findMatching(app, function(item) { return item.keyContext !== undefined })
       verify(scope)
       scope.applyContextFocus()
       wait(20)
@@ -251,7 +231,7 @@ Item {
     }
 
     function test_narrow_window_immediately_shows_reader() {
-      window().width = 700
+      appWindow().width = 700
       waitForRendering(app)
       compare(app.compact, true)
       app.moveCursor(1)
@@ -313,8 +293,7 @@ Item {
       compare(app.composing, true)
       app.moveCursor(1)
       compare(mailService.openSelects, 0)
-      // Navigation resets preserve an open composer across readiness changes.
-      // Close this empty draft so the next test starts in the mail list.
+      // Invariant: resetNavigation preserves a composer, so close this empty draft before the next case.
       app.back()
       compare(app.composing, false)
     }

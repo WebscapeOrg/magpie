@@ -1,8 +1,6 @@
 .pragma library
 
-// A small process-local cache of parsed message bodies. The disk cache keeps
-// the sender's source so sanitizer fixes apply after a restart; this only
-// avoids doing the same work again while the account object is alive.
+// Performance: Cache parsed bodies only for the account lifetime; persistent source is reparsed after restart so sanitizer fixes apply.
 
 function create(limit) {
   return {
@@ -17,9 +15,9 @@ function keyOf(id) {
 }
 
 function removeFromOrder(cache, key) {
-  for (var i = 0; i < cache.order.length; i++) {
-    if (cache.order[i] !== key) continue
-    cache.order.splice(i, 1)
+  for (var entryIndex = 0; entryIndex < cache.order.length; entryIndex++) {
+    if (cache.order[entryIndex] !== key) continue
+    cache.order.splice(entryIndex, 1)
     return
   }
 }

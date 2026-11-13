@@ -1,6 +1,6 @@
 .pragma library
 
-// Google's OAuth 2.0 flow for installed apps: authorization code with PKCE,
+// Invariant: Google's OAuth 2.0 flow for installed apps: authorization code with PKCE,
 // answered on a loopback listener. Everything here is pure string work so the
 // same code the shell runs is what the node tests exercise.
 //
@@ -18,16 +18,13 @@ var REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 var DEFAULT_PORT = 9481
 var CALLBACK_PATH = "/oauth2callback"
 
-// gmail.modify is read plus label/trash changes — it deliberately cannot
+// Invariant: gmail.modify is read plus label/trash changes — it deliberately cannot
 // permanently delete. gmail.send is what reply and compose need.
-// calendar.events reads calendars and creates events without broader account
-// access.
-var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
+// Contacts give sender pictures; the calendar is read, never changed, as context for The Point.
+var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly", "https://www.googleapis.com/auth/calendar.readonly"]
 var SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+  "https://www.googleapis.com/auth/gmail.send"
 ].concat(OPTIONAL_SCOPES)
 
 function normalizedPort(value) {
@@ -45,7 +42,7 @@ function encode(value) {
 
 function decode(value) {
   try { return decodeURIComponent(String(value || "").replace(/\+/g, " ")) }
-  catch (e) { return "" }
+  catch (error) { return "" }
 }
 
 function formBody(values) {
@@ -62,11 +59,11 @@ function parseQuery(raw) {
   var query = String(raw || "")
   if (query.charAt(0) === "?") query = query.substring(1)
   var parts = query.split("&")
-  for (var i = 0; i < parts.length; i++) {
-    if (!parts[i]) continue
-    var separator = parts[i].indexOf("=")
-    var key = separator < 0 ? parts[i] : parts[i].substring(0, separator)
-    var value = separator < 0 ? "" : parts[i].substring(separator + 1)
+  for (var itemIndex = 0; itemIndex < parts.length; itemIndex++) {
+    if (!parts[itemIndex]) continue
+    var separator = parts[itemIndex].indexOf("=")
+    var key = separator < 0 ? parts[itemIndex] : parts[itemIndex].substring(0, separator)
+    var value = separator < 0 ? "" : parts[itemIndex].substring(separator + 1)
     result[decode(key)] = decode(value)
   }
   return result
@@ -85,10 +82,10 @@ function authorizationUrl(options) {
     code_challenge_method: "S256",
     state: settings.state,
     access_type: "offline",
-    // Google joins these permissions to an existing grant. This matters when
+    // Invariant: Google joins these permissions to an existing grant. This matters when
     // an upgrade adds Calendar to a mailbox that already granted Gmail.
     include_granted_scopes: "true",
-    // Without this Google returns a refresh token only on the very first
+    // Invariant: Without this Google returns a refresh token only on the very first
     // consent, so a user who reinstalls the plugin would be stuck with an
     // access token that expires in an hour and never comes back.
     prompt: "consent",
@@ -96,9 +93,9 @@ function authorizationUrl(options) {
   })
 }
 
-// The listener is a raw socat pipe, so the first request line is all there is
-// to work with. Anything that is not the expected callback path is refused
-// rather than guessed at.
+/** Parses a reference OAuth callback request line and refuses unexpected paths.
+ * The native backend owns the live loopback listener.
+ */
 function parseCallbackRequestLine(line, expectedPath) {
   var match = String(line || "").match(/^GET\s+([^\s]+)\s+HTTP\/\d(?:\.\d)?$/)
   if (!match) return { ok: false, error: "Invalid sign-in callback request" }
@@ -140,17 +137,18 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
 
-// Anything that could carry a credential is scrubbed before it can reach a
-// label. Errors from Google echo request parameters more often than not.
+/** Anything that could carry a credential is scrubbed before it can reach a
+ * label. Errors from Google echo request parameters more often than not.
+ */
 function redact(text) {
   return String(text === undefined || text === null ? "" : text)
     .replace(/(refresh_token|access_token|code_verifier|client_secret|id_token)=[^&\s"']+/gi, "$1=[redacted]")
-    .replace(/"(refresh_token|access_token|code_verifier|client_secret|id_token)"\s*:\s*"[^"]*"/gi, "\"$1\":\"[redacted]\"")
+    .replace(/"(refresh_token|access_token|code_verifier|client_secret|id_token)"\s*:\s*"(?:\\.|[^"\\])*"/gi, "\"$1\":\"[redacted]\"")
     .replace(/\bya29\.[A-Za-z0-9._-]+/g, "[redacted]")
     .replace(/\b1\/\/[A-Za-z0-9._-]{20,}/g, "[redacted]")
     .replace(/\bGOCSPX-[A-Za-z0-9._-]+/g, "[redacted]")
@@ -192,24 +190,27 @@ function parseTokenResponse(status, text, previousRefreshToken) {
   }
 }
 
-// A saved grant stops being a session only when Google says the grant itself
-// is invalid. Timeouts, transport failures and server errors leave it intact
-// and must be retried when the network is usable again.
+/** A saved grant stops being a session only when Google says the grant itself
+ * is invalid. Timeouts, transport failures and server errors leave it intact
+ * and must be retried when the network is usable again.
+ */
 function refreshFailureDisposition(result) {
   return result && result.invalidGrant ? "signed_out" : "retry"
 }
 
-// Start quickly for a network transition, then back off to one request every
-// five minutes during a longer outage. A successful refresh resets the caller's
-// attempt counter.
+/** Start quickly for a network transition, then back off to one request every
+ * five minutes during a longer outage. A successful refresh resets the caller's
+ * attempt counter.
+ */
 function refreshRetryDelay(attempt) {
   var count = Math.max(0, Math.floor(Number(attempt)) || 0)
   return Math.min(300000, 5000 * Math.pow(2, count))
 }
 
-// A grant is only useful if it came back with everything the panel needs. A
-// user who unticks a checkbox on Google's consent screen gets a working token
-// with a scope set that silently breaks half the actions.
+/** A grant is only useful if it came back with everything the panel needs. A
+ * user who unticks a checkbox on Google's consent screen gets a working token
+ * with a scope set that silently breaks half the actions.
+ */
 function requiredScopes(scopes) {
   var requested = Array.isArray(scopes) ? scopes : SCOPES
   return requested.filter(function(scope) { return OPTIONAL_SCOPES.indexOf(scope) < 0 })
@@ -219,8 +220,8 @@ function missingScopes(granted, required) {
   var have = String(granted || "").split(/\s+/)
   var want = Array.isArray(required) && required.length > 0 ? required : requiredScopes(SCOPES)
   var missing = []
-  for (var i = 0; i < want.length; i++) {
-    if (have.indexOf(want[i]) < 0) missing.push(want[i])
+  for (var itemIndex = 0; itemIndex < want.length; itemIndex++) {
+    if (have.indexOf(want[itemIndex]) < 0) missing.push(want[itemIndex])
   }
   return missing
 }
@@ -234,24 +235,25 @@ function scopeShortName(scope) {
 function missingScopeMessage(missing) {
   if (!Array.isArray(missing) || missing.length === 0) return ""
   var names = []
-  for (var i = 0; i < missing.length; i++) names.push(scopeShortName(missing[i]))
+  for (var itemIndex = 0; itemIndex < missing.length; itemIndex++) names.push(scopeShortName(missing[itemIndex]))
   return "Google sign-in finished without the " + names.join(" and ")
     + " permission. Sign in again and leave every checkbox ticked"
 }
 
-// Content-Length is a BYTE count. The old page said "Returning to Omarchy
-// Gmail\u2026", whose ellipsis is one JS character and three UTF-8 bytes, so
-// the browser was told to expect a shorter response than it got and rendered
-// a truncated page. Measuring properly means the copy is free to use any
-// character it likes.
+/** Content-Length is a BYTE count. The old page said "Returning to Omarchy
+ * Gmail\u2026", whose ellipsis is one JS character and three UTF-8 bytes, so
+ * the browser was told to expect a shorter response than it got and rendered
+ * a truncated page. Measuring properly means the copy is free to use any
+ * character it likes.
+ */
 function byteLength(text) {
   var value = String(text || "")
   var bytes = 0
-  for (var i = 0; i < value.length; i++) {
-    var code = value.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+  for (var itemIndex = 0; itemIndex < value.length; itemIndex++) {
+    var code = value.charCodeAt(itemIndex)
+    if (code >= 0xd800 && code <= 0xdbff && itemIndex + 1 < value.length) {
       bytes += 4
-      i++
+      itemIndex++
     } else if (code < 0x80) bytes += 1
     else if (code < 0x800) bytes += 2
     else bytes += 3
@@ -269,17 +271,18 @@ function defaultTheme() {
   }
 }
 
-// The page the browser lands on after Google redirects. It is the only part of
+// Invariant: The page the browser lands on after Google redirects. It is the only part of
 // this app that renders outside Quickshell, so it takes the active Omarchy
 // theme with it rather than inventing a look of its own: same monospace, same
 // square corners, same hairline border at 40% foreground.
 
-// Everything the callback carries is attacker-controlled. The loopback listener
-// answers whatever connects to it — it cannot tell Google's redirect from any
-// other request to that port — so a crafted GET can put arbitrary text in
-// error_description, and parseQuery hands it back percent-decoded. Interpolated
-// raw, that text became markup in a page served from http://127.0.0.1, which is
-// an origin the browser trusts as much as any other.
+/** Everything the callback carries is attacker-controlled. The loopback listener
+ * answers whatever connects to it — it cannot tell Google's redirect from any
+ * other request to that port — so a crafted GET can put arbitrary text in
+ * error_description, and parseQuery hands it back percent-decoded. Interpolated
+ * raw, that text became markup in a page served from http://127.0.0.1, which is
+ * an origin the browser trusts as much as any other.
+ */
 function escapeHtml(text) {
   return String(text === undefined || text === null ? "" : text)
     .replace(/&/g, "&amp;")
@@ -289,33 +292,36 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;")
 }
 
-// The palette crosses into a stylesheet rather than into text, where escaping
-// does nothing: a value carrying "}" or "</style>" would close the rule or the
-// element and everything after it would be markup. It comes from the active
-// Omarchy theme, which is a file the user installed rather than something a
-// stranger sent — but this page is the one thing here a browser renders, and a
-// colour that is not a colour has no business reaching it either way.
+/** The palette crosses into a stylesheet rather than into text, where escaping
+ * does nothing: a value carrying "}" or "</style>" would close the rule or the
+ * element and everything after it would be markup. It comes from the active
+ * Omarchy theme, which is a file the user installed rather than something a
+ * stranger sent — but this page is the one thing here a browser renders, and a
+ * colour that is not a colour has no business reaching it either way.
+ */
 function cssColor(value, fallback) {
   var text = String(value === undefined || value === null ? "" : value).trim()
   return /^#[0-9A-Fa-f]{3,8}$/.test(text) ? text : fallback
 }
 
-// Quoted in the stylesheet, so the quote itself is the character that must not
-// survive. What is left is what a font is actually named.
+/** Quoted in the stylesheet, so the quote itself is the character that must not
+ * survive. What is left is what a font is actually named.
+ */
 function cssFontFamily(value) {
   var text = String(value === undefined || value === null ? "" : value)
     .replace(/[^A-Za-z0-9 _-]/g, "").trim()
   return text === "" ? "monospace" : text
 }
 
-// `body` is markup by design — the success page carries a script that closes the
-// tab — so it is the caller's job to have escaped anything untrusted inside it.
-// Everything else this builds is escaped here.
+/** `body` is markup by design — the success page carries a script that closes the
+ * tab — so it is the caller's job to have escaped anything untrusted inside it.
+ * Everything else this builds is escaped here.
+ */
 function themedPage(theme, options) {
   var palette = theme || defaultTheme()
   var settings = options || {}
-  var fg = cssColor(palette.foreground, "#DEDEDE")
-  var bg = cssColor(palette.background, "#131313")
+  var foreground = cssColor(palette.foreground, "#DEDEDE")
+  var background = cssColor(palette.background, "#131313")
   var mark = settings.failed ? cssColor(palette.urgent, "#FF5257")
     : cssColor(palette.accent, "#077CFD")
   var family = cssFontFamily(palette.fontFamily)
@@ -325,15 +331,15 @@ function themedPage(theme, options) {
     + "<title>" + escapeHtml(settings.title) + "</title><style>"
     + "*{box-sizing:border-box}"
     + "html,body{height:100%}"
-    + "body{margin:0;background:" + bg + ";color:" + fg + ";"
+    + "body{margin:0;background:" + background + ";color:" + foreground + ";"
     + "font-family:\"CaskaydiaMono Nerd Font\",\"JetBrains Mono\",\"" + family + "\",ui-monospace,monospace;"
     + "font-size:13px;line-height:1.7;display:flex;align-items:center;justify-content:center;padding:24px}"
-    + "main{width:100%;max-width:420px;border:1px solid " + fg + "66;padding:28px 30px}"
+    + "main{width:100%;max-width:420px;border:1px solid " + foreground + "66;padding:28px 30px}"
     + "svg{display:block;margin-bottom:18px}"
     + "h1{margin:0 0 10px;font-size:16px;font-weight:700;letter-spacing:-0.01em}"
-    + "p{margin:0;color:" + fg + "a6}"
-    + "p+p{margin-top:14px;font-size:11px;color:" + fg + "70}"
-    + "b{color:" + fg + ";font-weight:700}"
+    + "p{margin:0;color:" + foreground + "a6}"
+    + "p+p{margin-top:14px;font-size:11px;color:" + foreground + "70}"
+    + "b{color:" + foreground + ";font-weight:700}"
     + "</style></head><body><main>"
     + "<svg width=\"26\" height=\"26\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"" + mark + "\" "
     + "stroke-width=\"1.3\" stroke-linejoin=\"round\">"
@@ -353,7 +359,7 @@ function httpResponse(statusLine, body) {
 
 function successResponse(theme) {
   return httpResponse("200 OK", themedPage(theme, {
-    title: "Magpie",
+    title: "Magpie Mail",
     heading: "Mailbox connected",
     failed: false,
     body: "<p>Omamail can read this mailbox now. "

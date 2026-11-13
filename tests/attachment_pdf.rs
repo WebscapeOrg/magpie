@@ -1,5 +1,5 @@
-//! Synthetic attachments only: the tests classify or store bytes, never render
-//! them or invoke the desktop opener.
+//! Invariant: Synthetic attachments only: the tests classify or store bytes, never render them or
+//! invoke the desktop opener.
 use omamail::attachment::openable;
 
 const INVOICE: &[u8] = include_bytes!("fixtures/attachments/embedded-invoice.pdf");
@@ -14,8 +14,8 @@ fn replace(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
     .concat()
 }
 
-// Keep startxref correct while changing an object, so a test really exercises
-// the stream recognizer rather than failing solely on a shifted xref offset.
+// Algorithm: Keep startxref correct while changing an object, so a test really exercises the stream
+// recognizer rather than failing solely on a shifted xref offset.
 fn replace_object(from: &[u8], to: &[u8]) -> Vec<u8> {
     let bytes = replace(INVOICE, from, to);
     let xref = bytes.windows(5).position(|s| s == b"xref\n").unwrap();
@@ -124,7 +124,7 @@ fn embedded_xml_keeps_other_active_markers_visible() {
         b"<?xml-stylesheet",
         b"<\0s\0c\0r\0i\0p\0t",
     ] {
-        // Fixed-width replacement leaves both stream length and xref intact.
+        // Invariant: Fixed-width replacement leaves both stream length and xref intact.
         let mut bytes = INVOICE.to_vec();
         let at = bytes
             .windows(b"ExchangedDocumentContext".len())

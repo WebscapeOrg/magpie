@@ -12,6 +12,7 @@ cat >"$fixture_dir/bin/git" <<'EOF'
 set -eu
 [ "$1" != "rev-parse" ] || { echo 0123456789012345678901234567890123456789; exit 0; }
 [ "$1" = "log" ] || exit 2
+[ "${RELEASE_NOTES_LOG_FAIL:-0}" != 1 ] || exit 17
 cat <<'LOG'
 Add the first visible change (#11)
 Make a release-only improvement (#12)
@@ -23,6 +24,7 @@ EOF
 cat >"$fixture_dir/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -eu
+printf '%s\n' "$*" >>"$RELEASE_NOTES_GH_LOG"
 [ "$1" != "api" ] || {
   [[ " $* " == *" target_commitish=0123456789012345678901234567890123456789 "* ]] || exit 2
   cat <<'NOTES'
@@ -51,6 +53,7 @@ esac
 EOF
 
 chmod +x "$fixture_dir/bin/git" "$fixture_dir/bin/gh"
+export RELEASE_NOTES_GH_LOG="$fixture_dir/gh.log"
 
 PATH="$fixture_dir/bin:$PATH" \
   "$project_dir/scripts/release-notes.sh" v1.0.0 v1.1.0 >"$fixture_dir/actual"
@@ -81,3 +84,12 @@ cat >"$fixture_dir/expected" <<'EOF'
 EOF
 
 diff -u "$fixture_dir/expected" "$fixture_dir/actual"
+
+: >"$RELEASE_NOTES_GH_LOG"
+if PATH="$fixture_dir/bin:$PATH" RELEASE_NOTES_LOG_FAIL=1 \
+  "$project_dir/scripts/release-notes.sh" v1.0.0 v1.1.0 >"$fixture_dir/refused" 2>"$fixture_dir/error"; then
+  echo 'release notes accepted a failed history lookup' >&2
+  exit 1
+fi
+test ! -s "$RELEASE_NOTES_GH_LOG"
+test ! -s "$fixture_dir/refused"

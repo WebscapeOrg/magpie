@@ -1,10 +1,12 @@
 import QtQuick
 import QtTest
 import "../../components" as Omamail
+import "../../settings" as Settings
 
 Item {
   width: 640
   height: 160
+  Component { id: fontMetrics; FontMetrics {} }
   Omamail.MessageRow {
     id: row
     width: 600
@@ -18,65 +20,113 @@ Item {
     name: "MessageRowLayout"
     when: windowShown
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError|Binding loop/)
       mouseMove(row,-20,-20)
       row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
-      row.attachmentIndicatorEnabled=true;row.overview="";row.overviewState="";row.overviewReason=""
+      row.attachmentIndicatorEnabled=true;row.overview="";row.writing=false;row.pendingCount=0;row.motionEnabled=true
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
       waitForRendering(row)
+    }
+    function test_stack_cards_fit_and_the_lines_move_data() {
+      var cases = []
+      for (var width of [280, 600]) for (var count of [1, 2, 3, 7]) cases.push({tag:width+"-"+count,width:width,count:count})
+      return cases
+    }
+    function test_stack_cards_fit_and_the_lines_move(data) {
+      row.width=data.width;row.pendingCount=data.count;row.writing=true
+      waitForRendering(row)
+      compare(row.stackDepth,Math.min(3,data.count))
+      var front=findChild(row,"point-card-"+(row.stackDepth-1))
+      verify(front);verify(front.x>=0);verify(front.x+front.width<=row.width)
+      var placeholder=findChild(row,"point-placeholder"),avatar=findChild(row,"message-avatar")
+      verify(avatar.x>=front.x+8)
+      verify(placeholder.mapToItem(row,placeholder.width,placeholder.height).x<=front.x+front.width-4)
+      verify(placeholder.mapToItem(row,0,placeholder.height).y<=front.y+front.height-6)
+      var phase=placeholder.phase
+      wait(130)
+      verify(placeholder.phase!==phase,"the highlight moves through the lines")
+      row.motionEnabled=false;wait(30);phase=placeholder.phase;wait(130)
+      compare(placeholder.phase,phase,"the still state does not animate")
     }
     function test_attachment_indicator_keeps_line_height_and_text_gap_data() {
       return [{tag:"wide",width:600,actions:false},{tag:"narrow-actions",width:360,actions:true}]
     }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes_data() {
+      var cases = []
+      for (var interfaceSize of [11, 17, 26]) {
+        for (var listSize of [8, 10, 12, 14, 17, 26, 36]) {
+          cases.push({tag: interfaceSize + "-" + listSize, interfaceSize: interfaceSize, listSize: listSize})
+        }
+      }
+      return cases
+    }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes(data) {
+      var previous = Settings.MailStyle.preferences
+      try {
+        Settings.MailStyle.preferences = {interfaceSize: data.interfaceSize, listSize: data.listSize}
+        row.overview = "Ready"
+        waitForRendering(row)
+        var avatar = findChild(row, "message-avatar")
+        var sender = findChild(row, "message-sender")
+        var metrics = createTemporaryObject(fontMetrics, row, {font: sender.font})
+        var capitalTop = sender.mapToItem(row, 0, sender.baselineOffset + metrics.tightBoundingRect("H").y).y
+        verify(Math.abs(avatar.y-capitalTop)<0.01,"avatar follows sender capitals after text size changes")
+        verify(avatar.y >= 0, "avatar starts inside the row")
+        verify(avatar.y + avatar.height <= row.height, "avatar ends inside the row")
+      } finally {
+        Settings.MailStyle.preferences = previous
+      }
+    }
     function test_attachment_indicator_keeps_line_height_and_text_gap(data) {
       row.width=data.width;row.hasCursor=data.actions;row.checked=false
-      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",hasAttachments:false}
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,hasAttachments:false}
       waitForRendering(row)
       var description=findChild(row,"message-description")
       var glyph=findChild(row,"message-attachment-indicator")
       var before=description.mapToItem(row,0,0)
-      var height=row.height
-      var lineHeight=description.height
+      var heightBeforePixels=row.height
+      var lineHeightPixels=description.height
       var subject=findChild(row,"message-subject").mapToItem(row,0,0)
       compare(glyph.visible,false)
       row.summary=Object.assign({},row.summary,{hasAttachments:true})
       waitForRendering(row)
       compare(glyph.visible,true)
-      compare(row.height,height)
-      compare(description.height,lineHeight)
+      compare(row.height,heightBeforePixels)
+      compare(description.height,lineHeightPixels)
       compare(description.mapToItem(row,0,0).y,before.y)
       compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
-      verify(glyph.height<=description.height)
-      verify(glyph.height<=description.font.pixelSize)
-      verify(description.x-glyph.x-glyph.width>=4,"the paperclip has right-hand breathing room")
+      var sender=findChild(row,"message-sender")
+      verify(glyph.height<=sender.height)
+      verify(glyph.height<=sender.font.pixelSize)
+      var time=findChild(row,"message-time")
+      verify(time.x-glyph.x-glyph.width>=8,"the paperclip has right-hand breathing room")
       verify(Math.abs(glyph.mapToItem(row,0,glyph.height/2).y
-        - description.mapToItem(row,0,description.height/2).y) < 0.01)
+        - findChild(row,"message-sender").mapToItem(row,0,findChild(row,"message-sender").height/2).y) < 0.01)
       row.attachmentIndicatorEnabled=false
       compare(glyph.visible,false)
       compare(description.mapToItem(row,0,0).x,before.x)
       row.attachmentIndicatorEnabled=true
     }
-    function test_long_failure_tooltip_fits_a_narrow_row() {
+    function test_long_subject_tooltip_fits_a_narrow_row() {
       row.width=360;row.hasCursor=false
-      row.overview="";row.overviewState="failed"
-      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
+      row.overview=""
+      row.summary={id:"one",subject:"A subject long enough to need more than the three lines a sender's subject may take in a narrow row, so the whole of it is shown on hover instead, with nothing cut off and nothing spilling past the row",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
       waitForRendering(row)
-      var description=findChild(row,"message-description")
+      verify(findChild(row,"message-subject").truncated)
+      var description=findChild(row,"message-subject")
       mouseMove(description,5,5)
-      var tip=findChild(row,"overview-tooltip")
-      tryCompare(tip,"visible",true)
-      verify(tip.width<=row.width)
-      compare(tip.contentItem.textFormat,Text.PlainText)
-      compare(tip.contentItem.wrapMode,Text.WordWrap)
-      verify(tip.contentItem.height>tip.fontSize*1.5)
+      var tooltip=findChild(row,"overview-tooltip")
+      tryCompare(tooltip,"visible",true)
+      verify(tooltip.width<=row.width)
+      compare(tooltip.contentItem.textFormat,Text.PlainText)
+      compare(tooltip.contentItem.wrapMode,Text.WordWrap)
+      verify(tooltip.contentItem.height>tooltip.fontSize*1.5)
       mouseMove(row,-20,-20)
-      row.overviewState="";row.overviewReason=""
     }
-    function test_phase_four_tools_and_failure_detail() {
+    function test_phase_four_tools_and_a_failed_point_shows_the_subject() {
       row.hasCursor=true
       row.overview=""
-      row.overviewState="failed"
-      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
-      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",sourceLabel:"Personal"}
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,sourceLabel:"Personal"}
       waitForRendering(row)
       var time=findChild(row,"message-time")
       compare(findChild(row,"message-source"),null)
@@ -84,8 +134,198 @@ Item {
       var actions=findChild(row,"message-actions")
       var unread=findChild(row,"message-mark-unread")
       compare(actions.spacing,unread.width*0.15)
-      verify(findChild(row,"message-description").text.indexOf(row.overviewReason)>=0)
-      row.overviewState="";row.overviewReason="";row.hasCursor=false
+      compare(findChild(row,"message-subject").text,"Title")
+      compare(findChild(row,"message-description").visible,false)
+      compare(findChild(row,"overview-tooltip").visible,false,"no warning on the row")
+      row.hasCursor=false
+    }
+    function test_a_point_being_written_shows_moving_lines_then_fades_in_data() {
+      return [{tag:"narrow-actions",width:360,actions:true},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
+    }
+    function test_a_point_being_written_shows_moving_lines_then_fades_in(data) {
+      row.width=data.width;row.hasCursor=data.actions
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"22:58",unread:true}
+      row.writing=true
+      waitForRendering(row)
+      var placeholder=findChild(row,"point-placeholder"),subject=findChild(row,"message-subject"),sender=findChild(row,"message-sender")
+      compare(placeholder.visible,true);compare(subject.visible,false);compare(findChild(row,"message-description").visible,false)
+      compare(placeholder.Accessible.name,"Point being written. Original subject")
+      var top=placeholder.mapToItem(row,0,0)
+      verify(top.y>=sender.mapToItem(row,0,sender.height).y,"the lines sit below the sender")
+      verify(top.y+placeholder.height<=row.height-6,"with space below them")
+      if (data.actions) verify(placeholder.mapToItem(row,placeholder.width,0).x<=findChild(row,"message-actions").x)
+      else verify(placeholder.mapToItem(row,placeholder.width,0).x<=row.width)
+      row.overview="Ana needs your answer by Friday."
+      row.writing=false
+      compare(placeholder.visible,false);compare(subject.visible,true);compare(subject.text,row.overview)
+      verify(subject.opacity<1,"the Point fades in")
+      tryCompare(subject,"opacity",1,2000)
+      row.summary={id:"two",subject:"Other",from:{display:"Sender"},time:"22:58",unread:false}
+      row.writing=true;row.summary={id:"three",subject:"Reused",from:{display:"Sender"},time:"22:58",unread:false};row.writing=false
+      compare(subject.opacity,1,"a recycled row does not fade")
+      row.overview=""
+    }
+    function test_description_replaces_subject_and_preview_without_colliding_with_actions() {
+      row.width=360;row.hasCursor=true
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"Yesterday",unread:true,hasAttachments:true}
+      row.overview="Reminder — Your electricity bill for the garden office was due yesterday"
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions")
+      compare(subject.text,row.overview)
+      compare(subject.textFormat,Text.PlainText)
+      compare(findChild(row,"message-description").visible,false)
+      verify(subject.lineCount>1)
+      verify(subject.mapToItem(row,subject.width,0).x<=actions.x)
+      verify(subject.mapToItem(row,0,subject.height).y<=row.height-6)
+      row.overview=""
+      compare(subject.text,"Original subject")
+      compare(findChild(row,"message-description").visible,true)
+    }
+    function test_a_long_point_is_shown_whole_and_the_row_grows_data() {
+      return [{tag:"narrow",width:360,actions:false},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
+    }
+    function test_a_long_point_is_shown_whole_and_the_row_grows(data) {
+      row.width=data.width;row.hasCursor=data.actions
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"Yesterday",unread:true}
+      row.overview=""
+      waitForRendering(row)
+      var oneLine=row.height
+      var point="Your landlord wants the October rent by Friday and says the August payment never arrived. "
+        + "You paid it on 2 August from the joint account, so send the landlord the bank receipt. "
+        + "The new lease starts in January and keeps the same rent, so nothing changes there for you."
+      verify(Array.from(point).length<=300)
+      row.overview=point
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions"),time=findChild(row,"message-time")
+      compare(subject.text,point)
+      verify(!subject.truncated,data.tag+": the whole Point is shown")
+      verify(subject.lineCount>3,data.tag+": a long Point runs past the old three-line cap ("+subject.lineCount+" lines)")
+      verify(row.height>oneLine,"the row grows to fit the Point")
+      verify(subject.mapToItem(row,0,subject.height).y<=row.height-6,"the Point keeps space below it")
+      if(actions.visible) verify(subject.mapToItem(row,subject.width,0).x<=actions.x,"the Point stops before the tools")
+      verify(subject.mapToItem(row,0,0).y>=time.mapToItem(row,0,time.height).y,"the Point starts below the date")
+      compare(subject.Accessible.name,"Unread. The Point: "+point)
+      row.overview=""
+      waitForRendering(row)
+      compare(row.height,oneLine,"the row returns to its size without the Point")
+    }
+    function test_tools_appearing_never_change_the_row_height_data() {
+      return [{tag:"mouse-360",width:360,mouse:true},{tag:"cursor-360",width:360,mouse:false},{tag:"mouse-600",width:600,mouse:true},{tag:"cursor-600",width:600,mouse:false}]
+    }
+    function test_tools_appearing_never_change_the_row_height(data) {
+      row.width=data.width
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var words=[],subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions"),tested=0
+      for(var i=0;i<60;i++) {
+        words.push(["Your","payment","to","the","provider","went","through","today"][i%8])
+        var point=words.join(" ")
+        if(Array.from(point).length>300) break
+        row.overview=point;waitForRendering(row)
+        compare(actions.visible,false)
+        var height=row.height,lines=subject.lineCount
+        if(data.mouse) mouseMove(row,row.width/2,20); else row.hasCursor=true
+        tryCompare(actions,"visible",true)
+        waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(subject.lineCount<=lines,"the Point takes no extra line")
+        verify(subject.mapToItem(row,subject.width,0).x<=actions.x,"the Point stops before the tools")
+        if(subject.truncated) tested++
+        if(data.mouse) mouseMove(row,-20,-20); else row.hasCursor=false
+        tryCompare(actions,"visible",false)
+        waitForRendering(row)
+        compare(row.height,height,"and returns to the same height")
+        verify(!subject.truncated,"the whole Point is back once the tools go")
+      }
+      verify(tested>0,"at least one Point had to be cut, so this case exercised the limit")
+      row.overview=""
+    }
+    function test_row_height_is_steady_with_taller_fallback_fonts_and_in_narrow_rows_data() {
+      var lines=[]
+      for (var width of [300,360,420,600]) for (var word of ["你好世界","مرحبا","नमस्ते","🙂"]) lines.push({tag:width+"-"+word,width:width,word:word})
+      return lines
+    }
+    function test_row_height_is_steady_with_taller_fallback_fonts_and_in_narrow_rows(data) {
+      row.width=data.width
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var subject=findChild(row,"message-subject"),words=[]
+      for(var i=0;i<30;i++) {
+        words.push(i%5===3?data.word:"payment")
+        row.overview=words.join(" ")
+        waitForRendering(row)
+        var height=row.height
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(subject.width>=1,"the Point keeps a place in the row")
+        verify(subject.parent.clip,"a line too tall for its lane cannot paint over the next row")
+        row.hasCursor=false;waitForRendering(row)
+      }
+      row.overview=""
+    }
+    function test_a_preview_with_hard_line_breaks_stays_steady_without_a_binding_loop_data() {
+      return [{tag:"300",width:300},{tag:"360",width:360},{tag:"600",width:600}]
+    }
+    function test_a_preview_with_hard_line_breaks_stays_steady_without_a_binding_loop(data) {
+      row.width=data.width;row.overview=""
+      for (var snippet of ["One\nTwo\nThree","Ends in a newline\n","\n\nLeading","One two three four five six seven eight nine ten eleven twelve\nthirteen"]) {
+        row.summary={id:"one",subject:"Title",snippet:snippet,from:{display:"Sender"},time:"09:14",unread:false}
+        waitForRendering(row)
+        var height=row.height
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+JSON.stringify(snippet))
+        row.hasCursor=false;waitForRendering(row)
+      }
+    }
+    function test_a_cut_point_shows_whole_in_its_tooltip_and_a_short_one_has_none() {
+      row.width=360
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var subject=findChild(row,"message-subject"),tooltip=findChild(row,"overview-tooltip"),words=[]
+      for(var i=0;i<40&&!subject.truncated;i++) {
+        words.push("payment")
+        row.overview=words.join(" ")
+        mouseMove(row,-20,-20);waitForRendering(row)
+        mouseMove(subject,5,5);waitForRendering(row)
+      }
+      verify(subject.truncated,"hovering cut the Point")
+      tryCompare(tooltip,"visible",true)
+      compare(tooltip.text,row.overview)
+      mouseMove(row,-20,-20)
+      row.overview="Short."
+      waitForRendering(row)
+      mouseMove(subject,5,5);waitForRendering(row);wait(50)
+      compare(tooltip.visible,false,"a Point shown whole needs no tooltip")
+      mouseMove(row,-20,-20)
+      row.overview=""
+    }
+    function test_a_preview_keeps_its_lines_when_the_tools_appear() {
+      row.width=360;row.overview=""
+      var text=findChild(row,"message-description"),actions=findChild(row,"message-actions"),tested=0,words=[]
+      for(var i=0;i<24;i++) {
+        words.push("statement")
+        row.summary={id:"one",subject:"Title",snippet:words.join(" "),from:{display:"Sender"},time:"09:14",unread:false}
+        waitForRendering(row)
+        var height=row.height,lines=text.lineCount
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(text.lineCount<=lines)
+        if(text.truncated&&lines<2) tested++
+        row.hasCursor=false;waitForRendering(row)
+      }
+      verify(tested>0,"a one-line preview had to be cut, so this case exercised the limit")
+    }
+    function test_a_long_subject_without_a_point_stops_at_three_lines_and_shows_whole_on_hover() {
+      row.width=360;row.hasCursor=false;row.overview=""
+      var longSubject=""
+      for(var i=0;i<30;i++) longSubject+="Quarterly statement and notes "
+      row.summary={id:"one",subject:longSubject,from:{display:"Sender"},time:"09:14",unread:false}
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject")
+      compare(subject.lineCount,3)
+      verify(subject.truncated)
+      mouseMove(subject,5,5)
+      var tooltip=findChild(row,"overview-tooltip")
+      tryCompare(tooltip,"visible",true)
+      compare(tooltip.text,longSubject)
+      mouseMove(row,-20,-20)
     }
     function test_time_stays_fixed_when_actions_appear() {
       row.hasCursor=false
@@ -137,7 +377,8 @@ Item {
       var timePoint=time.mapToItem(row,0,0)
       var subjectPoint=subject.mapToItem(row,0,0)
       var descriptionPoint=description.mapToItem(row,0,0)
-      compare(Math.round(senderPoint.y+sender.baselineOffset),Math.round(timePoint.y+time.baselineOffset))
+      verify(Math.abs(senderPoint.y+sender.height/2-timePoint.y-time.height/2)<=0.5,"sender and date centres align within pixel rounding")
+      compare(time.font.pixelSize,subject.font.pixelSize)
       verify(subjectPoint.y>=senderPoint.y+sender.height,"title occupies the second line")
       verify(descriptionPoint.y>=subjectPoint.y+subject.height,"description occupies the third line")
       var actions=findChild(row,"message-actions")
@@ -152,7 +393,9 @@ Item {
       }
       verify(sender.width>0)
       verify(senderPoint.x+sender.width<=timePoint.x)
-      compare(subject.font.bold,true,"unread emphasis survives reordering")
+      compare(subject.font.bold,false,"unread text uses the regular weight")
+      compare(subject.marked,true,"the marker identifies unread mail")
+      verify(subject.bands.length > 0,"the marker follows the laid-out text")
       compare(subject.textFormat,Text.PlainText)
       compare(subject.effectiveHorizontalAlignment,data.rtl?Text.AlignRight:Text.AlignLeft)
       compare(findChild(row,"message-source"),null)

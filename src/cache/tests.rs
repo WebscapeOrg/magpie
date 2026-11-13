@@ -423,38 +423,6 @@ fn store_oversize_and_directory_links_leave_existing_bytes_untouched() {
 }
 
 #[test]
-fn calendar_cache_preserves_resources_and_refuses_arbitrary_paths() {
-    let temp = Temp::new();
-    let params = json!({"name":"calendar","store":{"version":3,"ranges":{"scope\n1:2":{"startMs":1,"endMs":2,"at":3,"events":[{"id":"event","resource":"BEGIN:VCALENDAR\r\nEND:VCALENDAR","href":"https://calendar.example.org/item"}]}}}});
-    call_at(&temp.0, "cache.calendarPut", &params).unwrap();
-    assert_eq!(
-        call_at(&temp.0, "cache.calendarRead", &json!({"name":"calendar"})).unwrap(),
-        params["store"]
-    );
-    assert_eq!(
-        call_at(
-            &temp.0,
-            "cache.calendarPut",
-            &json!({"name":"../../outside","store":{}})
-        ),
-        Err("cache_invalid_input")
-    );
-    assert_eq!(
-        std::fs::read_dir(temp.0.join("omamail")).unwrap().count(),
-        1
-    );
-    assert_eq!(
-        call_at(
-            &temp.0,
-            "cache.calendarRead",
-            &json!({"name":"calendar-bar"})
-        )
-        .unwrap(),
-        json!({"version":3,"ranges":{}})
-    );
-}
-
-#[test]
 fn legacy_body_read_backfills_direction_without_rewriting_sender_content() {
     let temp = Temp::new();
     std::fs::create_dir_all(temp.account()).unwrap();

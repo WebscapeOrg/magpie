@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Synthetic CLI integration tests; no real AI, credentials or mail are used."""
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -79,7 +78,10 @@ class Bridge(unittest.TestCase):
     def cleanup(self):
         for ident in self.ids:
             subprocess.run(['python3',str(SCRIPT),'cancel',ident],env=self.env,capture_output=True)
-        time.sleep(.3)
+        for ident in self.ids:
+            path = self.store/ident/'job.json'
+            if path.exists() and json.loads(path.read_text()).get('state') in ('queued', 'running'):
+                self.wait(ident)
         self.assertFalse((self.root/'TERMINAL').exists())
 
     def test_background_stdin_result_and_resume(self):
@@ -219,6 +221,25 @@ emit({'type':'result','subtype':'success','result':'Final answer'})
             self.assertIn('Claude',error)
         self.assertFalse(list(self.store.glob('*/job.json')))
 
+    def test_system_preference_probe_stops_background_descendants(self):
+        marker = self.root / 'preference-descendant-write'
+        child = f"import time;from pathlib import Path;time.sleep(.8);Path({str(marker)!r}).touch()"
+        self.tool('omarchy-default-agent',
+                  f"import subprocess,sys;subprocess.Popen([sys.executable,'-c',{child!r}],"
+                  "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print('claude')")
+        self.wait(self.new())
+        time.sleep(1)
+        self.assertFalse(marker.exists(), 'the preference probe left a child running')
+
+    def test_system_preference_output_limit_stops_the_helper_before_later_effects(self):
+        marker = self.root / 'oversized-preference-write'
+        self.tool('omarchy-default-agent',
+                  "import time\nfrom pathlib import Path\nprint('x'*8192,flush=True)\ntime.sleep(.8)\n"
+                  f"Path({str(marker)!r}).touch()")
+        self.call('new', value={'messageId': '1', 'prompt': 'synthetic'}, ok=False)
+        time.sleep(1)
+        self.assertFalse(marker.exists(), 'oversized preference output did not stop its producer')
+
     def test_stream_failure_boundaries(self):
         for body in ("print('{',flush=True)","sys.stdout.buffer.write(b'\\xff\\n')", "print('x'*524289,flush=True)", "emit({'type':'result','subtype':'success','result':'x'*65537})", "emit({'type':'result','subtype':'success','result':'bad\\x00'})", "emit({'type':'result','subtype':'error','is_error':True,'result':'SECRET-ERROR'})", "print('SECRET-STDERR',file=sys.stderr);raise SystemExit(3)", "sys.stderr.write('x'*(9*1024*1024))", "emit({'type':'system','session_id':'--bad'})", "pass"):
             self.agent(body)
@@ -305,6 +326,51 @@ emit({'type':'result','subtype':'success','result':'Final answer'})
         self.assertEqual(len(self.call('list')),32)
         self.assertFalse(forged.exists())
         self.assertTrue(marker.exists())
+
+
+class PublicationLock(unittest.TestCase):
+    def test_stream_snapshots_exclude_concurrent_readers(self):
+        fixture = Bridge()
+        self.addCleanup(lambda: self.assertTrue(fixture.doCleanups(), 'Bridge fixture cleanup failed'))
+        fixture.setUp()
+        ident = fixture.new()
+        fixture.wait(ident)
+        file = fixture.store / ident / 'job.json'
+        job = json.loads(file.read_text())
+        job.update(state='queued', created=int(time.time()), resultReady=False)
+        file.write_text(json.dumps(job))
+        fixture.agent('time.sleep(.15)\n' + SUCCESS)
+        probe = '''
+import fcntl, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location('bridge', sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+original = bridge.write
+snapshots = []
+with bridge.store() as (base, path):
+    def write(fd, name, value):
+        if name == 'display.json':
+            handle = os.open('.lock', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=base)
+            try:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    raise AssertionError('A reader can overlap display publication')
+            finally:
+                os.close(handle)
+            snapshots.append(value['complete'])
+        original(fd, name, value)
+    bridge.write = write
+    bridge.run(base, path, sys.argv[2])
+assert False in snapshots, snapshots
+assert snapshots[-1] is True, snapshots
+assert len(snapshots) >= 2, snapshots
+'''
+        run = subprocess.run(['python3', '-c', probe, str(SCRIPT), ident], env=fixture.env,
+                             capture_output=True, text=True, timeout=5)
+        self.assertEqual(run.returncode, 0, run.stderr)
 
 
 if __name__=='__main__':unittest.main()

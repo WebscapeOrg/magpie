@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 pub const MAX_PROPOSALS: usize = 16;
 pub const MAX_BYTES: usize = 256 * 1024;
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 const MAX_HISTORY_BYTES: usize = 8 * 1024 * 1024;
 
 pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'static str> {
@@ -23,7 +24,7 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
         "draftId",
         "accountId",
     ] {
-        super::jobs::text(value.get(key).ok_or("agent_invalid_envelope")?)?;
+        super::payload::text(value.get(key).ok_or("agent_invalid_envelope")?)?;
     }
     for (key, value) in object {
         if key == "attachments" {
@@ -51,7 +52,7 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
         ]
         .contains(&key.as_str())
         {
-            super::jobs::text(value)?;
+            super::payload::text(value)?;
         } else {
             return Err("agent_invalid_envelope");
         }
@@ -62,15 +63,19 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
     Ok(())
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub fn history(store: &super::storage::Store, id: &str) -> Result<Value, &'static str> {
     collect(store, id, true)
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub fn turn(store: &super::storage::Store, id: &str) -> Result<Value, &'static str> {
     collect(store, id, false)
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Value, &'static str> {
+    let owner = super::jobs::read_job(store, id)?;
     let mut current = id.to_owned();
     let mut visited = Vec::new();
     let mut result = Vec::new();
@@ -81,6 +86,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
     {
         visited.push(current.clone());
         let job = super::jobs::read_job(store, &current)?;
+        super::jobs::same_conversation(&owner, &job)?;
         let context = store
             .read_json(&current, "context.json", super::jobs::INPUT_LIMIT)?
             .ok_or("agent_context_missing")?;
@@ -91,7 +97,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
             .as_array()
             .filter(|a| a.len() <= MAX_PROPOSALS)
             .ok_or("agent_invalid_proposal")?;
-        // Traverse newest turns first, but reverse proposals within each turn
+        // Invariant: Traverse newest turns first, but reverse proposals within each turn
         // too: the final reversal must preserve tool invocation order.
         for (index, proposal) in list.iter().enumerate().rev() {
             validate(&json!({"subject":proposal["subject"],"body":proposal["body"]}))?;
@@ -106,10 +112,10 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
             let mut item = proposal.clone();
             item["applicable"] = json!(job["resultReady"] == true);
             if let Some(saved) = context.get("envelope") {
-                envelope(saved, &job["accountId"], &context["draftKey"])?;
+                envelope(saved, &job["accountId"], &job["draftKey"])?;
                 item["envelope"] = saved.clone();
             }
-            // The projection includes app-owned attachments, so account for the
+            // Invariant: The projection includes app-owned attachments, so account for the
             // complete item, not just the model's small subject/body record.
             budget += serde_json::to_vec(&item)
                 .map_err(|_| "agent_invalid_proposal")?
@@ -142,8 +148,8 @@ pub fn validate(arguments: &Value) -> Result<Value, &'static str> {
     if object.len() != 2 || !object.contains_key("subject") || !object.contains_key("body") {
         return Err("agent_invalid_proposal");
     }
-    let subject = super::jobs::text(&arguments["subject"])?;
-    let body = super::jobs::text(&arguments["body"])?;
+    let subject = super::payload::text(&arguments["subject"])?;
+    let body = super::payload::text(&arguments["body"])?;
     if subject.len() > 4096
         || subject.chars().any(char::is_control)
         || body.len() > 65536
@@ -157,6 +163,61 @@ pub fn validate(arguments: &Value) -> Result<Value, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[test]
+    fn round2_proposal_history_cannot_cross_account_or_conversation() {
+        let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "omamail-proposal-binding-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let store = super::super::storage::Store::open_at(&path).unwrap();
+        let current = "a".repeat(32);
+        let parent = "b".repeat(32);
+        for id in [&current, &parent] {
+            store.create(id).unwrap();
+            store.write_json(id,"context.json",&json!({"prompt":"Read","parent":if id==&current{json!(parent)}else{Value::Null}})).unwrap();
+            store.write_json(id,"proposals.json",&json!([{"id":format!("{id}-0"),"jobId":id,"accountId":"owner","draftKey":"","messageId":"m","subject":"Draft","body":if id==&parent{"FORBIDDEN_PARENT"}else{"Allowed"}}])).unwrap();
+        }
+        let job = |id: &str| json!({"id":id,"conversationId":current,"accountId":"owner","subject":"Mail","messageId":"m","messageIds":["m"],"draftKey":"","draftFingerprint":"","kind":"message","state":"done","created":1,"updated":1,"resultReady":true});
+        store
+            .write_json(&current, "job.json", &job(&current))
+            .unwrap();
+        let mut outcomes = Vec::new();
+        for (key, value) in [
+            ("accountId", "foreign".to_string()),
+            ("conversationId", "c".repeat(32)),
+        ] {
+            let mut foreign = job(&parent);
+            foreign[key] = json!(value);
+            store.write_json(&parent, "job.json", &foreign).unwrap();
+            let mut proposal = store
+                .read_json(&parent, "proposals.json", MAX_BYTES)
+                .unwrap()
+                .unwrap();
+            proposal[0]["accountId"] = foreign["accountId"].clone();
+            store
+                .write_json(&parent, "proposals.json", &proposal)
+                .unwrap();
+            outcomes.push((key, history(&store, &current)));
+        }
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+        for (key, outcome) in outcomes {
+            assert!(
+                !outcome
+                    .as_ref()
+                    .is_ok_and(|output| output.to_string().contains("FORBIDDEN_PARENT")),
+                "{key} exposed foreign content"
+            );
+            assert_eq!(outcome.err(), Some("agent_context_owner_mismatch"), "{key}");
+        }
+    }
 
     #[test]
     fn content_cannot_select_recipients_or_forge_headers() {

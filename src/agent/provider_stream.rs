@@ -31,6 +31,8 @@ impl ProviderStream {
     pub fn session_id(&self) -> &str {
         self.display.session_id()
     }
+    pub(crate) fn usage(&self) -> Option<crate::inbox::prices::Usage> { self.display.usage() }
+
     pub fn final_seen(&self) -> bool {
         self.display.final_seen()
     }
@@ -148,7 +150,12 @@ impl ProviderStream {
                     self.display
                         .status(super::stream::label(&value["item"]["tool"]))
                 }
-                "turn.completed" => self.finish()?,
+                "turn.completed" => {
+                    if self.session_id().is_empty() {
+                        return Err(FAILED);
+                    }
+                    self.display.finish_with_usage(&value["usage"]);
+                }
                 _ => (),
             }
         }

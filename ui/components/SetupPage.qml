@@ -3,16 +3,7 @@ import "../controls" as Widgets
 import "../settings"
 import qs.Commons
 import qs.Ui
-import "../providers/Registry.js" as Provider
 
-// Connecting a mailbox, as two steps instead of a wall of instructions.
-//
-// Gmail has no shared application to sign in through — Google issues API
-// access per project — so there is genuinely a setup to do. The page shows one
-// step at a time: whichever is finished collapses to a single line with a
-// check, and only the one that needs the user is open. The detail most people
-// skip lives behind a disclosure, except the one piece that decides whether
-// the session lasts, which sits beside the button it affects.
 Column {
   id: root
 
@@ -25,9 +16,8 @@ Column {
   property int accountCount: 1
   property bool secretVisible: false
   property bool detailVisible: false
-  // A finished step can be reopened — the client changes when somebody moves
-  // Cloud projects. Kept here rather than assigned onto the step, which would
-  // break the binding that closes it again.
+  // Invariant: keep reopen state separate from the step’s done binding so saving can close it
+  // again.
   property bool clientStepReopened: false
 
   signal removeRequested()
@@ -35,16 +25,12 @@ Column {
   readonly property var auth: service ? service.auth : null
   readonly property bool configured: !!auth && auth.credentialsPresent
   readonly property bool signedIn: !!auth && auth.loggedIn
-  // A further mailbox signs in with the client that is already set up, so the
-  // page is an account chooser rather than the console walkthrough.
   readonly property bool addingMailbox: configured && !signedIn
     && !!service && service.accountEmail === ""
   readonly property bool toolsMissing: !!auth && auth.toolsChecked && auth.missingTools.length > 0
 
   spacing: MailStyle.space(16)
 
-  // The fields show what is on disk, so the page always says what the app is
-  // actually using rather than going blank after a save.
   function syncFromStore() {
     nameField.syncFromStore()
     if (!auth) return
@@ -52,8 +38,6 @@ Column {
     clientSecretField.text = auth.credentials ? String(auth.credentials.clientSecret || "") : ""
   }
 
-  // The name goes on the entry whenever the page acts — saving the client,
-  // or signing in — since either may be the only button pressed.
   function saveName() {
     if (service && nameField.value() !== String(service.accountName || ""))
       service.configureCurrentAccount({ label: nameField.value() })
@@ -69,8 +53,8 @@ Column {
     if (!auth) return
     saveName()
     var secret = clientSecretField.text.trim()
-    // The secret stays in the field. Clearing it on success looked exactly
-    // like losing it, which is a bad thing for a credential to look like.
+    // Invariant: retain the saved client secret in the masked field; clearing it falsely implied
+    // the credential was lost.
     auth.saveCredentials(clientIdField.text.trim() + (secret === "" ? "" : "\n" + secret))
   }
 
@@ -86,29 +70,21 @@ Column {
     }
   }
 
-  // Hidden only during first run, when there is genuinely no page behind this
-  // one — the mailbox does not exist yet. On its own line rather than inline
-  // beside the hero, because that is where it sits on the reader and the
-  // compose form, and a control that moves between pages reads as a different
-  // control on each of them.
-  // ------------------------------------------------------------------ hero
 
   ProviderHero {
     width: parent.width
     providerId: "gmail"
-    // The brand is in the heading because the heading is half the link, and
-    // "Connect your mailbox" named no service at all.
     title: root.addingMailbox ? "Add a Gmail mailbox" : "Connect your Gmail mailbox"
-    detail: "Google issues Gmail API access per project, so this app signs in with an OAuth client you own. About two minutes, once."
+    detail: root.configured ? "Use your existing Google client to sign in with a Gmail or Google Workspace account."
+      : "Set up your Google client once, then sign in with your Gmail or Google Workspace accounts."
     textColor: root.textColor
     dimColor: root.dimColor
     panelFontFamily: root.panelFontFamily
     onWebsiteRequested: if (root.service) root.service.openProviderWebsite("gmail")
   }
 
-  // Above the steps rather than in one: the OAuth client is shared by every
-  // Gmail mailbox and its step folds away once it exists, which is exactly
-  // when a second mailbox is being added and wants a name.
+  // Invariant: the mailbox name sits outside the shared-client step because that step is already
+  // complete when adding another Gmail account.
   AccountNameField {
     id: nameField
     service: root.service
@@ -118,8 +94,6 @@ Column {
     font.pixelSize: MailStyle.bodySmall
   }
 
-  // Missing dependencies come first: neither step below can finish without
-  // them, so offering the steps first would waste the user's time.
   Rectangle {
     width: parent.width
     visible: root.toolsMissing
@@ -146,7 +120,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------- step 1: client
 
   Step {
     number: "1"
@@ -168,11 +141,13 @@ Column {
         wrapMode: Text.WordWrap
       }
 
-      Row {
+      Flow {
+        width: parent.width
         spacing: MailStyle.space(8)
 
         Widgets.Button {
-          text: "Open Google Cloud..."
+          focusable: true
+          text: "Google Cloud..."
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -180,7 +155,8 @@ Column {
         }
 
         Widgets.Button {
-          text: "Enable Gmail API..."
+          focusable: true
+          text: "Gmail API..."
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -206,9 +182,6 @@ Column {
           id: clientSecretField
           anchors.left: parent.left
           anchors.right: parent.right
-          // Masked by default, because a credential on a shoulder-surfable
-          // window is a worse default — but readable on demand, so it can be
-          // checked against the console.
           password: !root.secretVisible
           rightPadding: horizontalPadding + MailStyle.space(26)
           foreground: root.textColor
@@ -235,6 +208,7 @@ Column {
       }
 
       Widgets.Button {
+          focusable: true
         text: "Save client"
         foreground: root.textColor
         bordered: true
@@ -245,7 +219,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------- step 2: sign in
 
   Step {
     number: "2"
@@ -258,9 +231,8 @@ Column {
       width: parent.width
       spacing: MailStyle.space(10)
 
-      // The one piece of the walkthrough that cannot be hidden: a project left
-      // in Testing is issued seven-day refresh tokens, so the app would sign
-      // the user out every week. It belongs beside the button it affects.
+      // Invariant: a Google Cloud project left in Testing issues seven-day refresh tokens; keep
+      // that setup constraint visible beside sign-in.
       Text {
         width: parent.width
         text: "Press \"Publish app\" on your project first, or Google expires the session every seven days. An \"unverified app\" warning is expected — you are the developer."
@@ -270,11 +242,15 @@ Column {
         wrapMode: Text.WordWrap
       }
 
-      Row {
+      Flow {
+        width: parent.width
         spacing: MailStyle.space(8)
 
         Widgets.Button {
-          text: "Sign in with Google..."
+          focusable: true
+          objectName: "google-sign-in-button"
+          text: parent.width < MailStyle.space(280) ? "Sign in..." : "Sign in with Google..."
+          Accessible.name: "Sign in with Google"
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -283,6 +259,7 @@ Column {
         }
 
         Widgets.Button {
+          focusable: true
           text: "Consent screen..."
           foreground: root.dimColor
           bordered: false
@@ -291,6 +268,7 @@ Column {
         }
 
         Widgets.Button {
+          focusable: true
           visible: !!root.auth && root.auth.loginBusy
           text: "Cancel"
           foreground: root.dimColor
@@ -304,6 +282,7 @@ Column {
         width: parent.width
         visible: !!root.service && root.service.signInProgress !== ""
         text: root.service ? root.service.signInProgress : ""
+        textFormat: Text.PlainText
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -312,17 +291,15 @@ Column {
     }
   }
 
-  Row {
+  Flow {
+    width: parent.width
     visible: root.signedIn || root.accountCount > 1
     spacing: MailStyle.space(8)
-    // An unbordered button carries its padding inside an invisible box, so
-    // standing first in the row it looks indented. Pulled left by that much
-    // whenever it is first, so its text sits on the content edge like
-    // everything above it.
     anchors.left: parent.left
     anchors.leftMargin: signOutButton.visible ? 0 : -removeButton.horizontalPadding
 
     Widgets.Button {
+          focusable: true
       id: signOutButton
       visible: root.signedIn
       text: "Sign out"
@@ -333,6 +310,7 @@ Column {
     }
 
     Widgets.Button {
+          focusable: true
       id: removeButton
       visible: root.accountCount > 1
       text: "Remove account"
@@ -343,15 +321,13 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------- footnotes
 
-  // Whatever went wrong. Without this a rejected client ID looks exactly like
-  // a button that does nothing.
   Text {
     width: parent.width
-    visible: !!root.auth && root.auth.lastError !== ""
+    visible: text !== ""
     textFormat: Text.PlainText
-    text: root.auth ? root.auth.lastError : ""
+    text: root.service && root.service.accountRegistryError ? root.service.accountRegistryError
+      : root.auth ? root.auth.lastError : ""
     color: root.dangerColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption
@@ -363,12 +339,10 @@ Column {
     foreground: root.textColor
   }
 
-  // Padding kept — without it the hover box hugs the text — and the button
-  // pulled left by the same amount, so the text still sits on the content
-  // edge with the paragraphs above it.
   Widgets.Button {
+          focusable: true
     id: detailToggle
-    text: root.detailVisible ? "Hide the details" : "Need more detail?"
+    text: root.detailVisible ? "Hide setup details" : "Show setup details"
     foreground: root.dimColor
     bordered: false
     leftAlign: true
@@ -381,6 +355,7 @@ Column {
   Text {
     width: parent.width
     visible: root.detailVisible
+    textFormat: Text.PlainText
     text: "In Google Cloud, pick or create a project. Under APIs and Services, enable the Gmail API. "
       + "On the consent screen add the Gmail address you want to read as a test user, then press Publish app. "
       + "Under Credentials, create an OAuth client with application type Desktop app, and paste its client ID above.\n\n"
@@ -395,9 +370,6 @@ Column {
     wrapMode: Text.WordWrap
   }
 
-  // A step is a number, a title, and a body that is only present while this is
-  // the step that needs the user. Finished steps collapse to one line, so the
-  // page never shows more than one thing to do.
   component Step: Item {
     id: step
     required property string number
@@ -443,6 +415,7 @@ Column {
     }
 
     Widgets.Button {
+          focusable: true
       id: reopen
       anchors.right: parent.right
       anchors.top: parent.top
@@ -464,16 +437,16 @@ Column {
       Text {
         width: parent.width
         text: step.done && step.doneSummary !== "" ? step.doneSummary : step.title
+        textFormat: Text.PlainText
         color: step.done ? root.dimColor : root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
         font.bold: !step.done
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap
       }
 
-      // Sized from its one child rather than childrenRect: the child sizes
-      // itself to this holder's width, so asking childrenRect for the height
-      // closes a loop through the step's own implicitHeight.
+      // Invariant: use the single child’s implicitHeight; childrenRect closes a sizing loop through
+      // this holder.
       Item {
         id: bodyHolder
         width: parent.width

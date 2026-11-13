@@ -13,10 +13,11 @@ function Assert-True([bool]$Condition, [string]$Message) {
 function Expect-Failure([scriptblock]$Action, [string]$Pattern) {
     try {
         & $Action
-        throw "expected failure matching: $Pattern"
     } catch {
         if ($_.Exception.Message -notmatch $Pattern) { throw }
+        return
     }
+    throw "expected failure matching: $Pattern"
 }
 
 function Write-X64Pe([string]$Path) {
@@ -83,10 +84,20 @@ try {
             "omamail/licenses/Apache-2.0.txt",
             "omamail/licenses/Pomicons-OFL-1.1.txt",
             "omamail/licenses/GLYPH-SOURCES.md",
+            "omamail/licenses/Unicode-LICENSE.txt",
             "omamail/app-icon.ico",
             "omamail/release.json"
         )) {
             Assert-True ($Names -ccontains $Required) "archive is missing $Required"
+        }
+        $UnicodeLicense = $Zip.GetEntry("omamail/licenses/Unicode-LICENSE.txt")
+        $LicenseReader = New-Object IO.StreamReader($UnicodeLicense.Open())
+        try {
+            Assert-True ($LicenseReader.ReadToEnd() -ceq
+                [IO.File]::ReadAllText((Join-Path $RepoRoot "data/unicode/LICENSE.txt"))) `
+                "package does not contain the complete Unicode license notice"
+        } finally {
+            $LicenseReader.Dispose()
         }
         $IconEntry = $Zip.GetEntry("omamail/app-icon.ico")
         $IconMemory = New-Object IO.MemoryStream
@@ -137,7 +148,7 @@ try {
         "production packaging bypassed windeployqt"
 
     $PackageSource = [IO.File]::ReadAllText($PackageScript)
-    foreach ($SmokeCommand in @("--check-resources", "--smoke-test", "--version", "test_backend_api.py")) {
+    foreach ($SmokeCommand in @("--smoke-host", "--smoke-ready", "--isolated-windows-runner", "--version", "test_backend_api.py")) {
         Assert-True ($PackageSource.Contains($SmokeCommand)) `
             "production packaging does not run $SmokeCommand against the extracted archive"
     }

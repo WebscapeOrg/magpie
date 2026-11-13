@@ -42,8 +42,8 @@ Rectangle {
   implicitHeight: Math.min(suggestions.contentHeight, MailStyle.space(210)) + MailStyle.space(4)
   height: implicitHeight
   radius: Style.cornerRadius
-  // Theme popup colors may carry transparency for floating shell panels.
-  // This menu sits over form rows, so preserve its hue but make it opaque.
+  // Invariant: theme popup colors may be transparent; this menu needs an opaque surface above form
+  // rows.
   color: Qt.rgba(popupBackgroundColor.r, popupBackgroundColor.g, popupBackgroundColor.b, 1)
   border.width: 1
   border.color: popupBorderColor

@@ -1,19 +1,18 @@
 import QtQuick
 import qs.Commons
+// Apple's ✉️, the same 160 px drawing as the iPhone app's icon (magpie-mail-ios scripts/emoji.sh), smoothed down to size.
 Item {
-  id: root
-  required property color foreground
-  required property color accent
-  property bool animated: false
+  readonly property alias image: picture
   implicitWidth: Style.space(64)
   implicitHeight: implicitWidth
   Accessible.role: Accessible.Graphic
-  Accessible.name: "Magpie"
+  Accessible.name: "Magpie Mail"
   Image {
+    id: picture
     anchors.fill: parent
-    source: "../assets/magpie.svg"
-    sourceSize.width: width * 2
-    sourceSize.height: height * 2
+    source: "../assets/magpie-mail.png"
     fillMode: Image.PreserveAspectFit
+    smooth: true
+    mipmap: true
   }
 }

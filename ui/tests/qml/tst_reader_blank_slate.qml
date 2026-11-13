@@ -2,11 +2,7 @@ import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 
-// The version number belongs where somebody reporting a bug will already be
-// looking: the empty reader. The pane it sits in is resized by the window and
-// by the three-column-to-one collapse, so the interesting cases are geometric —
-// it must not land on top of the centred block at any height, and the shortcut
-// legend disappearing must not take it along.
+// Invariant: The version remains readable across pane sizes, even when the shortcut legend hides.
 Item {
   width: 400
   height: 400
@@ -16,6 +12,7 @@ Item {
     property string providerId: "gmail"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
+    property var searchStatus: ({})
     property bool listLoaded: true
     property bool listLoading: false
     property var messages: [({ id: "m1" })]
@@ -37,7 +34,7 @@ Item {
     }))
   }
 
-  // Nothing signed in yet, and the reader is handed no service at all.
+
   Loader {
     id: serviceless
     width: 400
@@ -56,41 +53,26 @@ Item {
     name: "ReaderBlankSlate"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function slate() {
       tryCompare(blankSlateLoader, "status", Loader.Ready)
       return blankSlateLoader.item
     }
 
     function version() {
-      var label = named(slate(), "reader-version")
+      var label = findChild(slate(), "reader-version")
       verify(label, "the blank slate must carry an identifiable version label")
       return label
     }
 
-    // A Column repositions on the next polish, so a size assigned and read back
-    // in the same frame reports the previous layout — and the stale answer is
-    // the conservative one, which is how a broken guard passes unnoticed.
-    // forceLayout settles it now rather than waiting on a frame, so the sweep
-    // below stays a few milliseconds instead of a few seconds.
+    // Invariant: Force Column polish before measuring; stale geometry can hide overlap failures.
+    // Performance: Synchronous layout keeps the one-pixel height sweep fast.
     function resize(width, height) {
       blankSlateLoader.width = width
       blankSlateLoader.height = height
       slate().children[0].forceLayout()
     }
 
-    // The centred block and the bottom label are laid out by different anchors,
-    // so only their coordinates can say whether they are printing on each other.
+    // Invariant: Independent anchors require a coordinate comparison to detect overlap.
     function overlapping(label) {
       var column = label.parent.children[0]
       var columnBottom = column.y + column.height
@@ -98,12 +80,53 @@ Item {
     }
 
     function init() {
+      mailService.searchQuery = ""
+      mailService.searchStatus = ({})
+      mailService.messages = [({id:"m1"})]
       mailService.pluginName = "Omamail"
       mailService.version = "0.7.0"
       blankSlateLoader.width = MailStyle.space(400)
       blankSlateLoader.height = MailStyle.space(400)
     }
 
+    function textLabel(item, value) {
+      if (item.text !== undefined && item.text === value && item.textFormat !== undefined) return item
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var match = textLabel(children[childIndex], value)
+        if (match) return match
+      }
+      return null
+    }
+    function test_query_markup_is_literal_text() {
+      mailService.searchQuery = '<b>Search terms</b>'
+      var label = textLabel(slate(), '\"<b>Search terms</b>\"')
+      verify(label)
+      compare(label.textFormat, Text.PlainText)
+    }
+    function test_pending_failed_and_stopped_searches_do_not_claim_no_matches() {
+      mailService.searchQuery = "from:sender@example.test"
+      mailService.messages = []
+      var label = findChild(slate(), "reader-empty-status")
+      verify(label)
+      var working = ["preparing", "local", "checking"]
+      for (var phase = 0; phase < working.length; phase++) {
+        mailService.searchStatus = {phase:working[phase]}
+        compare(label.text, "", "The search field owns progress")
+      }
+      var phases = ["failed", "partial", "stopped", "invalid"]
+      for (var index = 0; index < phases.length; index++) {
+        mailService.searchStatus = {phase:phases[index]}
+        verify(label.text !== "")
+        verify(label.text.indexOf("No messages match") === -1, phases[index])
+      }
+      mailService.searchStatus = {phase:"complete"}
+      verify(label.text.indexOf("No messages match") === 0)
+    }
+    function test_manifest_markup_is_literal_text() {
+      mailService.pluginName = '<b>Mail</b>'
+      compare(version().textFormat, Text.PlainText)
+    }
     function test_names_the_running_version() {
       var label = version()
       compare(label.text, "Omamail 0.7.0")
@@ -123,14 +146,13 @@ Item {
       verify(label.visible, "the version outlives the legend it is not part of")
     }
 
-    // The heights either side of every threshold, one pixel at a time: a guard
-    // derived against the short column silently fails once the legend doubles it.
+    // Invariant: Sweep every height across both legend states; one fixed threshold misses overlap.
     function test_never_prints_over_the_centred_block() {
       var label = version()
-      for (var h = 120; h <= 520; h++) {
-        resize(400, h)
+      for (var height = 120; height <= 520; height++) {
+        resize(400, height)
         verify(!overlapping(label),
-          "version label overlaps the centred column at height " + h
+          "version label overlaps the centred column at height " + height
             + (slate().showLegend ? " (legend shown)" : ""))
       }
     }
@@ -143,7 +165,7 @@ Item {
 
     function test_says_nothing_without_a_service() {
       tryCompare(serviceless, "status", Loader.Ready)
-      var label = named(serviceless.item, "reader-version")
+      var label = findChild(serviceless.item, "reader-version")
       verify(label, "the label exists even with no service behind it")
       verify(!label.visible)
     }

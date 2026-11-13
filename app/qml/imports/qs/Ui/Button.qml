@@ -36,6 +36,7 @@ Rectangle {
     : Style.normalBorderFor(foreground, accent)
 
   Text {
+    textFormat: Text.PlainText
     id: label
     anchors.left: root.leftAlign ? parent.left : undefined
     anchors.leftMargin: root.leftAlign ? root.horizontalPadding : 0
@@ -51,6 +52,7 @@ Rectangle {
   QQC.Button {
     id: control
     objectName: "button-input"
+    Accessible.name: root.text
     anchors.fill: parent
     flat: true
     focusPolicy: root.focusable ? Qt.StrongFocus : Qt.NoFocus

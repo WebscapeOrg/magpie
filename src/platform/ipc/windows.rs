@@ -31,6 +31,9 @@ impl LocalEndpoint {
     pub(crate) fn outbox(root: &Path) -> Result<Self> {
         let dir = private_fs::directories_readonly(root, &["omamail"])?
             .ok_or("outbox_owner_unavailable")?;
+        Self::directory(dir)
+    }
+    pub(crate) fn directory(dir: File) -> Result<Self> {
         private_fs::validate_owned_root(&dir)?;
         let (volume, id, _) = private_fs::file_id(&dir)?;
         let sid = security::sid_text(&security::current_user()?)?;
@@ -65,7 +68,7 @@ impl LocalEndpoint {
                 Err(_) => return Err("outbox_owner_unavailable"),
             }
         };
-        // Validate the actual pipe's owner/DACL and server process token before
+        // Invariant: Validate the actual pipe's owner/DACL and server process token before
         // sending even the handshake, let alone message content. Identification
         // QoS prevents a server from using the client's token to act as it.
         security::validate(stream.as_raw_handle(), true).map_err(|_| "outbox_owner_unavailable")?;
@@ -149,7 +152,7 @@ pub(crate) fn check_peer(stream: &NamedPipeServer) -> Result<()> {
     struct Revert;
     impl Drop for Revert {
         fn drop(&mut self) {
-            // Continuing on a pooled executor thread with an attacker token is
+            // Invariant: Continuing on a pooled executor thread with an attacker token is
             // unsafe. There is no recovery if reverting to the process fails.
             if unsafe { RevertToSelf() } == 0 {
                 std::process::abort();

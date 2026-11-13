@@ -13,26 +13,24 @@ for (const line of ["not json", "[]", "null", '{}',
   '{"jsonrpc":"2.0","id":"qml-1","result":1,"error":{}}',
   '{"jsonrpc":"2.0","id":"qml-1","error":"bad"}'
 ]) assert.strictEqual(wire.response(line), null)
-console.log("test_backend_wire.js ok")
 
 const upload = load("backend/Upload.js")
-const bytes = Array.from({ length: 256 }, (_, i) => String.fromCharCode(i)).join("")
+const bytes = Array.from({ length: 256 }, (_, byte) => String.fromCharCode(byte)).join("")
 assert.strictEqual(upload.chunk(bytes, 0, 256).data, Buffer.from(bytes, "latin1").toString("base64url"))
 assert.strictEqual(upload.chunk("\u0100", 0, 1), null)
 
-// Drive the real upload orchestration with asynchronous, one-at-a-time replies.
 function runUpload(raw, options = {}) {
   const queue = []
   const calls = []
   let output
   let completions = 0
-  upload.parse(raw, (method, params, done) => {
-    calls.push({ method, params })
+  upload.parse(raw, (method, parameters, done) => {
+    calls.push({ method, params: parameters })
     queue.push(() => {
       if (method === "upload.begin") done({ upload: "u", chunkSize: options.chunkSize === undefined ? 65536 : options.chunkSize }, null)
       else if (method === "upload.append") {
         if (options.error) done(null, { code: -1, message: "Rejected" })
-        else done({ offset: params.offset + Buffer.from(params.data, "base64url").length + (options.badOffset ? 1 : 0) }, null)
+        else done({ offset: parameters.offset + Buffer.from(parameters.data, "base64url").length + (options.badOffset ? 1 : 0) }, null)
       } else if (method === "message.parseUpload") done({ mimeType: "text/plain" }, null)
       else if (method === "upload.discard") done({ discarded: true }, null)
       else assert.fail(method)
@@ -72,7 +70,6 @@ for (const chunkSize of [0, -1, 0.5, Infinity, "65536"]) {
   assert(!failed.calls.some(call => call.method === "upload.append"))
 }
 assert.strictEqual(runUpload(largeRaw, { chunkSize: 1024 * 1024 }).calls.filter(call => call.method === "upload.append").length, 2)
-console.log("backend upload tests ok")
 
 const notification = { jsonrpc: "2.0", method: "mail.updated", params: { accountId: "a@example.org", sequence: 1 } }
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(notification)))), notification)
@@ -81,14 +78,14 @@ for (const change of [{id:"x"}, {method:"other"}, {params:[]}, {result:{}}, {jso
 const body = { text: "世界\n\u0000", source: "📨", html: "<p>مرحبا</p>" }
 const uploaded = []
 let committed
-upload.putBody("a@example.org", "1:Inbox", body, (method, params, callback) => {
+upload.putBody("a@example.org", "1:Inbox", body, (method, parameters, callback) => {
   if (method === "upload.begin") callback({upload:"body-1", chunkSize:7}, null)
   else if (method === "upload.append") {
-    const bytes = Buffer.from(params.data, "base64url")
+    const bytes = Buffer.from(parameters.data, "base64url")
     uploaded.push(bytes)
-    callback({offset:params.offset + bytes.length}, null)
+    callback({offset:parameters.offset + bytes.length}, null)
   } else if (method === "cache.bodyPutUpload") {
-    committed = params
+    committed = parameters
     callback({stored:true}, null)
   } else throw new Error(method)
 }, () => true, (result, error) => { assert.strictEqual(error, null); assert(result.stored) })
@@ -98,15 +95,14 @@ assert.strictEqual(committed.id, "1:Inbox")
 
 const changed = {jsonrpc:"2.0",method:"accounts.changed",params:{revision:"a".repeat(64)}}
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(changed)))), changed)
-for (const params of [{revision:""},{revision:"a".repeat(63)},{revision:"G".repeat(64)},{revision:42},{revision:"a".repeat(64),registry:{clientSecret:"forbidden"}}])
-  assert.strictEqual(wire.notification(JSON.stringify({...changed,params})),null)
+for (const parameters of [{revision:""},{revision:"a".repeat(63)},{revision:"G".repeat(64)},{revision:42},{revision:"a".repeat(64),registry:{clientSecret:"forbidden"}}])
+  assert.strictEqual(wire.notification(JSON.stringify({...changed,params: parameters})),null)
 
 const settled = {jsonrpc:"2.0",method:"gmail.settled",params:{accountId:"a@example.org",ticket:"7",method:"gmail.trash",ok:false,error:"gmail_rate_limited"}}
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(settled)))), settled)
-for (const params of [{ticket:7,ok:true,error:"",accountId:"a"},{ticket:"7",ok:"yes",error:"",accountId:"a"},{ticket:"7",ok:true,accountId:"a"},{ticket:"7",ok:true,error:""}])
-  assert.strictEqual(wire.notification(JSON.stringify({...settled,params})),null)
+for (const parameters of [{ticket:7,ok:true,error:"",accountId:"a"},{ticket:"7",ok:"yes",error:"",accountId:"a"},{ticket:"7",ok:true,accountId:"a"},{ticket:"7",ok:true,error:""}])
+  assert.strictEqual(wire.notification(JSON.stringify({...settled,params: parameters})),null)
 
-// Exercise Backend.receive itself and count actual parser calls in each module.
 const fs = require('fs')
 const vm = require('vm')
 const chunks = load('backend/Chunks.js')
@@ -121,7 +117,7 @@ function receiver() {
   const events=[], replies=[], failures=[]
   const context = {Chunks:chunks,Wire:wire,responseTransfer:null,ready:true,stopping:false,
     pending:{x:{callback:(result,error)=>replies.push({result,error})}},
-    notification:(method,params)=>events.push({method,params}),
+    notification:(method,parameters)=>events.push({method,params: parameters}),
     stopForFailure:error=>failures.push(error),maybeRequestQuit:()=>{},drainRequests:()=>{}}
   vm.createContext(context)
   vm.runInContext(receiveSource,context)
@@ -162,9 +158,7 @@ for(const stopping of [false,true]) {
 }
 run=receiver();run.context.receive('{"jsonrpc":"2.0","id":"unrelated","result":1}')
 assert.strictEqual(run.replies.length+run.failures.length,0)
-console.log('Backend.receive single-decode, chunking, malformed envelopes and shutdown notification guards passed')
-// A fully framed transfer can still contain invalid assembled JSON; completion
-// must fail without delivering the partially decoded data.
+// Invariant: Invalid assembled JSON must never deliver partially decoded data.
 run=receiver()
 for(let index=0;index<2;index++)run.context.receive(JSON.stringify({jsonrpc:'2.0',method:'transport.chunk',params:{transfer:'2',index,total:2,size:4,data:'xx'}}))
 assert.strictEqual(run.failures.length,1)
@@ -174,8 +168,7 @@ run.context.receive('{"jsonrpc":"2.0","id":"x","error":{"code":-1,"message":"ref
 assert.strictEqual(run.replies.length,1)
 assert.strictEqual(run.replies[0].error.message,'refused')
 
-// Uncorrelated IDs must never resolve through Object.prototype. Neither an
-// ordinary envelope nor a chunked one may throw, consume a request or notify.
+// Invariant: Prototype-named uncorrelated ids cannot consume requests or emit notifications.
 for(const id of ['__proto__','constructor','toString']) {
   for(const chunked of [false,true]) {
     run=receiver()
@@ -192,3 +185,5 @@ for(const id of ['__proto__','constructor','toString']) {
     assert.strictEqual(run.replies[0].result,'still correlated')
   }
 }
+
+console.log("test_backend_wire.js ok")

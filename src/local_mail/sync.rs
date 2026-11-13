@@ -1,0 +1,573 @@
+use super::store::{Store, delete, replace_labels, set_state, sql, state};
+use crate::providers::gmail;
+use rusqlite::{OptionalExtension, params};
+use serde_json::{Value, json};
+use std::sync::Arc;
+type Result<T> = std::result::Result<T, &'static str>;
+pub(super) async fn disk<T: Send + 'static>(
+    store: &Arc<Store>,
+    work: impl FnOnce(&Store) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let store = store.clone();
+    tokio::task::spawn_blocking(move || work(&store))
+        .await
+        .map_err(|_| "local_storage_unavailable")?
+}
+pub(super) fn valid_id(value: &Value) -> Result<&str> {
+    value
+        .as_str()
+        .filter(|v| !v.is_empty() && v.len() <= 1024 && !v.chars().any(char::is_control))
+        .ok_or("gmail_invalid_response")
+}
+pub(super) async fn watch(
+    store: Arc<Store>,
+    gmail: Arc<gmail::Session>,
+    account: String,
+    events: tokio::sync::broadcast::Sender<Value>,
+) {
+    let mut reported = std::time::Instant::now() - std::time::Duration::from_secs(2);
+    let mut changed = false;
+    loop {
+        let answer = step(&store, &gmail, &account).await;
+        changed |= answer == Ok(true);
+        if reported.elapsed() >= std::time::Duration::from_secs(1) || answer.is_err() {
+            let error = answer.as_ref().err().copied().unwrap_or("");
+            let _ = disk(&store, move |store| {
+                store.write(|db| {
+                    set_state(db, "error", error)?;
+                    if error.is_empty() && changed {
+                        set_state(
+                            db,
+                            "updated",
+                            &chrono::Utc::now().timestamp_millis().to_string(),
+                        )?;
+                    }
+                    Ok(())
+                })
+            })
+            .await;
+            if let Ok(status) = disk(&store, |store| store.status()).await {
+                let _ = events.send(json!({"jsonrpc":"2.0","method":"local.changed","params":{"accountId":account,"status":status,"changed":changed}}));
+            }
+            reported = std::time::Instant::now();
+            changed = false;
+        }
+        let delay_ms = match answer {
+            Err(_) => 30_000,
+            Ok(false) => 5_000,
+            Ok(true) => 25,
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+}
+pub(super) async fn step(
+    store: &Arc<Store>,
+    gmail: &gmail::Session,
+    account: &str,
+) -> Result<bool> {
+    if deliver_edit(store, gmail, account).await? {
+        return Ok(true);
+    }
+    receive(store, gmail, account).await
+}
+
+pub(super) async fn receive(
+    store: &Arc<Store>,
+    gmail: &gmail::Session,
+    account: &str,
+) -> Result<bool> {
+    if disk(store, |s| s.read(|db| Ok(state(db, "paused")? == "true"))).await? {
+        return Ok(false);
+    }
+    disk(store, repair_inventory).await?;
+    let legacy = disk(store, |s| {
+        s.read(|db| Ok((state(db, "legacyImported")?, state(db, "legacyCursor")?)))
+    })
+    .await?;
+    if legacy.0 != "true" {
+        let next = crate::cache::resource::legacy_next(account, &legacy.1).await?;
+        disk(store, move |s| {
+            if let Some((cursor, resource)) = next {
+                if let Some(resource) = resource {
+                    if s.revision(resource["id"].as_str().ok_or("local_content_invalid")?)?
+                        .is_none()
+                    {
+                        s.put_cached(&resource, 0)?;
+                    }
+                }
+                s.write(|db| set_state(db, "legacyCursor", &cursor))
+            } else {
+                s.write(|db| set_state(db, "legacyImported", "true"))
+            }
+        })
+        .await?;
+        return Ok(true);
+    }
+    let mut history = disk(store, |s| s.read(|db| state(db, "history"))).await?;
+    if history.is_empty() {
+        let profile = gmail.replica_call(account, "profile", &json!({})).await?;
+        history = valid_id(&profile["historyId"])?.to_owned();
+        let estimate = profile["messagesTotal"].as_u64().unwrap_or(0).to_string();
+        let checkpoint = history.clone();
+        disk(store, move |s|s.write(|db| {
+            set_state(db,"history",&checkpoint)?;
+            set_state(db,"estimate",&estimate)?;
+            set_state(db,"profile",&json!({"email":profile["emailAddress"],"messagesTotal":profile["messagesTotal"]}).to_string())?;
+            if state(db,"generation")?.is_empty() { set_state(db,"generation","1")?; }
+            Ok(())
+        })).await?;
+    }
+    let due = disk(store, |s| {
+        s.read(|db| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let previous = state(db, "lastHistory")?.parse::<i64>().unwrap_or(0);
+            Ok(now < previous || now - previous >= 30_000)
+        })
+    })
+    .await?;
+    let mut changed = false;
+    if due {
+        changed = match changes(store, gmail, account, &history).await {
+            Err("gmail_not_found") => {
+                disk(store, restart_inventory).await?;
+                return Ok(true);
+            }
+            answer => answer?,
+        };
+        let labels = gmail.replica_call(account, "labels", &json!({})).await?;
+        disk(store,move|s|s.write(|db| {
+            if !labels["labels"].is_array() {return Err("gmail_invalid_response");}
+            sql(db.execute("DELETE FROM label_names",[]))?;
+            set_state(db,"labels",&gmail::normalize_labels(labels.clone()).to_string())?;
+            for label in labels["labels"].as_array().into_iter().flatten() {
+                let id = valid_id(&label["id"])?;
+                let name = label["name"].as_str().unwrap_or(id);
+                sql(db.execute("INSERT INTO label_names VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET name=excluded.name",params![id,name]))?;
+            }
+            Ok(())
+        })).await?;
+    }
+    changed |= super::inbox::scan(store, gmail, account).await?;
+    let (complete, page, generation) = disk(store, |s| {
+        s.read(|db| {
+            Ok((
+                state(db, "inventoryListed")? == "true",
+                state(db, "page")?,
+                state(db, "generation")?.parse::<i64>().unwrap_or(1),
+            ))
+        })
+    })
+    .await?;
+    if !complete {
+        let response = gmail
+            .replica_call(account, "inventory", &json!({"pageToken":page}))
+            .await?;
+        disk(store, move |s| {
+            apply_inventory(s, &response, &page, generation)
+        })
+        .await?;
+    }
+    let job = disk(store,|s|s.read(|db| {
+        sql(db.query_row("SELECT id,kind,generation FROM jobs WHERE retry_at<=?1 ORDER BY priority DESC,rowid LIMIT 1",
+            [chrono::Utc::now().timestamp_millis()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?))).optional())
+    })).await?;
+    let Some((id, kind, generation)) = job else {
+        return Ok(changed || !complete);
+    };
+    let gate = store.fetch_gate(&id)?;
+    let _guard = gate.lock().await;
+    let pending = id.clone();
+    if !disk(store, move |s| {
+        s.read(|db| {
+            sql(db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM jobs WHERE id=?1)",
+                [pending],
+                |r| r.get::<_, bool>(0),
+            ))
+        })
+    })
+    .await?
+    {
+        return Ok(true);
+    }
+    if kind != "metadata"
+        && disk(store, |s| {
+            crate::platform::private_fs::available_bytes(s.directory())
+        })
+        .await?
+            < 1024 * 1024 * 1024
+    {
+        return Err("local_disk_low");
+    }
+    let answer = if kind == "metadata" {
+        match gmail
+            .replica_call(account, "minimal", &json!({"id":id}))
+            .await
+        {
+            Ok(resource) if resource["id"] == id => {
+                disk(store, move |s| s.metadata(&resource)).await
+            }
+            Ok(_) => Err("gmail_invalid_response"),
+            Err(error) => Err(error),
+        }
+    } else {
+        let resource = gmail
+            .replica_call(account, "content", &json!({"id":id}))
+            .await;
+        match resource {
+            Ok(resource) if resource["id"] != id => Err("gmail_invalid_response"),
+            Ok(mut resource) => match hydrate_text(gmail, account, &id, &mut resource, false).await
+            {
+                Ok(()) => disk(store, move |s| s.put_downloaded(&resource, generation, true, resource[gmail::DOWNLOAD_MS].as_u64())).await,
+                Err(e) => Err(e),
+            },
+            Err(error) => Err(error),
+        }
+    };
+    match answer {
+        Ok(()) => (),
+        Err("gmail_not_found") => {
+            disk(store, move |s| s.delete(&id)).await?;
+        }
+        // Invariant: a fetch deferred for a foreground request never left the device, so its
+        // message is not put off; the caller's own wait decides when it is asked again.
+        Err("gmail_request_deferred") => return Err("gmail_request_deferred"),
+        // Invariant: Gmail never changes a message's content, so a message too large to fetch or
+        // save is given up on and sync moves on; every other failure is tried again, later each time.
+        Err(error) if kind == "content" && super::store::UNSAVABLE.contains(&error) => {
+            disk(store, move |s| s.write(|db| super::store::give_up(db, &id, error))).await?;
+        }
+        Err(error) => {
+            disk(store, move |s| {
+                s.write(|db| {
+                    super::store::retry_later(db, &id, error, chrono::Utc::now().timestamp_millis())
+                })
+            })
+            .await?;
+            return Err(error);
+        }
+    }
+    Ok(true)
+}
+fn reset_inventory(db: &rusqlite::Connection) -> Result<()> {
+    super::inbox::reset(db)?;
+    let generation = state(db, "generation")?.parse::<u64>().unwrap_or(1) + 1;
+    set_state(db, "generation", &generation.to_string())?;
+    set_state(db, "history", "")?;
+    set_state(db, "historyPage", "")?;
+    set_state(db, "lastHistory", "0")?;
+    sql(db.execute("DELETE FROM history_pages", []))?;
+    sql(db.execute("DELETE FROM inventory_pages", []))?;
+    set_state(db, "page", "")?;
+    set_state(db, "inventoryListed", "false")?;
+    set_state(db, "inventoryComplete", "false")
+}
+pub(super) fn repair_inventory(store: &Store) -> Result<()> {
+    store.write(|db| {
+        if state(db, "labelInventoryVersion")? == "1" {
+            return Ok(());
+        }
+        if !state(db, "history")?.is_empty() {
+            reset_inventory(db)?;
+        }
+        set_state(db, "labelInventoryVersion", "1")
+    })
+}
+pub(super) fn restart_inventory(store: &Store) -> Result<()> {
+    store.write(reset_inventory)
+}
+pub(super) fn apply_inventory(
+    store: &Store,
+    response: &Value,
+    page: &str,
+    generation: i64,
+) -> Result<()> {
+    if response
+        .get("nextPageToken")
+        .is_some_and(|token| !token.is_string())
+    {
+        return Err("gmail_invalid_response");
+    }
+    let next = response["nextPageToken"].as_str().unwrap_or("");
+    if !next.is_empty() && next == page {
+        return Err("gmail_invalid_response");
+    }
+    if !response["messages"].is_array()
+        && !(response["messages"].is_null()
+            && response["resultSizeEstimate"] == 0
+            && next.is_empty())
+    {
+        return Err("gmail_invalid_response");
+    }
+    store.write(|db| {
+        if state(db,"generation")?.parse::<i64>().unwrap_or(1)!=generation || state(db,"page")?!=page || state(db,"inventoryListed")?=="true" {return Ok(());}
+        if !next.is_empty()
+            && sql(db.execute(
+                "INSERT OR IGNORE INTO inventory_pages VALUES(?1,?2)",
+                params![generation, next],
+            ))? == 0
+        {
+            return Err("gmail_invalid_response");
+        }
+        for message in response["messages"].as_array().into_iter().flatten() {
+            let id = valid_id(&message["id"])?;
+            sql(db.execute(
+                "UPDATE messages SET generation=?2 WHERE id=?1",
+                params![id, generation],
+            ))?;
+            sql(db.execute(
+                "UPDATE unsaved SET generation=?2 WHERE id=?1",
+                params![id, generation],
+            ))?;
+            sql(db.execute(
+                &format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,
+                    {},
+                    CASE WHEN EXISTS(SELECT 1 FROM labels WHERE message_id=?1 AND label='INBOX') THEN 50 ELSE 0 END,?2)
+                 ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,priority=max(jobs.priority,excluded.priority)", super::store::FETCH_KIND),
+                params![id, generation],
+            ))?;
+        }
+        set_state(db, "page", next)?;
+        if next.is_empty() {
+            set_state(db, "inventoryListed", "true")?;
+        }
+        Ok(())
+    })
+}
+async fn changes(
+    store: &Arc<Store>,
+    gmail: &gmail::Session,
+    account: &str,
+    history: &str,
+) -> Result<bool> {
+    let expected_history = history.to_owned();
+    let context = disk(store, move |s| {
+        s.write(|db| {
+            if state(db, "history")? != expected_history {
+                return Ok(None);
+            }
+            let page = state(db, "historyPage")?;
+            if page.is_empty() {
+                set_state(
+                    db,
+                    "historyStarted",
+                    &chrono::Utc::now().timestamp_millis().to_string(),
+                )?;
+            }
+            Ok(Some((
+                page,
+                state(db, "generation")?.parse::<i64>().unwrap_or(1),
+                state(db, "historyStarted")?,
+            )))
+        })
+    })
+    .await?;
+    let Some((page, generation, started)) = context else {
+        return Ok(false);
+    };
+    let response = gmail
+        .replica_call(
+            account,
+            "history",
+            &json!({"historyId":history,"pageToken":page}),
+        )
+        .await?;
+    let history = history.to_owned();
+    disk(store, move |s| {
+        apply_history_checked(s, &response, &page, Some((generation, &history, &started)))
+    })
+    .await
+}
+#[cfg(test)]
+pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Result<bool> {
+    apply_history_checked(store, response, page, None)
+}
+fn apply_history_checked(
+    store: &Store,
+    response: &Value,
+    page: &str,
+    expected: Option<(i64, &str, &str)>,
+) -> Result<bool> {
+    if !response.is_object()
+        || response
+            .get("nextPageToken")
+            .is_some_and(|v| !v.is_string())
+    {
+        return Err("gmail_invalid_response");
+    }
+    let next = response["nextPageToken"].as_str().unwrap_or("").to_owned();
+    if !next.is_empty() && next == page {
+        return Err("gmail_invalid_response");
+    }
+    let checkpoint = valid_id(&response["historyId"])?.to_owned();
+    store.write(|db| {
+        if let Some((generation,history,_))=expected {
+            if state(db,"generation")?.parse::<i64>().unwrap_or(1)!=generation || state(db,"history")?!=history || state(db,"historyPage")?!=page {return Ok(false);}
+        }
+        let mut changed = false;
+        let generation = state(db,"generation")?.parse::<i64>().unwrap_or(1);
+        if response.get("history").is_some_and(|v|!v.is_array()) {return Err("gmail_invalid_response");}
+        if !next.is_empty() && sql(db.execute("INSERT OR IGNORE INTO history_pages VALUES(?1)",[&next]))?==0 {return Err("gmail_invalid_response");}
+        for event in response["history"].as_array().into_iter().flatten() {
+            if !event.is_object() {return Err("gmail_invalid_response");}
+            for field in ["messagesAdded","messagesDeleted","labelsAdded","labelsRemoved"] {
+                if event.get(field).is_some_and(|v|!v.is_array()) {return Err("gmail_invalid_response");}
+            }
+            for added in event["messagesAdded"].as_array().into_iter().flatten() {
+                let id = valid_id(&added["message"]["id"])?;
+                    sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{},1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation", super::store::FETCH_KIND),params![id,generation]))?;
+                sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
+                super::inbox::changed(db,id)?;
+            }
+            for kind in ["labelsAdded","labelsRemoved"] {
+                for changed in event[kind].as_array().into_iter().flatten() {
+                    let id = valid_id(&changed["message"]["id"])?;
+                    sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
+                    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) OR EXISTS(SELECT 1 FROM unsaved WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0,attempts=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+                    super::inbox::changed(db,id)?;
+                }
+            }
+            for removed in event["messagesDeleted"].as_array().into_iter().flatten() {
+                delete(db,valid_id(&removed["message"]["id"])?)?;
+                changed = true;
+            }
+        }
+        set_state(db,"historyPage",&next)?;
+        if next.is_empty() {
+            if let Some((_,_,started))=expected {
+                set_state(db,"lastHistory",&chrono::Utc::now().timestamp_millis().to_string())?;
+                set_state(db,"lastChecked",started)?;
+            }
+            set_state(db,"history",&checkpoint)?;
+            if state(db,"inboxListed")?=="true" {set_state(db,"inboxReady","true")?;}
+            sql(db.execute("DELETE FROM history_pages",[]))?;
+            if state(db,"inventoryListed")?=="true" && state(db,"inventoryComplete")?!="true" {
+                let mut statement=sql(db.prepare("SELECT id FROM messages WHERE generation<?1 UNION SELECT id FROM jobs WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=jobs.id AND messages.generation>=?1)"))?;
+                let missing=sql(sql(statement.query_map([generation],|r|r.get::<_,String>(0)))?.collect::<rusqlite::Result<Vec<_>>>())?;
+                for id in missing {delete(db,&id)?;}
+                // Mail that could not be saved and has no saved row is forgotten once Gmail stops listing it.
+                sql(db.execute("DELETE FROM unsaved WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=unsaved.id) AND NOT EXISTS(SELECT 1 FROM jobs WHERE jobs.id=unsaved.id AND jobs.generation>=?1)",[generation]))?;
+                set_state(db,"inventoryComplete","true")?;
+                changed = true;
+                sql(db.execute("DELETE FROM inventory_pages",[]))?;
+            }
+        }
+        Ok(changed)
+    })
+}
+pub(super) async fn hydrate_text(
+    gmail: &gmail::Session,
+    account: &str,
+    id: &str,
+    resource: &mut Value,
+    foreground: bool,
+) -> Result<()> {
+    let started = std::time::Instant::now();
+    let run = crate::processing::Run::continuing(&resource[gmail::DOWNLOAD_RUN], &resource[gmail::DOWNLOAD_START]);
+    let mut fetched = false;
+    let mut pending = vec!["/payload".to_owned()];
+    while let Some(path) = pending.pop() {
+        let part = resource.pointer(&path).ok_or("gmail_invalid_response")?;
+        if super::content::is_attachment(part) {
+            continue;
+        }
+        for index in 0..part["parts"].as_array().map_or(0, Vec::len) {
+            pending.push(format!("{path}/parts/{index}"));
+        }
+        if !matches!(part["mimeType"].as_str(), Some("text/plain" | "text/html"))
+            || part["body"]["data"].is_string()
+        {
+            continue;
+        }
+        let Some(attachment) = part["body"]["attachmentId"].as_str() else {
+            continue;
+        };
+        let answer = if foreground {
+            gmail
+                .call(
+                    "gmail.attachment",
+                    &json!({"accountId":account,"messageId":id,"attachmentId":attachment}),
+                )
+                .await?
+        } else {
+            gmail
+                .replica_call(
+                    account,
+                    "attachment",
+                    &json!({"id":id,"attachmentId":attachment}),
+                )
+                .await?
+        };
+        let data = answer["data"].as_str().ok_or("gmail_invalid_response")?;
+        fetched = true;
+        resource
+            .pointer_mut(&path)
+            .ok_or("gmail_invalid_response")?["body"]["data"] = json!(data);
+    }
+    if fetched {
+        let ms = if run.is_remaining_text() { 0 } else { resource[gmail::DOWNLOAD_MS].as_u64().unwrap_or(0) };
+        resource[gmail::DOWNLOAD_MS] = json!(ms.saturating_add(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)));
+        resource[gmail::DOWNLOAD_RUN] = run.finish();
+    }
+    Ok(())
+}
+async fn deliver_edit(store: &Arc<Store>, gmail: &gmail::Session, account: &str) -> Result<bool> {
+    let edit = disk(store,|s|s.read(|db| {
+        sql(db.query_row("SELECT id FROM edits WHERE state IN ('queued','sending') ORDER BY sequence LIMIT 1",[],|r|r.get::<_,String>(0)).optional())
+    })).await?;
+    let Some(id) = edit else { return Ok(false) };
+    let gate = store.fetch_gate(&id)?;
+    let _guard = gate.lock().await;
+    let before = match gmail
+        .replica_call(account, "minimal", &json!({"id":id}))
+        .await
+    {
+        Err("gmail_not_found") => {
+            disk(store, move |s| s.delete(&id)).await?;
+            return Ok(true);
+        }
+        answer => answer?,
+    };
+    let claim = id.clone();
+    let Some(changes) = disk(store, move |s| s.claim_changes(&claim)).await? else {
+        return Ok(true);
+    };
+    let sequence = changes.sequence;
+    let satisfied = changes.satisfied_by(&before)?;
+    if !satisfied {
+        let delivery = gmail
+            .call_settled(
+                "gmail.modify",
+                &json!({"accountId":account,"id":id,"addLabelIds":changes.additions,"removeLabelIds":changes.removals}),
+            )
+            .await;
+        if let Err(error @ ("gmail_forbidden" | "invalid_params")) = delivery {
+            disk(store,move|s|s.write(|db| {
+                sql(db.execute("UPDATE edits SET state='conflict',error=?3 WHERE id=?1 AND sequence<=?2 AND state='sending'",params![id,sequence,error]))?;
+                if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",[&id],|r|r.get::<_,bool>(0)))? {
+                    replace_labels(db,&id,&before["labelIds"])?;
+                }
+                Ok(())
+            })).await?;
+            return Ok(true);
+        }
+        delivery?;
+    }
+    let after = if satisfied {
+        before
+    } else {
+        gmail
+            .replica_call(account, "minimal", &json!({"id":id}))
+            .await?
+    };
+    if !changes.satisfied_by(&after)? {
+        return Err("local_edit_not_confirmed");
+    }
+    disk(store,move|s|s.write(|db| {
+        sql(db.execute("UPDATE messages SET server_labels=?2 WHERE id=?1",params![id,after["labelIds"].to_string()]))?;
+        sql(db.execute("UPDATE edits SET state='done',error='' WHERE id=?1 AND sequence<=?2 AND state='sending'",params![id,sequence]))?;
+        if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",[&id],|r|r.get::<_,bool>(0)))? {replace_labels(db,&id,&after["labelIds"])?;}
+        Ok(())
+    })).await?;
+    Ok(true)
+}

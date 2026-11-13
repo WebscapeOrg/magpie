@@ -17,14 +17,13 @@ Item {
       function loadSendAs() {}
     }
   }
-  // Replace only the provider through its existing Loader. Queueing, optimistic
+  // Invariant: Replace only the provider through its existing Loader. Queueing, optimistic
   // edits, completion and rollback all belong to the real MailAccount.
   Component {
     id: apiFactory
     QtObject {
       property var calls: []
-      // Answered oldest first: a batch trash sends one request per row at
-      // once, and each is answered on its own.
+
       property var completions: []
       function modifyMessage(id, add, remove, callback) {
         calls = calls.concat([{ id: id, add: add, remove: remove }])
@@ -45,6 +44,17 @@ Item {
       }
     }
   }
+  Component {
+    id: cacheBackendFactory
+    QtObject {
+      property bool ready: true
+      property var queries: ({})
+      function call(method, params, callback) {
+        if (method === "cache.queryPut") queries[params.key] = params.page
+        callback({generation: 1}, "")
+      }
+    }
+  }
   TestCase {
     name: "QueuedActions"
     property int serial: 0
@@ -58,18 +68,13 @@ Item {
       return accepted
     }
     function finish(account, error) { account.api.finish(error); settled(account) }
-    // Rows as a provider reports them, with the label the unread flag mirrors,
+    // Invariant: Rows as a provider reports them, with the label the unread flag mirrors,
     // since an action recomputes the flags from the labels.
     function unreadRows() {
       return [
         { id: "one", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true },
         { id: "two", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
       ]
-    }
-    function keys(held) {
-      var out = []
-      for (var key in held) out.push(key)
-      return out.sort()
     }
     function ready() {
       var account = createTemporaryObject(accountFactory, parent)
@@ -79,8 +84,8 @@ Item {
       wait(1)
       var original = account.api
       var installed = false
-      for (var i = 0; i < account.children.length; i++) {
-        var child = account.children[i]
+      for (var childIndex = 0; childIndex < account.children.length; childIndex++) {
+        var child = account.children[childIndex]
         if (child.item === original) {
           child.sourceComponent = apiFactory
           installed = true
@@ -184,7 +189,7 @@ Item {
       compare(account.api.calls.length, 3, "the explicit read is its own send")
       compare(account.api.calls[2].id, "two")
     }
-    // Rows queued behind a failure may be gone by the time it fails.
+
     function test_failure_restores_row_beside_its_surviving_neighbour() {
       var account = ready()
       account.messages = [
@@ -197,14 +202,13 @@ Item {
       compare(account.messages.length, 1)
       finish(account,"Synthetic failure")
       compare(account.api.calls.length, 2, "the failure sent the next queued action before restoring")
-      compare(account.messages.map(function(m) { return m.id }), ["two", "three"],
+      compare(account.messages.map(function(message) { return message.id }), ["two", "three"],
         "the failed row goes back above the neighbour that is still listed")
       finish(account)
-      compare(account.messages.map(function(m) { return m.id }), ["two", "three"])
+      compare(account.messages.map(function(message) { return message.id }), ["two", "three"])
       compare(account.pendingAction, "")
     }
-    // An edit ahead of another fails: only its own change comes off, and the
-    // edit taken a keystroke later stays, whichever order the two were in.
+
     function test_failed_star_keeps_the_read_taken_after_it() {
       var account = ready()
       account.messages = unreadRows()
@@ -235,7 +239,7 @@ Item {
       compare(account.messages[0].starred, true)
       compare(account.pendingAction, "")
     }
-    // The rail's summary and the reader's copy follow the same rule.
+
     function test_failed_star_keeps_the_read_in_the_rail_and_the_reader() {
       var account = ready()
       account.messages = unreadRows()
@@ -255,7 +259,7 @@ Item {
       finish(account)
       compare(account.pendingAction, "")
     }
-    // Two removals refused in turn come back in the order they left. The
+    // Invariant: Two removals refused in turn come back in the order they left. The
     // second saw a list the first had already shortened, so its own snapshot
     // could not say where it belonged.
     function test_two_failed_removals_come_back_in_order() {
@@ -265,13 +269,13 @@ Item {
       compare(account.messages.length, 0)
       finish(account,"Synthetic failure")
       tryVerify(function() { return account.api.calls.length === 2 })
-      compare(account.messages.map(function(m) { return m.id }), ["one"])
+      compare(account.messages.map(function(message) { return message.id }), ["one"])
       finish(account,"Synthetic failure")
-      compare(account.messages.map(function(m) { return m.id }), ["one", "two"],
+      compare(account.messages.map(function(message) { return message.id }), ["one", "two"],
         "the second row goes back under the first, not above it")
       compare(account.pendingAction, "")
     }
-    // A true repeat while another send holds the slot is coalesced into the
+    // Invariant: A true repeat while another send holds the slot is coalesced into the
     // first send, and what the repeat held goes with it: an intent nobody
     // answers would be replayed over every failure after it.
     function test_coalesced_repeat_lets_go_of_what_it_held() {
@@ -285,18 +289,39 @@ Item {
       finish(account,"Synthetic failure")
       verify(!account.messages[0].starred, "the star the server refused comes off")
     }
-    // A conversation on screen: the row `R` and its member `a`, the reader on
+
+    function test_comma_bearing_batch_ids_remain_distinct() {
+      var account = ready()
+      var firstBatch = ["1:alpha,2:beta", "3:gamma"]
+      var secondBatch = ["1:alpha", "2:beta,3:gamma"]
+      account.messages = ["blocker"].concat(firstBatch, secondBatch).map(function(id) {
+        return {id: id, labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true}
+      })
+      verify(act(account, "blocker", "star"))
+      verify(account.actMany(firstBatch, "markRead")); settled(account)
+      verify(account.actMany(secondBatch, "markRead")); settled(account)
+      finish(account)
+      compare(account.api.calls[1], {ids: firstBatch, add: [], remove: ["UNREAD"]})
+      finish(account)
+      compare(account.api.calls.length, 3, "Neither distinct batch may lose its provider dispatch")
+      compare(account.api.calls[2], {ids: secondBatch, add: [], remove: ["UNREAD"]})
+      finish(account)
+      compare(account.pendingAction, "")
+      compare(account.queuedActions.length, 0)
+      compare(account.lastError, "")
+    }
+    // Invariant: A conversation on screen: the row `R` and its member `a`, the reader on
     // `a`. Two rail actions on `a`, the first refused: the rail, the reader
     // and the row's block all say the same thing afterwards.
     function conversation(account) {
-      var rep = { id: "R", labelIds: ["INBOX"], unread: true, inInbox: true,
+      var representative = { id: "R", labelIds: ["INBOX"], unread: true, inInbox: true,
         thread: { id: "T", memberIds: ["R", "a"], count: 2, unread: true, flagged: false } }
-      var a = { id: "a", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
-      account.messages = [rep, unreadRows()[1]]
-      account.memberSummaries = ({ R: rep, a: a })
-      account.selectedThread = rep.thread
+      var member = { id: "a", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
+      account.messages = [representative, unreadRows()[1]]
+      account.memberSummaries = ({ R: representative, a: member })
+      account.selectedThread = representative.thread
       account.selectedId = "a"
-      account.selectedMessage = a
+      account.selectedMessage = member
     }
     function test_failed_member_read_keeps_the_row_in_step_with_the_rail() {
       var account = ready()
@@ -315,8 +340,7 @@ Item {
       finish(account)
       compare(account.messages[0].unread, true, "still, once the star lands")
     }
-    // The failure comes after the view has moved on. The row is not put into
-    // the list now on screen, and nothing stays held.
+
     function test_failure_after_navigation_lets_go_of_what_it_held() {
       var account = ready()
       var home = account.cacheKey
@@ -326,13 +350,11 @@ Item {
       verify(account.cacheKey !== home)
       account.messages = [{ id: "nine", labelIds: ["INBOX"], unread: false, inInbox: true }]
       finish(account,"Synthetic failure")
-      compare(account.messages.map(function(m) { return m.id }), ["nine"])
+      compare(account.messages.map(function(message) { return message.id }), ["nine"])
       compare(account.pendingAction, "")
     }
-    function ids(list) { return list.map(function(m) { return m.id }) }
-    // Mark-all holds an intent per row like any edit, so a refusal takes off
-    // only what it changed: the star pressed while the server was deciding
-    // stays, where a snapshot of the list put back would have lost it.
+    function ids(list) { return list.map(function(message) { return message.id }) }
+
     function test_refused_mark_all_keeps_the_star_taken_after_it() {
       var account = ready()
       account.messages = unreadRows()
@@ -350,8 +372,7 @@ Item {
       compare(account.messages[0].starred, true, "and the accepted star is what the row says")
       compare(account.pendingAction, "")
     }
-    // In the Unread view every row leaves at once, and a refusal puts them
-    // all back in the order they held.
+
     function test_refused_mark_all_puts_the_unread_view_back_in_order() {
       var account = ready()
       account.mailboxKey = "unread"
@@ -363,7 +384,7 @@ Item {
       compare(ids(account.messages), ["one", "two", "three"])
       compare(account.messages[1].unread, true)
     }
-    // Two removals refused after the view has moved on repair the cached
+    // Invariant: Two removals refused after the view has moved on repair the cached
     // copy of the query they were taken on — rebased, not replaced: the list
     // the second edit saw had already lost the row the first refusal put back.
     function test_refusals_after_navigation_repair_the_cached_list_in_order() {
@@ -371,12 +392,11 @@ Item {
       var home = account.cacheKey
       verify(act(account,"one", "trash"))
       verify(act(account,"two", "trash"))
-      // What `rememberList` wrote after the second keystroke.
-      var cachedQueries = {}
-      account.cache.backend = {ready:true,call:function(method, params, callback) {
-        if(method === "cache.queryPut") cachedQueries[params.key] = params.page
-        callback({generation:1}, "")
-      }}
+
+      var cacheBackend = createTemporaryObject(cacheBackendFactory, account)
+      verify(cacheBackend !== null)
+      var cachedQueries = cacheBackend.queries
+      account.cache.backend = cacheBackend
       account.cache.loaded = true
       account.cache.putQuery(home, ({ summaries: [], estimate: 0, nextPageToken: "" }))
       account.rawQuery = "label:C"
@@ -391,9 +411,7 @@ Item {
         "the second refusal keeps the row the first put back")
       compare(ids(account.messages), ["nine"], "and the view on screen is untouched")
     }
-    // The batch is one more producer on the same queue: taken while a send
-    // holds the slot, its rows leave now and its send goes out when the slot
-    // frees, in the callback that freed it.
+
     function test_batch_queued_behind_an_action_sends_when_the_slot_frees() {
       var account = ready()
       verify(act(account,"one", "star"))
@@ -406,8 +424,7 @@ Item {
       finish(account)
       compare(account.pendingAction, "")
     }
-    // And one more completion that drains it: an action taken behind a batch
-    // is sent when the batch answers.
+
     function test_action_queued_behind_a_batch_sends_when_the_slot_frees() {
       var account = ready()
       verify(account.actMany(["one"], "markRead")); settled(account)
@@ -422,8 +439,7 @@ Item {
       compare(account.messages[0].unread, false)
       compare(account.messages[1].starred, true)
     }
-    // A queued batch answered per row: the refused row goes back where the
-    // settled order says, beside rows that left before and after it.
+
     function test_refused_row_of_a_queued_batch_goes_back_in_order() {
       var account = ready()
       account.messages = unreadRows().concat([
@@ -439,8 +455,7 @@ Item {
       verify(account.lastError.indexOf("1 of 2") >= 0, account.lastError)
       compare(account.pendingAction, "")
     }
-    // A batch refused as a whole takes off its own edits and no other: the
-    // star pressed on one of its rows while it was in flight stays.
+
     function test_refused_batch_keeps_the_edit_taken_after_it() {
       var account = ready()
       account.messages = unreadRows()

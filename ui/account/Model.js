@@ -2,31 +2,15 @@
 
 .import "Conversation.js" as Conversation
 
-// View models. Anything the panel decides — what the setup card should say,
-// whether a message still belongs in the list after an action, what the badge
-// reads — is decided here so the QML stays a description of the screen.
-//
-// What is *not* here is anything that differs between mail services. That is
-// `Provider.js`, and this file is the half that is the same whichever one an
-// account runs on.
-
-// The mailboxes themselves live in `Provider.js`, because which ones exist and
-// what selects them is a property of the mail service rather than of the view.
-// They were here first, and a copy left behind would be a second definition to
-// keep in step with the first — so the account hands its list down instead.
-
-// ------------------------------------------------------------ setup state
-
 function mailboxAfterAccountSwitch(currentKey, targetMailboxes) {
   var key = String(currentKey || "")
   var mailboxes = Array.isArray(targetMailboxes) ? targetMailboxes : []
-  for (var i = 0; i < mailboxes.length; i++) {
-    if (mailboxes[i] && String(mailboxes[i].key || "") === key) return key
+  for (var mailboxIndex = 0; mailboxIndex < mailboxes.length; mailboxIndex++) {
+    if (mailboxes[mailboxIndex] && String(mailboxes[mailboxIndex].key || "") === key) return key
   }
   return ""
 }
 
-// One value the panel can switch on, in the order a new user meets them.
 function setupState(status) {
   var value = status || {}
   if (!value.toolsPresent) return "tools_missing"
@@ -37,120 +21,41 @@ function setupState(status) {
   return "ready"
 }
 
-// The setup card, in words that fit the service the account actually runs on.
-// `provider` is the display name ("Gmail", "IMAP") and `authKind` is how it
-// signs in — the two things that change every sentence below. Both default to
-// Gmail's, because that is what an account with no provider recorded is.
-function providerName(provider) {
-  var name = String(provider === undefined || provider === null ? "" : provider).trim()
-  return name === "" ? "Gmail" : name
-}
-
-function setupHeadline(state, provider, authKind) {
-  var name = providerName(provider)
-  if (state === "unavailable") return name + " integration is coming later"
-  // A provider whose sign-in is a program of its own says which program: the
-  // generic sentence sends somebody looking through Omarchy for a package this
-  // plugin never named.
-  if (state === "tools_missing")
-    return authKind === "cli" ? "Install the HEY CLI" : "Missing system tools"
-  // Four sign-ins, four first steps: a Cloud console, a Microsoft public
-  // client, a server and password, or the provider's own program.
-  if (state === "no_credentials") {
-    if (authKind === "password") return "Add this mailbox"
-    if (authKind === "cli") return "Sign in to " + name
-    if (name === "Outlook") return "Add this Outlook mailbox"
-    return "Connect a Google Cloud project"
-  }
-  if (state === "signing_in") {
-    if (authKind === "password") return "Checking the mailbox…"
-    if (authKind === "cli") return "Waiting for " + name + "…"
-    if (name === "Outlook") return "Waiting for Microsoft…"
-    return "Waiting for Google…"
-  }
-  if (state === "reconnecting") return "Reconnecting to " + name + "…"
-  if (state === "signed_out") return "Sign in to " + name
+function setupHeadline(state) {
+  if (state === "tools_missing") return "Missing system tools"
+  if (state === "no_credentials") return "Connect a Google Cloud project"
+  if (state === "signing_in") return "Waiting for Google…"
+  if (state === "reconnecting") return "Reconnecting to Gmail…"
+  if (state === "signed_out") return "Sign in to Gmail"
   return ""
 }
 
-// `unavailable` carries its reason from the provider rather than from here:
-// only the provider knows why it cannot be reached, and a sentence written in
-// this file would go stale the day that changes.
-function setupDetail(state, missingTools, reason, provider, authKind) {
-  var name = providerName(provider)
-  if (state === "unavailable") return String(reason || "")
+function setupDetail(state, missingTools) {
   if (state === "tools_missing") {
     var tools = Array.isArray(missingTools) ? missingTools.join(", ") : ""
-    if (authKind === "cli")
-      return "HEY does not speak IMAP or POP, so Omamail reads it through the "
-        + "HEY CLI, the client 37signals publish for exactly this. Install it, "
-        + "then come back — nothing else here needs setting up."
-    return "Omamail needs " + (tools || "a few base tools")
+    return "Magpie Mail needs " + (tools || "a few base tools")
       + " on PATH before it can sign in."
   }
-  if (state === "no_credentials") {
-    if (authKind === "password")
-      return "Enter the server and the password for this mailbox. Most providers want an app password rather than the one you sign in to the website with."
-    if (authKind === "cli")
-      return "The HEY CLI is installed. Signing in opens HEY in your browser; the token it comes back with is the CLI's own, and Omamail never sees it."
-    if (name === "Outlook")
-      return "Add the mailbox and a Microsoft public-client ID. Sign-in happens on Microsoft's page; Omamail never sees the account password."
+  if (state === "no_credentials")
     return "Gmail has no shared app to sign in through, so this plugin uses an OAuth client you own. It takes about two minutes to create."
-  }
-  if (state === "signing_in") {
-    if (authKind === "password") return "Trying the server with those details."
-    if (authKind === "cli")
-      return "Finish the sign-in in your browser. This window updates by itself."
+  if (state === "signing_in")
     return "Finish the sign-in in your browser. This window updates by itself."
-  }
-  if (state === "signed_out") {
-    if (authKind === "password")
-      return "This mailbox is set up. Enter its password to let it read your mail."
-    if (authKind === "cli")
-      return "The HEY CLI is installed but signed out. Sign in to let it read this mailbox."
+  if (state === "signed_out")
     return "Your OAuth client is ready. Sign in to let it read this mailbox."
-  }
   if (state === "reconnecting")
-    return "The saved session is intact. Omamail will retry automatically when the network is available."
+    return "The saved session is intact. Magpie Mail will retry automatically when the network is available."
   return ""
 }
 
-function setupActionLabel(state, provider, authKind) {
-  // Nothing to press: there is no form that would help and no browser to open.
-  if (state === "unavailable") return ""
-  // The CLI page prints the one line to run rather than offering a button that
-  // would pipe a script from the internet into a shell on the user's behalf.
-  if (state === "tools_missing")
-    return authKind === "cli" ? "Check again" : "See what is missing..."
-  if (state === "no_credentials") {
-    if (authKind === "password") return "Add the mailbox..."
-    // Nothing to configure before signing in: hey holds the whole credential.
-    if (authKind === "cli") return "Sign in to " + providerName(provider) + "..."
-    return "Set up the OAuth client..."
-  }
+function setupActionLabel(state) {
+  if (state === "tools_missing") return "See what is missing..."
+  if (state === "no_credentials") return "Set up the OAuth client..."
   if (state === "signing_in") return "Cancel"
-  if (state === "reconnecting") return ""
-  if (state === "signed_out") return "Sign in to " + providerName(provider) + "..."
+  if (state === "signed_out") return "Sign in to Gmail..."
   return ""
 }
 
-// --------------------------------------------------------- list behaviour
-
-// ------------------------------------------------- a row is a conversation
-
-// Which verbs reach every counted member of a row.
-//
-// Scope is a property of the *action*, held in one table, because it is a fact
-// about what the verb means rather than about the row it lands on. Gmail's
-// rule: archiving a thread archives the thread, and a row that says "3" and
-// goes quiet while two of its members are still unread is a row lying about
-// itself.
-//
-// Star is the one message-scoped verb, because a star is a note about a
-// message and starring a conversation would star a reply nobody has read.
-// Unstar is *not* its mirror: the row's star is the conversation's —
-// `thread.flagged` is any member — so an unstar that left a reply starred
-// would leave the row starred, and the click would look broken.
+// Invariant: Star applies to one message; unstar applies to every counted member so the conversation star can clear.
 var CONVERSATION_ACTIONS = [
   "archive", "unarchive", "trash", "untrash",
   "spam", "markRead", "markUnread", "unstar"
@@ -161,14 +66,7 @@ function actionScope(action) {
     ? "conversation" : "message"
 }
 
-// The ids an action on a row is sent for.
-//
-// Expansion is a property of the *row*, and it happens here, above the seam:
-// the account hands the client one flat list and no client expands anything,
-// so `Thread/get` is never called for an action and the user acts on exactly
-// the members the row counted and drew. A row with no block — Gmail's, IMAP's,
-// and HEY's posting, which already is the conversation — is its own only
-// target, which is what leaves those three providers untouched.
+// Invariant: Conversation actions use exactly the member IDs counted by the displayed row, without fetching a wider thread.
 function actionTargets(row, action) {
   var id = row && row.id !== undefined && row.id !== null ? String(row.id) : ""
   var own = id === "" ? [] : [id]
@@ -178,8 +76,6 @@ function actionTargets(row, action) {
   return block.memberIds.slice()
 }
 
-// Whether a message id is this row: its own id, or a member of the
-// conversation it stands for.
 function rowHoldsMember(row, id) {
   var wanted = String(id || "")
   if (wanted === "") return false
@@ -187,37 +83,20 @@ function rowHoldsMember(row, id) {
   return Conversation.holdsMember(row ? row.thread : null, wanted)
 }
 
-// The row a message id belongs to, or -1.
-//
-// A member is not a row: the list is one row per conversation, so every stop
-// on the rail but the representative's is a message the list never drew — and
-// an action on one still has a row to move, a summary to update and a block to
-// recompute. Own ids are matched first so a representative is never found as
-// somebody else's member.
+// Invariant: Match a row's own ID before member IDs so another conversation cannot capture its representative.
 function rowIndexForMember(messages, id) {
   var list = Array.isArray(messages) ? messages : []
   var wanted = String(id || "")
   if (wanted === "") return -1
   var own = indexById(list, wanted)
   if (own >= 0) return own
-  for (var i = 0; i < list.length; i++) {
-    if (Conversation.holdsMember(list[i] ? list[i].thread : null, wanted)) return i
+  for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+    if (Conversation.holdsMember(list[entryIndex] ? list[entryIndex].thread : null, wanted)) return entryIndex
   }
   return -1
 }
 
-// The row's block after one of its members changed.
-//
-// "Any known member has it, or an unknown member exists and the row already
-// said so." A member whose summary has not arrived says nothing either way, so
-// an unknown member never flips a flag off: a row leaves a view on evidence,
-// and the next load or push settles what the rail could not see.
-//
-// A member's flag is read from its labels, `Conversation.memberHasLabel`,
-// rather than from its `unread` and `starred`: those two are
-// `Message.summarize`'s OR with the conversation — true on the representative
-// whenever *any* member is unread — so recomputing a block from them would
-// never clear it.
+// Invariant: Unknown members cannot clear existing conversation flags. Known members use their own labels, not flags aggregated from the conversation.
 function threadAfterMemberChange(row, memberSummaries) {
   var block = Conversation.blockOf(row ? row.thread : null)
   if (!block) return null
@@ -226,8 +105,8 @@ function threadAfterMemberChange(row, memberSummaries) {
   var unread = false
   var flagged = false
   var unknown = false
-  for (var i = 0; i < block.memberIds.length; i++) {
-    var summary = store[block.memberIds[i]]
+  for (var memberIndex = 0; memberIndex < block.memberIds.length; memberIndex++) {
+    var summary = store[block.memberIds[memberIndex]]
     if (!summary || typeof summary !== "object") {
       unknown = true
       continue
@@ -240,9 +119,6 @@ function threadAfterMemberChange(row, memberSummaries) {
   return block
 }
 
-// The block a conversation action asserts outright, because every counted
-// member was sent the same patch. A message-scoped action leaves it alone, and
-// so does a verb that moves the row out of the view it was in.
 function threadAfterAction(row, action) {
   var block = Conversation.blockOf(row ? row.thread : null)
   if (!block) return null
@@ -254,19 +130,10 @@ function threadAfterAction(row, action) {
   return block
 }
 
-// The label a move is aimed at, or "" for every other verb.
-//
-// The destination travels inside the action string rather than beside it
-// because `act` threads one verb through the capability guard, the optimistic
-// edit, the cache repair and the restore on failure. A second argument would
-// have had to be carried, and correctly put back, by all four.
+// Invariant: Move destinations stay inside the action value so guards, optimistic edits, cache repair and rollback share one intent.
 var MOVE_PREFIX = "label:"
 
-// Gmail's own labels are upper case with no `Label_` prefix; a user's carry one
-// or are a folder name on IMAP. Only the second kind is a place a message is
-// filed under and can be taken out of. `survivesAction` does not read that
-// rule a second time — it asks `labelChangesFor` whether the label actually
-// comes off — so the two cannot disagree about a row.
+// Invariant: Gmail system labels are mailbox state, not user filing destinations; label removal uses this same classification.
 var SYSTEM_LABEL_IDS = ["INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT",
   "DRAFT", "TRASH", "SPAM", "CHAT"]
 
@@ -282,22 +149,7 @@ function labelTarget(action) {
   return verb.slice(MOVE_PREFIX.length)
 }
 
-// After an action the message may no longer belong in the mailbox being
-// viewed. Archiving from Inbox removes the row; archiving from All mail does
-// not. Getting this wrong either strands a row that is gone or hides one that
-// is still there.
-//
-// `labels` is whether the provider files by label rather than by folder, which
-// is the one thing this cannot infer and the one thing `unarchive` turns on: a
-// folder provider answers it with a UID MOVE, so the message leaves the list
-// with a new id and a surviving row would point at nothing.
-//
-// A row that is a conversation answers on the conversation's evidence instead:
-// the recomputed block, so marking one member read in the Unread view keeps
-// the row while any other member is unread, and an unstar keeps it in Starred
-// while any member is still starred. Every other case, and every row without a
-// block, is the verb rule as it was — which is what leaves Gmail and IMAP
-// exactly where they were. `row` is read for that block and nothing else.
+// Invariant: Conversation rows remain in Unread or Starred while their recomputed member flags still match that view.
 function survivesAction(mailboxKey, action, rawQuery, labels, sourceLabelId, row) {
   var key = String(mailboxKey || "inbox")
   var verb = String(action || "")
@@ -309,29 +161,16 @@ function survivesAction(mailboxKey, action, rawQuery, labels, sourceLabelId, row
   if (verb === "trash") return key === "trash"
   if (verb === "untrash") return key !== "trash"
   if (verb === "unarchive") {
-    // Moving relocates on a folder provider: the message is given a new UID in
-    // INBOX, nothing parses COPYUID, and the row it left would point at a
-    // message that is no longer there — opening it says so, a star succeeds
-    // against nothing, and no reload corrects it.
+    // Invariant: A folder move changes the message UID, so the old row must leave even when its destination is Inbox.
     if (labels !== true) return false
-    // On a label provider the row stays in a mailbox or a search, which still
-    // contain it, and leaves a label's list because the label came off. Which
-    // of those a label view is, is `labelChangesFor`'s answer rather than a
-    // second reading of the same rule here: a system label is not a place a
-    // message is filed under, so it stays on the message and the row stays in
-    // its list.
+    // Invariant: A label view retains the row only when the same labelChangesFor rule keeps its label attached.
     if (String(rawQuery || "") === "") return true
     var filed = String(sourceLabelId || "")
-    // A label view with nothing naming its label cannot say the label stayed,
-    // so the row goes: a row that leaves and should not have comes back on the
-    // reload `invalidatesPage` asks for, and one that stays and should not
-    // have is stale until something else reloads the list.
+    // Invariant: An unnamed label view cannot prove membership; remove the row and let revalidation restore it if needed.
     if (filed === "") return false
     return labelChangesFor("unarchive", filed).remove.length === 0
   }
-  // A move takes INBOX away exactly as archive does, so it leaves exactly the
-  // lists archive leaves. Said once, because two branches with the same answer
-  // are two places for it to drift.
+
   if (labelTarget(verb) !== "" && String(rawQuery || "") !== "") return false
   if (verb === "archive" || labelTarget(verb) !== "")
     return key !== "inbox" && key !== "unread"
@@ -340,20 +179,18 @@ function survivesAction(mailboxKey, action, rawQuery, labels, sourceLabelId, row
   return true
 }
 
-// Only the most recent intent for a message may be coalesced. Searching past
-// an opposite action would turn read/unread/read into read/unread.
+// Invariant: Coalescing cannot cross an opposite intent; read/unread/read must retain all three transitions.
 function enqueueAction(requests, request) {
   var queued = requests.slice()
-  for (var i = queued.length - 1; i >= 0; i--) {
-    var previous = queued[i]
+  for (var actionIndex = queued.length - 1; actionIndex >= 0; actionIndex--) {
+    var previous = queued[actionIndex]
     if (previous.id !== request.id) continue
     if (previous.action === request.action && previous.cacheKey === request.cacheKey
         && previous.sourceLabelId === request.sourceLabelId
         && (previous.memberOnly === true) === (request.memberOnly === true)
         && (previous.quiet === true) === (request.quiet === true)) {
-      // A true repeat keeps the first send and its rollback. A quiet press and
-      // an explicit one differ in scope and note, so they queue in turn.
-      queued[i] = {
+      // Invariant: Repeated intents retain the first dispatch and rollback; quiet and explicit actions remain distinct.
+      queued[actionIndex] = {
         id: request.id, action: request.action, cacheKey: request.cacheKey,
         sourceLabelId: request.sourceLabelId,
         memberOnly: request.memberOnly === true,
@@ -368,11 +205,10 @@ function enqueueAction(requests, request) {
   return queued
 }
 
-// Whether a queue still carries this send, or coalesced it into an earlier one.
 function holdsDispatch(requests, dispatch) {
   var queued = Array.isArray(requests) ? requests : []
-  for (var i = 0; i < queued.length; i++) {
-    if (queued[i] && queued[i].dispatch === dispatch) return true
+  for (var actionIndex = 0; actionIndex < queued.length; actionIndex++) {
+    if (queued[actionIndex] && queued[actionIndex].dispatch === dispatch) return true
   }
   return false
 }
@@ -383,20 +219,14 @@ function labelChangesFor(action, sourceLabelId) {
   if (action === "star") return { add: ["STARRED"], remove: [] }
   if (action === "unstar") return { add: [], remove: ["STARRED"] }
   if (action === "archive") return { add: [], remove: ["INBOX"] }
-  // Moving back to the inbox takes the message out of the label whose list it
-  // was found in, the same way a move does and for the same reason: a label
-  // somebody files things under is a queue, and one that keeps everything ever
-  // put in it only grows. `sourceLabelId` is already "" on a provider whose
-  // labels are folders, so a folder name never reaches a Gmail remove list.
+  // Invariant: Returning to Inbox removes a user filing label, while system labels remain; folder providers pass no sourceLabelId.
   if (action === "unarchive") {
     var filed = String(sourceLabelId || "")
     if (filed === "" || isSystemLabelId(filed)) return { add: ["INBOX"], remove: [] }
     return { add: ["INBOX"], remove: [filed] }
   }
   if (action === "spam") return { add: ["SPAM"], remove: ["INBOX"] }
-  // A move is archive with somewhere to go. Where a folder is a label, putting
-  // a message in one is adding that label and taking INBOX away -- the same
-  // pair archive already writes, with the destination filled in.
+
   var target = labelTarget(action)
   if (target !== "") {
     var remove = ["INBOX"]
@@ -408,20 +238,7 @@ function labelChangesFor(action, sourceLabelId) {
   return null
 }
 
-// The labels a message can be moved into, filtered by what has been typed.
-//
-// System labels are left out: INBOX, SENT, SPAM and the rest are the mailboxes
-// the rail already draws, and offering them here would put two ways of saying
-// "archive" in a list whose whole job is the destinations that have no key of
-// their own. The label or folder already on screen is not a destination: on
-// Gmail it would leave the source label attached while optimistically removing
-// its row, and IMAP would be asked to UID MOVE a message into the same folder.
-// Sorted by name rather than by the order the provider returned, which on
-// Gmail is neither alphabetical nor stable between accounts.
-// With nothing typed, the labels as the rail draws them: the tree, a child
-// under its parent, each row saying how deep it sits so the picker can step
-// it in. Typed, the best matches first, flat — the letters name the label,
-// not its place. The label the list is already in is left out either way.
+// Invariant: A move cannot target the current folder or system mailboxes. Untyped destinations retain tree order; typed matches are flat.
 function movableLabels(labels, query, currentLabelId) {
   var candidates = Array.isArray(labels) ? labels : []
   var typed = String(query || "").trim()
@@ -429,47 +246,41 @@ function movableLabels(labels, query, currentLabelId) {
   var destinations = []
   if (typed === "") {
     var rows = labelTree(candidates, [])
-    for (var r = 0; r < rows.length; r++) {
-      if (!rows[r].selectable || rows[r].id === current) continue
-      var at = indexById(candidates, rows[r].id)
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      if (!rows[rowIndex].selectable || rows[rowIndex].id === current) continue
+      var at = indexById(candidates, rows[rowIndex].id)
       if (at < 0) continue
       var copy = {}
       for (var key in candidates[at]) copy[key] = candidates[at][key]
-      copy.depth = rows[r].depth
-      copy.leaf = rows[r].name
+      copy.depth = rows[rowIndex].depth
+      copy.leaf = rows[rowIndex].name
       destinations.push(copy)
     }
     return destinations
   }
-  for (var i = 0; i < candidates.length; i++) {
-    var label = candidates[i]
+  for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+    var label = candidates[candidateIndex]
     if (!label || label.system === true) continue
     if (String(label.id || "") === current) continue
     var labelName = String(label.name || "")
     var score = fuzzyScore(typed, labelName)
     if (score <= 0) continue
     var kept = {}
-    for (var k in label) kept[k] = label[k]
+    for (var field in label) kept[field] = label[field]
     kept.depth = 0
     kept.leaf = labelName
     kept.score = score
-    kept.sourceIndex = i
+    kept.sourceIndex = candidateIndex
     destinations.push(kept)
   }
-  // Equal scores: the shorter path first, since the letters name a parent
-  // as well as everything under it and the parent is the likelier answer.
-  destinations.sort(function(a, b) {
-    return b.score - a.score || a.leaf.length - b.leaf.length || a.sourceIndex - b.sourceIndex
+  // Invariant: Equal fuzzy scores prefer the shorter path so a parent ranks before matching descendants.
+  destinations.sort(function(left, right) {
+    return right.score - left.score || left.leaf.length - right.leaf.length || left.sourceIndex - right.sourceIndex
   })
   return destinations
 }
 
-// A to Z by the name on screen, case folded so "bills" does not sort after
-// "Work". Shared by the rail and the move picker, so a label sits in the same
-// place in both lists. Two labels that print the same — "Work" and "work" on a
-// case-sensitive IMAP server — fall back to the id, because Qt's sort is not
-// stable and without a total order the pair swapped rows whenever an unrelated
-// label came or went.
+// Invariant: Case-folded label ties use the ID to keep a deterministic order across refreshes.
 function compareLabelNames(left, right) {
   var leftName = String(left && left.name || "").toLowerCase()
   var rightName = String(right && right.name || "").toLowerCase()
@@ -479,31 +290,18 @@ function compareLabelNames(left, right) {
   return leftId < rightId ? -1 : (leftId > rightId ? 1 : 0)
 }
 
-// The labels or folders the rail draws under the provider's mailboxes: the
-// user's own, sorted by name. Providers hand them over in whatever order the
-// server keeps them — Gmail in creation order, IMAP as LIST answered, JMAP by
-// a sortOrder the server may or may not have set — which is no order a person
-// scanning a column can use. A path such as "Work/Invoices" sorts after "Work",
-// so a nested folder follows its parent, though a sibling such as "Work (old)"
-// can sit between them: this is one alphabet, not a tree.
 function railLabels(labels) {
   var all = Array.isArray(labels) ? labels : []
-  var out = []
-  for (var i = 0; i < all.length; i++) {
-    if (!all[i] || all[i].system === true) continue
-    out.push(all[i])
+  var result = []
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    if (!all[labelIndex] || all[labelIndex].system === true) continue
+    result.push(all[labelIndex])
   }
-  out.sort(compareLabelNames)
-  return out
+  result.sort(compareLabelNames)
+  return result
 }
 
-// Which capability an action needs, or "" for the ones every provider has.
-//
-// The panel hides the *buttons* a provider cannot honour, and for two providers
-// that was the whole of it. A key is not a button: `e` and `s` are bound in
-// every mail context, so on a provider with neither archive nor star they
-// reached `act` regardless — where the optimistic update removed the row from
-// the Imbox and the note said "Archived", for a request no server ever saw.
+// Invariant: Keyboard actions require the same capability checks as visible buttons before optimistic state changes.
 function actionCapability(action) {
   var verb = String(action || "")
   if (verb === "archive" || verb === "unarchive") return "archive"
@@ -513,36 +311,26 @@ function actionCapability(action) {
   return ""
 }
 
-// What to say instead of doing it. Named after the thing the service does not
-// have rather than after the key, because "e does nothing here" answers a
-// question nobody asked.
-function actionUnavailable(action, provider) {
-  var name = providerName(provider)
+function actionUnavailable(action) {
   var needs = actionCapability(action)
-  if (needs === "archive") return name + " has no archive"
-  if (needs === "star") return name + " has no star"
-  if (needs === "spam") return name + " has no junk verb to report to"
-  if (needs === "move") return name + " has no destination you can name"
+  if (needs === "archive") return "This account cannot archive mail right now"
+  if (needs === "star") return "This account cannot star mail right now"
+  if (needs === "spam") return "This account cannot report spam right now"
+  if (needs === "move") return "This account cannot move mail right now"
   return ""
 }
 
-// The key-bound actions this provider cannot honour, for the hint row. A hint
-// that offers what the provider refuses is the same promise the button rule
-// exists to stop, made one line lower down.
+// Invariant: Keyboard hints must not offer actions the provider cannot perform.
 function unavailableActions(capabilities) {
   var caps = capabilities || {}
-  var out = []
-  if (caps.archive !== true) out.push("archive")
-  if (caps.star !== true) out.push("star")
-  if (caps.move !== true) out.push("move")
-  return out
+  var result = []
+  if (caps.archive !== true) result.push("archive")
+  if (caps.star !== true) result.push("star")
+  if (caps.move !== true) result.push("move")
+  return result
 }
 
-// A row carrying a block, with its own flags read the way `Message.summarize`
-// reads them: unread and starred are "this message, *or* any counted member".
-// A representative that has been read while a reply has not is still an unread
-// row, and recomputing from the labels alone would quietly clear the row's dot
-// on every action that touched it.
+// Invariant: Row unread/starred flags include every counted member; recomputing only from the representative would hide unread replies.
 function rowWithThread(summary, thread) {
   if (!summary) return summary
   var next = {}
@@ -555,54 +343,35 @@ function rowWithThread(summary, thread) {
   return next
 }
 
-// A row after one of its messages changed — its own labels already applied
-// in `ownLabels`, or the row untouched when the message is a member. The block
-// is recomputed from the members rather than asserted. An unknown member never
-// flips a flag off, which is what keeps a row in the Unread view while a reply
-// nobody has read is still in it — and what stops the quiet mark-read on
-// opening a thread from clearing the dot of every other member with it. The
-// representative's own state is evidence whether or not the rail ever drew it,
-// so it goes in rather than counting as an unknown member.
-//
-// `after` is the edit on a member; it is applied to each target the rail
-// holds as the rail holds it now, so a replay after a failure reads the
-// members already put right rather than the state the failed edit left.
+// Invariant: Replay reads current member summaries and the representative's edited labels; unknown members cannot clear conversation flags.
 function rowAfterMemberEdit(row, ownLabels, rowId, memberSummaries, targets, after) {
   var nextMembers = {}
   for (var held in memberSummaries) nextMembers[held] = memberSummaries[held]
   var ids = Array.isArray(targets) ? targets : []
-  for (var i = 0; i < ids.length; i++) {
-    if (ids[i] !== rowId && memberSummaries[ids[i]]) nextMembers[ids[i]] = after(memberSummaries[ids[i]])
+  for (var messageIndex = 0; messageIndex < ids.length; messageIndex++) {
+    if (ids[messageIndex] !== rowId && memberSummaries[ids[messageIndex]]) nextMembers[ids[messageIndex]] = after(memberSummaries[ids[messageIndex]])
   }
   nextMembers[rowId] = ownLabels
   return rowWithThread(ownLabels, threadAfterMemberChange(row, nextMembers))
 }
 
-// The summary an action leaves behind. `sourceLabelId` is the label whose
-// list the row was found in, which a move or an unarchive takes off. The
-// optional block is the conversation asserted outright — `threadAfterAction`
-// for an action on the row, or `threadAfterMemberChange` for one on a member.
+// Invariant: The supplied thread block expresses action scope: asserted for conversation edits, recomputed for member edits.
 function applyLabelChange(summary, action, sourceLabelId, thread) {
   if (!summary) return summary
   var change = labelChangesFor(action, sourceLabelId)
   if (!change) return summary
   var labels = Array.isArray(summary.labelIds) ? summary.labelIds.slice() : []
-  for (var i = 0; i < change.remove.length; i++) {
-    var at = labels.indexOf(change.remove[i])
+  for (var removalIndex = 0; removalIndex < change.remove.length; removalIndex++) {
+    var at = labels.indexOf(change.remove[removalIndex])
     if (at >= 0) labels.splice(at, 1)
   }
-  for (var j = 0; j < change.add.length; j++) {
-    if (labels.indexOf(change.add[j]) < 0) labels.push(change.add[j])
+  for (var additionIndex = 0; additionIndex < change.add.length; additionIndex++) {
+    if (labels.indexOf(change.add[additionIndex]) < 0) labels.push(change.add[additionIndex])
   }
   return rowWithThread(withLabels(summary, labels), thread)
 }
 
-// The summary carrying these labels, and every flag that mirrors one of them
-// — rather than the three that used to be the only ones read. `spam` moves a
-// row between two of these, and a menu asking a stale `inSpam` offers "Move
-// to Inbox" on a message just reported as spam — which would add INBOX and
-// keep SPAM. Unread and starred are the conversation's as well as the
-// labels', which is `rowWithThread`'s rule, so they are left to the caller.
+// Invariant: Label edits must update every mirrored mailbox flag; unread and starred also depend on the conversation block.
 function withLabels(summary, labels) {
   var next = {}
   for (var key in summary) next[key] = summary[key]
@@ -615,26 +384,11 @@ function withLabels(summary, labels) {
   return next
 }
 
-// Skeleton rows replace only an empty list's first fetch. Loading another page
-// leaves useful messages in place and reports its progress at the list foot.
-// ------------------------------------------------------------- reading zoom
-//
-// The body's zoom is the one size in the window that belongs to the reader
-// rather than to the theme: Omarchy sets the font scale the chrome follows,
-// and this is somebody leaning in to one message. It is kept because it is not
-// about one message — somebody who needed the text bigger needs it bigger for
-// their mail.
-//
-// A twentieth per step, so Ctrl+scroll lands on values it can land on again
-// and a saved one reads back as what was set. The bounds are where a message
-// stops being a message: a smudge below, a poster above.
+// Invariant: Reader zoom is independent of theme scaling and quantized so saved values survive repeated steps.
 var ZOOM_MIN = 0.6
 var ZOOM_MAX = 2.5
 var ZOOM_STEPS_PER_UNIT = 20
 
-// What a zoom read back off disk means. Anything that is not a number is a
-// file that was hand-edited or never written, and the answer to both is the
-// size it shipped at.
 function clampZoom(value) {
   if (value === null || value === undefined || value === "") return 1
   var zoom = Number(value)
@@ -643,28 +397,26 @@ function clampZoom(value) {
     Math.round(zoom * ZOOM_STEPS_PER_UNIT) / ZOOM_STEPS_PER_UNIT))
 }
 
-// A dragged pane width as stored: a whole number of pixels, or 0 for "never
-// dragged". Anything else — a string, a negative, NaN from an old file — is 0,
-// so a bad value costs a default rather than a pane of no width.
+// Invariant: Invalid or nonpositive persisted pane widths use the default layout rather than collapsing a pane.
 function paneWidth(value) {
-  var n = Math.floor(Number(value))
-  if (!isFinite(n) || n <= 0) return 0
-  return Math.min(n, 4000)
+  var widthPixels = Math.floor(Number(value))
+  if (!isFinite(widthPixels) || widthPixels <= 0) return 0
+  return Math.min(widthPixels, 4000)
 }
 
 function stringList(value) {
   var list = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var item = String(list[i] === undefined || list[i] === null ? "" : list[i])
-    if (item !== "" && out.indexOf(item) < 0) out.push(item)
+  var result = []
+  for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+    var item = String(list[entryIndex] === undefined || list[entryIndex] === null ? "" : list[entryIndex])
+    if (item !== "" && result.indexOf(item) < 0) result.push(item)
   }
-  return out
+  return result
 }
 
 function windowPrefs(raw) {
   var parsed = null
-  try { parsed = JSON.parse(String(raw || "")) } catch (e) { parsed = null }
+  try { parsed = JSON.parse(String(raw || "")) } catch (error) { parsed = null }
   if (!parsed || typeof parsed !== "object") {
     return {
       sidebarCollapsed: false,
@@ -705,25 +457,12 @@ function showListFooter(messageCount) {
   return Math.max(0, Number(messageCount) || 0) > 0
 }
 
-// Whether two summaries carry the same values, one field at a time.
-//
-// Rows arrive rebuilt rather than reused: `Cache.hydrate` copies every entry
-// out of the store on every read, so two paints of an unchanged mailbox share
-// no object and `===` on the rows themselves always says "different". The
-// comparison has to look at what a row says, not at which object says it.
-//
-// Depth-limited rather than open-ended, and the bound is what keeps a cycle —
-// or a provider payload nobody anticipated — from hanging the list. A summary
-// reaches three levels down at its deepest, a thread's member ids and a
-// recipient's own fields, and the bound is four: one level of headroom, not a
-// snug fit. A structure deeper than that reads as changed, which repaints a
-// list that may not have needed it; the opposite default would hide real mail.
+// Invariant: Rehydrated summaries require value comparison. Exhausting the depth bound means changed, so uncertain equality never hides a mail update.
 function sameSummaryValue(left, right, depth) {
   if (left === right) return true
   if (!left || !right) return false
   if (typeof left !== "object" || typeof right !== "object") return false
-  // A date is a value here, not a structure: `Cache.hydrate` builds a new one
-  // out of `dateMs` on every read, so only the instant it names can be equal.
+  // Invariant: Rehydrated Date objects compare by timestamp, not object identity.
   if (typeof left.getTime === "function" || typeof right.getTime === "function") {
     return typeof left.getTime === "function" && typeof right.getTime === "function"
       && left.getTime() === right.getTime()
@@ -733,17 +472,12 @@ function sameSummaryValue(left, right, depth) {
   if (leftIsList !== Array.isArray(right)) return false
   if (leftIsList) {
     if (left.length !== right.length) return false
-    for (var i = 0; i < left.length; i++) {
-      if (!sameSummaryValue(left[i], right[i], depth - 1)) return false
+    for (var entryIndex = 0; entryIndex < left.length; entryIndex++) {
+      if (!sameSummaryValue(left[entryIndex], right[entryIndex], depth - 1)) return false
     }
     return true
   }
-  // Both key sets, and a field holding `undefined` counts as one the row does
-  // not have. That is what a round trip through the cache does to it —
-  // `JSON.stringify` drops the key — so a live row carrying one and the
-  // restored copy of it are the same row, and reading only the left side's
-  // keys would have made this answer differently depending on which list was
-  // handed in first.
+  // Invariant: Cache serialization drops undefined fields; comparison must treat their absence symmetrically.
   for (var key in left) {
     if (!Object.prototype.hasOwnProperty.call(left, key)) continue
     if (!sameSummaryValue(left[key], right[key], depth - 1)) return false
@@ -756,41 +490,29 @@ function sameSummaryValue(left, right, depth) {
   return true
 }
 
-// Whether a list of summaries says what the list already on screen says.
-//
-// Cache-first painting runs on every visit to a query, and what it restores is
-// usually exactly what is already drawn — the service keeps running while the
-// window is shut, so reopening it, or stepping back to a mailbox, restores the
-// rows that never went away. Assigning them anyway is not free: every consumer
-// of the list recomputes, which on this list is measured in tenths of a
-// second. So the assignment is made only when a row actually differs.
+// Performance: Unchanged hydrated rows retain the existing list to avoid recomputing every QML consumer.
 function sameSummaries(previous, next) {
   var before = Array.isArray(previous) ? previous : []
   var after = Array.isArray(next) ? next : []
   if (before === after) return true
   if (before.length !== after.length) return false
-  for (var i = 0; i < after.length; i++) {
-    if (!sameSummaryValue(before[i], after[i], 4)) return false
+  for (var entryIndex = 0; entryIndex < after.length; entryIndex++) {
+    if (!sameSummaryValue(before[entryIndex], after[entryIndex], 4)) return false
   }
   return true
 }
 
 function removeById(list, id) {
   var source = Array.isArray(list) ? list : []
-  var out = []
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].id === id) continue
-    out.push(source[i])
+  var result = []
+  for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex++) {
+    if (source[sourceIndex] && source[sourceIndex].id === id) continue
+    result.push(source[sourceIndex])
   }
-  return out
+  return result
 }
 
-// A failed row goes back where the settled order says: before the first of
-// its followers still listed, else after the last of its predecessors, else at
-// the index it held. The order is the list as it stood before the first edit
-// still in flight — not the list this edit saw. With two removals queued, the
-// second saw a list the first had already shortened, and a row anchored to
-// that had no neighbour left to name: the pair came back reversed.
+// Invariant: Rollback anchors against the list before the first pending edit; each edit's shortened snapshot can restore rows in the wrong order.
 function restoreRow(list, row, order, index) {
   var source = Array.isArray(list) ? list : []
   var settled = Array.isArray(order) ? order : []
@@ -809,12 +531,7 @@ function restoreRow(list, row, order, index) {
   return source.slice(0, clamped).concat([row], source.slice(clamped))
 }
 
-// A list after a refused edit on one of its rows: the row's replayed summary
-// in place while it is still listed; back where the settled order says if the
-// edit took it off and no edit still waiting behind it has; else untouched.
-// The same rule for the list on screen and for the cached copy of a query
-// navigated away from, so a refusal answered late repairs whichever one holds
-// the row now.
+// Invariant: A failed edit cannot restore a row removed again by a later pending edit; the same rule repairs cached and visible lists.
 function listAfterRestore(list, row, removed, stillRemoved, order, index) {
   var source = Array.isArray(list) ? list : []
   if (!row) return source
@@ -823,53 +540,37 @@ function listAfterRestore(list, row, removed, stillRemoved, order, index) {
   return source
 }
 
-// ----------------------------------------------------------------- intents
-//
-// An optimistic edit is an intent: what a summary should say if the server
-// agrees. Edits are taken at the keystroke, so one row can carry several
-// before the first is answered, and the answer to one must not undo the
-// others. Each summary an edit touched — the row, a member the rail draws,
-// the reader's copy — keeps its intents in the order they were taken, each
-// with the summary as it stood before it and the function that made the edit.
-//
-// A success drops its intent and nothing else: the summary the later ones
-// started from already holds it. A failure drops its intent and replays the
-// later ones from the state the failed one started from, so what stays on
-// screen is exactly the edits still waiting for an answer — a star that
-// failed comes off, and the read taken a keystroke later stays.
+// Invariant: Success drops one intent; failure replays later intents from the failed intent's baseline without undoing them.
 
 function withoutIntent(entries, token) {
   var list = Array.isArray(entries) ? entries : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    if (!list[i] || list[i].token === token) continue
-    out.push(list[i])
+  var result = []
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (!list[rowIndex] || list[rowIndex].token === token) continue
+    result.push(list[rowIndex])
   }
-  return out
+  return result
 }
 
-// The intents left after `token` failed, rebased, and the summary they add up
-// to. Null when no such intent is held.
 function rebaseIntents(entries, token) {
   var list = Array.isArray(entries) ? entries : []
   var at = -1
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].token === token) { at = i; break }
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (list[rowIndex] && list[rowIndex].token === token) { at = rowIndex; break }
   }
   if (at < 0) return null
-  var out = list.slice(0, at)
+  var result = list.slice(0, at)
   var summary = list[at].before
-  for (var j = at + 1; j < list.length; j++) {
+  for (var followingIndex = at + 1; followingIndex < list.length; followingIndex++) {
     var entry = {}
-    for (var key in list[j]) entry[key] = list[j][key]
+    for (var key in list[followingIndex]) entry[key] = list[followingIndex][key]
     entry.before = summary
     summary = typeof entry.apply === "function" ? entry.apply(summary) : summary
-    out.push(entry)
+    result.push(entry)
   }
-  return { entries: out, summary: summary }
+  return { entries: result, summary: summary }
 }
 
-// The held intents with one more, by the id of the summary it changed.
 function intentsWith(intents, id, entry) {
   var all = {}
   for (var key in intents) all[key] = intents[key]
@@ -877,9 +578,7 @@ function intentsWith(intents, id, entry) {
   return all
 }
 
-// The held intents after `token` on `id` is answered, and what that answer
-// leaves: a success drops the intent; a failure replays the rest. `fallback`
-// is the summary when nothing was held for this id.
+// Invariant: An answer for an unheld intent uses the supplied fallback without changing unrelated intents.
 function intentsSettled(intents, id, token, failed, fallback) {
   var all = {}
   for (var key in intents) all[key] = intents[key]
@@ -891,20 +590,16 @@ function intentsSettled(intents, id, token, failed, fallback) {
   return { intents: all, outcome: outcome }
 }
 
-// Whether an edit still waiting has taken the row off the list, in which case
-// a failure ahead of it puts the row back nowhere.
+// Invariant: A later pending removal keeps a row absent when an earlier edit fails.
 function anyIntentRemoved(entries) {
   var list = Array.isArray(entries) ? entries : []
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].removed === true) return true
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (list[rowIndex] && list[rowIndex].removed === true) return true
   }
   return false
 }
 
-// The lists as they stood before the first edit still in flight on a query,
-// held while any is. This is the order a failed row goes back into; the list
-// the failed edit itself saw may already have been shortened by the edits
-// ahead of it.
+// Invariant: Keep the first pending edit's list order until every edit in that query settles.
 function settledListsHeld(lists, query, messages, previews) {
   var all = {}
   for (var key in lists) all[key] = lists[key]
@@ -927,8 +622,6 @@ function settledListsReleased(lists, query) {
   return all
 }
 
-// The preview list after a failed edit: the row back in, where the settled
-// order says, if it should still be there; out if it should not.
 function previewAfterRestore(list, row, present, order, index) {
   var source = Array.isArray(list) ? list : []
   var at = indexById(source, row ? row.id : "")
@@ -938,25 +631,22 @@ function previewAfterRestore(list, row, present, order, index) {
 
 function replaceById(list, summary) {
   var source = Array.isArray(list) ? list : []
-  var out = []
-  for (var i = 0; i < source.length; i++) {
-    out.push(source[i] && summary && source[i].id === summary.id ? summary : source[i])
+  var result = []
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    result.push(source[rowIndex] && summary && source[rowIndex].id === summary.id ? summary : source[rowIndex])
   }
-  return out
+  return result
 }
 
-// Search starts with rows found in the query cache, then learns live rows from
-// the provider. One id stays one row, live metadata replaces the cached copy,
-// and a newly found message takes its chronological place instead of jumping
-// around according to which parallel request happened to finish first.
+// Invariant: Live search metadata replaces cached rows by ID while completion order cannot reorder equal-date matches.
 function mergeSearchResults(cached, live) {
   var lists = [Array.isArray(cached) ? cached : [], Array.isArray(live) ? live : []]
   var positions = {}
   var merged = []
   var order = 0
-  for (var l = 0; l < lists.length; l++) {
-    for (var i = 0; i < lists[l].length; i++) {
-      var row = lists[l][i]
+  for (var listIndex = 0; listIndex < lists.length; listIndex++) {
+    for (var rowIndex = 0; rowIndex < lists[listIndex].length; rowIndex++) {
+      var row = lists[listIndex][rowIndex]
       var id = String(row && row.id ? row.id : "")
       if (id === "") continue
       if (positions[id] !== undefined) {
@@ -968,73 +658,57 @@ function mergeSearchResults(cached, live) {
     }
   }
 
-  merged.sort(function(a, b) {
-    var aTime = a.row && a.row.date && typeof a.row.date.getTime === "function"
-      ? Number(a.row.date.getTime()) : 0
-    var bTime = b.row && b.row.date && typeof b.row.date.getTime === "function"
-      ? Number(b.row.date.getTime()) : 0
-    if (aTime !== bTime) return bTime - aTime
-    return a.order - b.order
+  merged.sort(function(left, right) {
+    var leftTimeMs = left.row && left.row.date && typeof left.row.date.getTime === "function"
+      ? Number(left.row.date.getTime()) : 0
+    var rightTimeMs = right.row && right.row.date && typeof right.row.date.getTime === "function"
+      ? Number(right.row.date.getTime()) : 0
+    if (leftTimeMs !== rightTimeMs) return rightTimeMs - leftTimeMs
+    return left.order - right.order
   })
-  var out = []
-  for (var j = 0; j < merged.length; j++) out.push(merged[j].row)
-  return out
+  var result = []
+  for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) result.push(merged[mergedIndex].row)
+  return result
 }
 
-// Cached matches are only a preview. Once the provider has answered, its ids
-// are the boundary of the page: live metadata wins, a cached row may fill in
-// for a confirmed id whose metadata read failed, and every unconfirmed cache
-// hit disappears. Appending preserves the already settled earlier pages.
+// Invariant: A settled search page contains only server-confirmed IDs; cached metadata may fill a confirmed read failure, never an unconfirmed match.
 function settledSearchResults(existing, preview, live, ids, append) {
   var known = {}
   var cached = Array.isArray(preview) ? preview : []
   var fresh = Array.isArray(live) ? live : []
-  for (var i = 0; i < cached.length; i++) {
-    if (cached[i] && cached[i].id) known[String(cached[i].id)] = cached[i]
+  for (var cachedIndex = 0; cachedIndex < cached.length; cachedIndex++) {
+    if (cached[cachedIndex] && cached[cachedIndex].id) known[String(cached[cachedIndex].id)] = cached[cachedIndex]
   }
-  for (var j = 0; j < fresh.length; j++) {
-    if (fresh[j] && fresh[j].id) known[String(fresh[j].id)] = fresh[j]
+  for (var freshIndex = 0; freshIndex < fresh.length; freshIndex++) {
+    if (fresh[freshIndex] && fresh[freshIndex].id) known[String(fresh[freshIndex].id)] = fresh[freshIndex]
   }
 
   var page = []
   var wanted = Array.isArray(ids) ? ids : []
-  for (var k = 0; k < wanted.length; k++) {
-    var id = String(wanted[k] || "")
+  for (var wantedIndex = 0; wantedIndex < wanted.length; wantedIndex++) {
+    var id = String(wanted[wantedIndex] || "")
     if (known[id]) page.push(known[id])
   }
   return append === true ? mergeSearchResults(existing, page) : page
 }
 
-// Server ids without a freshly read summary are a hole in the page. Keeping
-// the provider's continuation token would step over that hole forever, even if
-// a cached copy can temporarily draw it, so finalisation asks this separately
-// from `settledSearchResults`' display fallback.
+// Invariant: Missing fresh summaries invalidate continuation even when cached rows can temporarily fill the page.
 function missingSearchSummaryIds(summaries, ids) {
   var known = {}
   var rows = Array.isArray(summaries) ? summaries : []
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i] && rows[i].id) known[String(rows[i].id)] = true
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (rows[rowIndex] && rows[rowIndex].id) known[String(rows[rowIndex].id)] = true
   }
   var missing = []
   var wanted = Array.isArray(ids) ? ids : []
-  for (var j = 0; j < wanted.length; j++) {
-    var id = String(wanted[j] || "")
+  for (var wantedIndex = 0; wantedIndex < wanted.length; wantedIndex++) {
+    var id = String(wanted[wantedIndex] || "")
     if (id !== "" && !known[id]) missing.push(id)
   }
   return missing
 }
 
-// The row a message becomes once it has been opened.
-//
-// A detail read is authoritative about everything it carries and silent about
-// the rest, so it replaces a field rather than blanking one. HEY is where this
-// stopped being theoretical: its thread read answers with the conversation's
-// entries and carries no subject line of its own, so a row opened before its
-// list had loaded would have had the subject the cache knew replaced with
-// "(no subject)" — and kept it until the next list load.
-//
-// "(no subject)" rather than "" because that is what `Message.summarize` calls
-// an empty subject line; the summary never reaches here with the empty one.
+// Invariant: Detail responses may omit listing metadata; preserve the known value when the detail carries no replacement.
 function detailSummary(previous, summary) {
   if (!summary) return previous
   if (!previous) return summary
@@ -1043,44 +717,20 @@ function detailSummary(previous, summary) {
   if (merged.subject === "(no subject)" && previous.subject) merged.subject = previous.subject
   if (!merged.from || (!merged.from.name && !merged.from.email)) merged.from = previous.from
   if (!merged.snippet) merged.snippet = previous.snippet
-  // The three readings of one date, kept together: a row showing yesterday's
-  // relative time against today's date is worse than either alone.
+  // Invariant: Restore date, relative time and full time together so they describe the same instant.
   if (!merged.date && previous.date) {
     merged.date = previous.date
     merged.time = previous.time
     merged.fullTime = previous.fullTime
   }
-  // A detail read is one message and knows nothing about the conversation it
-  // belongs to, so its block reports a count of 0 — which means unknown, not
-  // "one". The row's own block stands until a listing replaces it; without
-  // this, opening a conversation row dropped the count it was drawing.
-  //
-  // The block and nothing else. `unread` and `starred` are things the detail
-  // read does carry, so they stay its answer: restoring those from a block
-  // composed before the message was opened would put the unread mark straight
-  // back on the row the reader is showing.
+  // Invariant: An unknown detail thread count preserves the listing block, but its fresh unread and starred flags remain authoritative.
   if (merged.thread && merged.thread.count === 0
       && previous.thread && previous.thread.count > 0)
     merged.thread = previous.thread
   return merged
 }
 
-// A detail read answered from disk, against what the account holds about the
-// same message. The file is a live read as the server answered it once, and
-// everything since — the quiet mark-read on opening, a star, a move — went
-// through the store and never touched the file. So a cached copy has nothing
-// to say about labels that the account does not know better. Painted as it
-// came, a member read a moment ago went unread again in the rail for one
-// round trip, and the reader marked it read a second time. The labels in
-// hand replace the file's, and so does the block when the account holds one
-// — a representative's block is recomputed from its members as they are
-// marked, and the file's is from before — with the flags following
-// `rowWithThread`'s rule, the conversation's as well as the labels', which is
-// what a live read of the same message carries.
-//
-// Only when there is something in hand. A message opened from a notification
-// has no row and no member summary yet, and the file is then the only account
-// of it there is.
+// Invariant: Current account labels and thread state override stale detail-cache state for the same message; otherwise a read message can become unread again.
 function cachedDetailSummary(known, summary) {
   if (!summary || !known || known.id !== summary.id || !Array.isArray(known.labelIds)) return summary
   var block = known.thread && known.thread.count > 0 ? known.thread : null
@@ -1089,8 +739,8 @@ function cachedDetailSummary(known, summary) {
 
 function indexById(list, id) {
   var source = Array.isArray(list) ? list : []
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].id === id) return i
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    if (source[rowIndex] && source[rowIndex].id === id) return rowIndex
   }
   return -1
 }
@@ -1104,56 +754,53 @@ function messageById(primary, fallback, id) {
   return index >= 0 ? second[index] : null
 }
 
-// The rail as one numbered list, in the order it is drawn: the provider's
-// mailboxes first, then the user's labels or folders in the order the rail
-// draws them (`visibleLabels`, the tree). Both the sidebar's badges and the
-// keys that jump read this, so the number beside a row and the row a number
-// opens cannot disagree — describing the order twice is how they would.
-//
-// Nine because the keys are digits and `Ctrl+0` is reset zoom. Past that a
-// row simply has no number: a mailbox nobody can reach by keyboard is honest,
-// and renumbering the rail every time the server reports a label would not be.
-function sidebarSlots(mailboxes, labels, limit) {
-  var max = Math.max(0, Math.floor(Number(limit) || 0))
-  var out = []
-  var boxes = Array.isArray(mailboxes) ? mailboxes : []
-  for (var i = 0; i < boxes.length && out.length < max; i++) {
-    if (!boxes[i] || !boxes[i].key) continue
-    out.push({ kind: "mailbox", key: String(boxes[i].key), name: String(boxes[i].label || ""),
-      icon: String(boxes[i].icon || "mail") })
+function currentFolderName(view) {
+  if (!view) return "Inbox"
+  var labelId = String(view.rawLabelId || "")
+  var labels = view.labels || []
+  for (var labelIndex = 0; labelId !== "" && labelIndex < labels.length; labelIndex++) {
+    if (String(labels[labelIndex].id || "") === labelId)
+      return String(labels[labelIndex].name || labels[labelIndex].rawName || "Mail")
   }
-  // The labels in the order given, which is the order the rail draws them:
-  // App hands over `visibleLabels`, the tree with its folded rows left out,
-  // where a child follows its parent whatever the alphabet says. Sorting
-  // here again would number "Work (old)" before "Work/Invoices" while the
-  // rail draws them the other way round, and the digit beside a row would
-  // open a different one. System labels are not rows and get no number.
-  var all = Array.isArray(labels) ? labels : []
-  for (var j = 0; j < all.length && out.length < max; j++) {
-    if (!all[j] || all[j].system === true) continue
-    out.push({ kind: "label", id: String(all[j].id || ""),
-      name: String(all[j].rawName || all[j].name || "") })
+  if (view.searchQuery || view.rawQuery) return "Search results"
+  var mailboxes = view.mailboxes || []
+  var key = String(view.mailboxKey || "inbox")
+  for (var mailboxIndex = 0; mailboxIndex < mailboxes.length; mailboxIndex++) {
+    if (mailboxes[mailboxIndex].key === key) return String(mailboxes[mailboxIndex].label)
   }
-  return out
+  return key === "inbox" ? "Inbox" : "Mail"
 }
 
-// What a row's badge says, and 0 for a row past the last. One-based, because
-// the badge is read by a person rather than indexed by anything.
+// Invariant: Sidebar badges and digit shortcuts share one displayed order; Ctrl+0 remains reserved for zoom reset.
+function sidebarSlots(mailboxes, labels, limit) {
+  var maximum = Math.max(0, Math.floor(Number(limit) || 0))
+  var result = []
+  var boxes = Array.isArray(mailboxes) ? mailboxes : []
+  for (var mailboxIndex = 0; mailboxIndex < boxes.length && result.length < maximum; mailboxIndex++) {
+    if (!boxes[mailboxIndex] || !boxes[mailboxIndex].key) continue
+    result.push({ kind: "mailbox", key: String(boxes[mailboxIndex].key), name: String(boxes[mailboxIndex].label || ""),
+      icon: String(boxes[mailboxIndex].icon || "mail") })
+  }
+  // Invariant: Preserve the supplied visible tree order; sorting labels here would make shortcut numbers open different rows.
+  var all = Array.isArray(labels) ? labels : []
+  for (var labelIndex = 0; labelIndex < all.length && result.length < maximum; labelIndex++) {
+    if (!all[labelIndex] || all[labelIndex].system === true) continue
+    result.push({ kind: "label", id: String(all[labelIndex].id || ""),
+      name: String(all[labelIndex].rawName || all[labelIndex].name || "") })
+  }
+  return result
+}
+
 function slotNumberOf(slots, kind, handle) {
   var list = Array.isArray(slots) ? slots : []
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].kind !== kind) continue
-    if (String(kind === "mailbox" ? list[i].key : list[i].id) !== String(handle)) continue
-    return i + 1
+  for (var slotIndex = 0; slotIndex < list.length; slotIndex++) {
+    if (list[slotIndex].kind !== kind) continue
+    if (String(kind === "mailbox" ? list[slotIndex].key : list[slotIndex].id) !== String(handle)) continue
+    return slotIndex + 1
   }
   return 0
 }
 
-// Where the switcher's cursor lands after a step. It wraps where the message
-// list clamps, and the difference is the shape of the two things: a mailbox
-// list is long and scrolls, so running off the end has to feel like an end,
-// while a menu of two or three accounts that stopped at the bottom would make
-// `j` do nothing on the row you use most.
 function wrappedIndex(index, delta, count) {
   var total = Math.max(0, Math.floor(Number(count) || 0))
   if (total === 0) return 0
@@ -1162,17 +809,13 @@ function wrappedIndex(index, delta, count) {
   return ((from + step) % total + total) % total
 }
 
-// Where the list cursor lands after a step. Anchored on the cursor itself,
-// because a conversation member can be open while the cursor stays on its
-// representative row. The window opens the resulting row immediately, but
-// anchoring this on the opened member would send movement back to row 0.
+// Invariant: Cursor movement anchors on the representative row, even while the reader shows another conversation member.
 function cursorAfterOffset(list, cursorId, delta) {
   var source = Array.isArray(list) ? list : []
   if (source.length === 0) return ""
   var step = Math.floor(Number(delta) || 0)
   var index = indexById(source, cursorId)
-  // No cursor, or one whose message has left the list: start from the end the
-  // move is coming from, so j opens at the top and k opens at the bottom.
+
   if (index < 0) return step < 0 ? source[source.length - 1].id : source[0].id
   var next = index + step
   if (next < 0) next = 0
@@ -1180,13 +823,7 @@ function cursorAfterOffset(list, cursorId, delta) {
   return source[next].id
 }
 
-// Where the cursor goes when the row it is on is about to leave the list.
-// Called with the list as it still is, so the departing row still has
-// neighbours: the one below takes its place, or the one above at the end.
-//
-// Leaving the cursor on a row that has gone is not harmless. cursorAfterOffset
-// cannot find it, so it restarts at the top — which is how archiving one
-// message sent the next j back to the first row.
+// Invariant: Choose the surviving neighbour before removing a row; a missing cursor would restart later movement at the top.
 function cursorAfterRemoval(list, cursorId) {
   var source = Array.isArray(list) ? list : []
   var index = indexById(source, cursorId)
@@ -1196,9 +833,6 @@ function cursorAfterRemoval(list, cursorId) {
   return ""
 }
 
-// Where the cursor goes when the whole list is replaced under it — a mailbox
-// switch, a search, a refresh that dropped things. The message it was on keeps
-// it if it survived; otherwise the top, which is where the eye goes anyway.
 function cursorAfterReload(list, cursorId) {
   var source = Array.isArray(list) ? list : []
   if (source.length === 0) return ""
@@ -1206,28 +840,20 @@ function cursorAfterReload(list, cursorId) {
   return source[0].id
 }
 
-// Where the scroller has to sit for a row to be on screen. The list is a Column
-// in a Flickable rather than a ListView — the panel already owns a scroller and
-// nesting a second one gives every wheel event two plausible targets — so there
-// is no positionViewAtIndex, and keyboard movement has to say this itself.
-//
-// Unchanged while the row is already visible. Recentring on every press would
-// drag the list under someone who is only stepping one row down it.
+// Invariant: Revealing an already visible row must not recenter the scroller.
 function contentYToReveal(contentY, viewportHeight, itemY, itemHeight,
                           contentHeight, margin, originY, topMargin, bottomMargin) {
   var top = Number(contentY) || 0
   var view = Number(viewportHeight) || 0
-  var y = Number(itemY) || 0
+  var itemTop = Number(itemY) || 0
   var height = Number(itemHeight) || 0
-  var pad = Number(margin) || 0
+  var padding = Number(margin) || 0
   var next = top
-  // A row that cannot fit shows its beginning. Aligning its bottom, which is
-  // what the off-the-bottom rule would do, pushes the part being read away.
-  if (height + pad + pad > view) next = y - pad
-  else if (y - pad < top) next = y - pad
-  else if (y + height + pad > top + view) next = y + height + pad - view
-  // The same range the wheel is held to. Callers that scroll a plain
-  // Flickable pass no origin or margins and get the range they had.
+  // Invariant: An oversized row reveals its beginning, so bottom alignment cannot push the text being read offscreen.
+  if (height + padding + padding > view) next = itemTop - padding
+  else if (itemTop - padding < top) next = itemTop - padding
+  else if (itemTop + height + padding > top + view) next = itemTop + height + padding - view
+  // Invariant: Keyboard reveal and wheel movement use the same bounds, including origin and margins.
   return clampContentY(next, contentYBounds(originY, contentHeight, view,
     topMargin, bottomMargin))
 }
@@ -1235,14 +861,12 @@ function contentYToReveal(contentY, viewportHeight, itemY, itemHeight,
 function unreadCount(list) {
   var source = Array.isArray(list) ? list : []
   var count = 0
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].unread) count++
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    if (source[rowIndex] && source[rowIndex].unread) count++
   }
   return count
 }
 
-// The bar has room for a number, not for a number of digits. Past 99 the exact
-// value has stopped being information anyone acts on.
 function badgeText(count, cap) {
   var value = Math.max(0, Math.floor(Number(count) || 0))
   var limit = Math.max(1, Math.floor(Number(cap) || 99))
@@ -1250,27 +874,22 @@ function badgeText(count, cap) {
   return value > limit ? limit + "+" : String(value)
 }
 
-function barTooltip(state, email, unread, provider, authKind) {
-  var name = providerName(provider)
+function barTooltip(state, email, unread) {
   if (state !== "ready")
-    return name + " · " + (setupHeadline(state, name, authKind) || "Not connected")
+    return "Gmail · " + (setupHeadline(state) || "Not connected")
   var address = String(email || "").trim()
   var count = Math.max(0, Math.floor(Number(unread) || 0))
   var suffix = count === 0 ? "No unread mail"
     : (count === 1 ? "1 unread message" : count + " unread messages")
-  return address ? address + " · " + suffix : name + " · " + suffix
+  return (address || "Gmail") + " · " + suffix
 }
 
-// ------------------------------------------------------------ new mail
-
-// The newest timestamp in a page of rows, in milliseconds, or zero if none of
-// them carry one. This is the mailbox's own clock rather than this machine's,
-// which is the whole point of it below.
+// Invariant: Notification priming uses the mailbox's timestamp domain rather than the local machine clock.
 function newestDate(summaries) {
   var list = Array.isArray(summaries) ? summaries : []
   var newest = 0
-  for (var i = 0; i < list.length; i++) {
-    var summary = list[i]
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    var summary = list[rowIndex]
     if (!summary || !summary.date || typeof summary.date.getTime !== "function") continue
     var time = summary.date.getTime()
     if (isFinite(time) && time > newest) newest = time
@@ -1278,34 +897,15 @@ function newestDate(summaries) {
   return newest
 }
 
-// Only messages the panel has not seen before, and only ones that are actually
-// new rather than merely newly fetched: the first load after start must not
-// fire a notification for every message already sitting in the inbox.
-//
-// `seenIds` answers that for everything the first page held, and `floorMs`
-// answers it for the rest — an unread message from last year that was never on
-// the cached page is not an arrival just because this is the fetch that first
-// returned it. The floor is the newest timestamp the mailbox itself reported
-// when notifications were primed, so the comparison is the server's clock
-// against the server's clock. Taking it from `Date.now()` instead is what made
-// a machine whose clock ran fast stop notifying altogether, silently and for
-// the whole session: every arrival was older than a "now" that had not
-// happened yet on the server.
-//
-// It is set once and never raised, so a message that arrives out of order —
-// which a mailing list does routinely — is still announced.
-//
-// A row with no usable date is announced rather than dropped. `seenIds` is the
-// guard that matters, and a provider that does not date a summary would
-// otherwise never notify at all.
+// Invariant: Initial inbox mail never notifies. The fixed server-time floor suppresses older fetched rows without losing later out-of-order arrivals; undated unseen rows remain eligible.
 function newArrivals(summaries, seenIds, primed, floorMs) {
   if (!primed) return []
   var list = Array.isArray(summaries) ? summaries : []
   var seen = seenIds || {}
   var arrivals = []
   var floor = typeof floorMs === "number" && isFinite(floorMs) && floorMs > 0 ? floorMs : 0
-  for (var i = 0; i < list.length; i++) {
-    var summary = list[i]
+  for (var summaryIndex = 0; summaryIndex < list.length; summaryIndex++) {
+    var summary = list[summaryIndex]
     if (!summary || !summary.unread || !summary.inInbox) continue
     if (seen[summary.id]) continue
     if (floor > 0 && summary.date && typeof summary.date.getTime === "function") {
@@ -1317,10 +917,7 @@ function newArrivals(summaries, seenIds, primed, floorMs) {
   return arrivals
 }
 
-// This is the canonical plain text handed to every platform. A platform whose
-// notification API accepts markup escapes at that final boundary; doing it
-// here would make native notification centres show the entities themselves.
-// A leading dash remains harmless behind notify-send's `--` separator.
+// Invariant: Notification text remains plain until the platform boundary escapes markup and separates command arguments.
 function notificationText(value) {
   return String(value === undefined || value === null ? "" : value)
 }
@@ -1338,64 +935,33 @@ function notificationBody(summary) {
   return subject + "\n" + (snippet.length > 140 ? snippet.substring(0, 139) + "…" : snippet)
 }
 
-// ------------------------------------------------------------- formatting
-
 function pluralize(count, singular, plural) {
   var value = Math.max(0, Math.floor(Number(count) || 0))
   return value + " " + (value === 1 ? singular : (plural || singular + "s"))
 }
 
-// "Mark these read", once it has run. The count is of rows, because rows are
-// what the user saw and chose; the noun follows the evidence, so it says
-// "conversations" only where a row actually stood for more than itself and
-// never claims a number nobody was shown.
+// Invariant: Bulk-action counts describe the displayed rows, using conversations only when those rows actually grouped members.
 function markAllReadNote(rows, expanded) {
   return pluralize(rows, expanded === true ? "conversation" : "message")
     + " marked read"
 }
 
-// What the rows on screen are, for the footer that counts them.
-//
-// On the evidence of the rows themselves rather than on the provider's
-// `conversations` capability: HEY's rows are conversations too, but its listing
-// reports no members, so a row there stands for a number nobody can see and
-// "messages" stays the honest word. A row that carries a block of two or more
-// has been collapsed and the count on screen is of conversations.
+// Invariant: Provider conversation capability alone cannot justify a conversation count; the displayed rows must carry member evidence.
 function listNoun(list) {
   var rows = Array.isArray(list) ? list : []
-  for (var i = 0; i < rows.length; i++) {
-    if (badgeCount(rows[i]) > 0) return "conversation"
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (badgeCount(rows[rowIndex]) > 0) return "conversation"
   }
   return "message"
 }
 
-// The number a row's badge shows: the conversation's length, or 0 for a row
-// that is not one. Two is the floor, `Conversation.MINIMUM_MEMBERS`: a row
-// saying "1" would be saying nothing, and a count of 0 is a provider that does
-// not group its listing — HEY's rows are already conversations and gain no
-// badge — rather than a conversation with nothing in it. Asked rather than
-// read straight off the summary, because a summary cached before rows carried
-// a block has none.
+// Invariant: A missing or zero thread count means grouping is unknown; only at least MINIMUM_MEMBERS earns a badge.
 function badgeCount(summary) {
   var block = Conversation.blockOf(summary ? summary.thread : null)
   return block && block.count >= Conversation.MINIMUM_MEMBERS ? block.count : 0
 }
 
-// ------------------------------------------------------------ reload depth
-
-// How many rows a reload asks for.
-//
-// Load more extends a list a page at a time, and everything that reloads the
-// list — the poll, F5, a push, the revalidation after an action — used to ask
-// for page one again and replace the whole list with the answer, so the rows
-// the user had paged down to vanished under them the moment any of those ran.
-// Opening an unread message was enough: its quiet mark-read is a write, the
-// server pushes the change, and the push is a reload.
-//
-// So a reload asks for as many rows as the view had reached, and the answer
-// replaces the list at that depth. Bounded, because IMAP answers at most a
-// hundred rows in one window and a reload should never cost more than the
-// user's own paging did.
+// Invariant: Reloads retain the paginated depth so refreshes cannot discard rows the reader already reached.
 var RELOAD_CEILING = 100
 
 function reloadLimit(pageSize, loadedDepth) {
@@ -1405,19 +971,7 @@ function reloadLimit(pageSize, loadedDepth) {
   return Math.min(Math.max(page, RELOAD_CEILING), depth)
 }
 
-// ---------------------------------------------------- conversation projection
-
-// The rail a projection source is about, as one key: the account that holds
-// the thread, the thread's id, and the mailbox it is viewed from. The source
-// names a thread when the reader is inside one; two sources with the same key
-// are asking about the same rail.
-//
-// The account is part of it because a thread id is the provider's, not the
-// world's. All mailboxes composes a message id with its account on the way
-// out and leaves `thread.id` as it came, so two accounts can each hold a
-// thread called `t1` in their Inbox — and a reader moving from one to the
-// other is moving between two rails, not asking again about one. The parts
-// are JSON-encoded so no id can run into the next.
+// Invariant: Projection identity includes account, thread and mailbox, with JSON framing so equal provider IDs or embedded delimiters cannot collide.
 function projectionKey(source) {
   var fields = source && typeof source === "object" ? source : ({})
   var thread = fields.thread
@@ -1425,14 +979,7 @@ function projectionKey(source) {
   return JSON.stringify([String(fields.accountId || ""), id, String(fields.mailboxKey || "")])
 }
 
-// What the reader draws while a new projection is in flight. About the same
-// rail, the one in hand stays up — its stops and its caption — and only the
-// ways along it go: the navigation, and the first and last stop that `n` and
-// `p` fall back to when the open message has no entry there. So a stale next
-// or previous cannot be followed before the answer lands, and neither can an
-// end be jumped to. About a different rail, nothing: its stops are not this
-// one's. A blank is built afresh each time, lists included, so nothing drawn
-// from one can reach into another.
+// Invariant: Pending projections disable stale navigation, including first/last fallbacks; a different rail also drops the previous stops.
 function blankProjection() {
   return { showsRail: false, stops: [], caption: "", navigation: {}, memberIds: [] }
 }
@@ -1448,22 +995,11 @@ function resultSummary(list, estimate, hasMore) {
   var noun = listNoun(list)
   if (!hasMore) return pluralize(shown, noun)
   var total = Math.floor(Number(estimate) || 0)
-  // A provider whose listing carries no total answers with what it read, which
-  // is the number already on screen. "50 of about 50" would be a claim HEY
-  // never made; "so far" is the honest reading of the same two numbers, and
-  // there is a Load more below it saying the rest exists.
+  // Invariant: An unfinished listing without a larger total reports rows so far, not a fabricated complete count.
   if (total <= shown) return pluralize(shown, noun) + " so far"
   return shown + " of about " + total
 }
 
-// The status line at the foot of the window: the account, then how current
-// its list is. The address is the long part and goes first, where it is
-// read; the sync age is short and follows, because "huacnlee@gmail.com ·
-// 1m ago" is one fact about one mailbox, and the mailbox is the subject.
-//
-// The account's own label ("Synced 1m ago") is a sentence for a place with
-// room for one. After an address it is a clause, so the verb goes: the
-// address is what was synced.
 function syncedShort(syncLabel) {
   var label = String(syncLabel || "")
   if (label === "") return ""
@@ -1472,18 +1008,9 @@ function syncedShort(syncLabel) {
   return match ? match[1] : label
 }
 
-// What is being read, at the foot of the rail and in the switcher. One string
-// in one place: the switcher names the row and the status line names what the
-// row selected, and two literals would drift apart.
 var UNIFIED_LABEL = "All mailboxes"
 
-// The foot of the rail, which says what is being read and how long ago it was
-// checked.
-//
-// A combined view has no address to give, and no age either: the sync label
-// belongs to one mailbox, and putting it after "All mailboxes" would be a
-// claim about every one of them made from whichever happened to be active
-// underneath.
+// Invariant: A unified status cannot reuse one account's address or sync age as evidence for every account.
 function readingStatusLine(unified, email, syncLabel) {
   if (unified === true) return UNIFIED_LABEL
   return accountStatusLine(email, syncLabel)
@@ -1496,14 +1023,6 @@ function accountStatusLine(email, syncLabel) {
   return age === "" ? address : address + " · " + age
 }
 
-// A title cut around the one word in it that is a link.
-//
-// Only the brand is the link — "Add a HEY mailbox" opens HEY's website from the
-// word HEY, not from the whole sentence, because a heading that is entirely a
-// link reads as a heading somebody made clickable by accident.
-//
-// A title that does not contain the brand keeps the link on the mark alone,
-// which is what the empty middle says.
 function splitBrand(title, brand) {
   var text = String(title === undefined || title === null ? "" : title)
   var word = String(brand === undefined || brand === null ? "" : brand)
@@ -1518,51 +1037,35 @@ function splitBrand(title, brand) {
 
 function truncate(text, limit) {
   var value = String(text || "")
-  var max = Math.max(4, Math.floor(Number(limit) || 80))
-  return value.length <= max ? value : value.substring(0, max - 1) + "…"
+  var maximum = Math.max(4, Math.floor(Number(limit) || 80))
+  return value.length <= maximum ? value : value.substring(0, maximum - 1) + "…"
 }
-
-// ------------------------------------------------------- settings sidebar
-
-// The settings page is one long scroll with a rail of its section names
-// beside it. The rail is for getting about, not for splitting the page into
-// several: a click scrolls, and the highlight follows the scroll. Both of
-// those are decisions about numbers, so they are made here.
 
 function sortedSections(sections) {
   var values = Array.isArray(sections) ? sections.slice() : []
   var known = []
-  for (var i = 0; i < values.length; i++) {
-    var entry = values[i] || {}
-    var y = Number(entry.y)
-    if (!isFinite(y) || String(entry.key || "") === "") continue
-    known.push({ key: String(entry.key), y: y })
+  for (var sectionIndex = 0; sectionIndex < values.length; sectionIndex++) {
+    var entry = values[sectionIndex] || {}
+    var sectionY = Number(entry.y)
+    if (!isFinite(sectionY) || String(entry.key || "") === "") continue
+    known.push({ key: String(entry.key), y: sectionY })
   }
-  known.sort(function(a, b) { return a.y - b.y })
+  known.sort(function(left, right) { return left.y - right.y })
   return known
 }
 
-// The section the reader is looking at: the last heading at or above the top
-// of the viewport, or the first section while the page is above them all.
-// This only works because the page is padded so that every heading can reach
-// the top (`settingsContentHeight`); without that the last sections could
-// never be the answer, and a click on one would highlight its neighbour —
-// the one annoyance everyone knows from anchor links.
+// Invariant: Every settings heading must be able to reach the viewport top, or the final sections can never become active.
 function activeSettingsSection(sections, contentY) {
   var known = sortedSections(sections)
   if (known.length === 0) return ""
   var top = Number(contentY) || 0
   var active = known[0].key
-  for (var i = 0; i < known.length; i++) {
-    if (known[i].y <= top) active = known[i].key
+  for (var sectionIndex = 0; sectionIndex < known.length; sectionIndex++) {
+    if (known[sectionIndex].y <= top) active = known[sectionIndex].key
   }
   return active
 }
 
-// How tall the scrollable content is: the page, or enough more of it that the
-// last heading can be scrolled to the top of the viewport. The extra is empty
-// space under the page, which is what lets "scroll to Calendars" mean
-// Calendars at the top rather than Calendars somewhere in the bottom half.
 function settingsContentHeight(sections, pageHeight, viewportHeight) {
   var known = sortedSections(sections)
   var page = Math.max(0, Number(pageHeight) || 0)
@@ -1571,34 +1074,17 @@ function settingsContentHeight(sections, pageHeight, viewportHeight) {
   return Math.max(page, known[known.length - 1].y + viewport)
 }
 
-// --------------------------------------------------- what a scroller can reach
-//
-// `contentY` does not run from 0 to `contentHeight - height`, which is what
-// three separate clamps in this repository assumed.
-//
-// `originY` moves the start: a `ListView` with a 200-tall header reports
-// `originY == -200`, and a clamp with a floor of 0 makes the header
-// unreachable and turns the first notch into a 200-pixel jump. Measured, not
-// inferred — that view settles at exactly `originY` and at
-// `originY + contentHeight - height`.
-//
-// Margins extend both ends: a `Flickable` with a `topMargin` rests at
-// `-topMargin` with its content below the gap, and a clamp with a floor of 0
-// answers a scroll *up* at the top by moving *down* to 0, after which the
-// margin can never be seen again. (`StopAtBounds` does not correct a
-// programmatic assignment, so this end comes from Qt's documented semantics
-// rather than from a probe like the `originY` one.)
+// Invariant: Scroll bounds include originY and margins. Clamping to zero would make ListView headers and Flickable top margins unreachable.
 function contentYBounds(originY, contentHeight, viewportHeight, topMargin, bottomMargin) {
   var origin = Number(originY) || 0
   var content = Number(contentHeight) || 0
   var view = Number(viewportHeight) || 0
   var top = Number(topMargin) || 0
   var bottom = Number(bottomMargin) || 0
-  var min = origin - top
-  // Content shorter than its own view has one position rather than a negative
-  // range, and that position is the top of it.
-  var max = Math.max(min, origin + content + bottom - view)
-  return { min: min, max: max }
+  var minimum = origin - top
+
+  var maximum = Math.max(minimum, origin + content + bottom - view)
+  return { min: minimum, max: maximum }
 }
 
 function clampContentY(value, bounds) {
@@ -1606,56 +1092,24 @@ function clampContentY(value, bounds) {
   return Math.max(limits.min, Math.min(limits.max, Number(value) || 0))
 }
 
-// ------------------------------------------------------------------ the wheel
-//
-// How far a wheel turn moves a Flickable, which the Flickable itself gets
-// wrong on a mouse that reports finely.
-//
-// A Flickable answers a wheel event with a *flick* — a velocity it then
-// decelerates — so the distance depends on how the turn was chopped up rather
-// than on how far the wheel went. One notch arrives as `angleDelta` 120 and
-// moves about 72 pixels; a high-resolution wheel reports the same physical
-// notch as eight deltas of 15, each starting and damping its own little
-// flick, and the same turn of the same wheel moves about 9. Eight times less
-// for the same gesture, which is what "slower than every other app" is.
-//
-// Rotation is the thing that does not change: `angleDelta` is eighths of a
-// degree, a notch is 15 degrees, and eight fractions of a notch still add up
-// to 15. So the distance is computed from rotation and nothing else, in
-// notches rather than in degrees — a notch is the unit a hand turns and 120
-// pixels is three lines of text, which is what a GTK application moves for it.
-//
-// Nothing is capped. A cap on one *event* would put the chunking dependence
-// straight back at the coarse end: an MX Master in free spin delivers ten
-// notches as one event, and a bound would move it a notch and a half while
-// the same ten notches arriving as ten events moved ten. A bound worth having
-// would be per unit time, and no bound at all is honest — the wheel was
-// turned that far.
+// Invariant: Wheel distance depends on total rotation, not event chunking; per-event caps would make equal gestures travel different distances. Qt angleDelta uses eighths of a degree, with 120 units per notch.
 var WHEEL_UNITS_PER_NOTCH = 120
 var WHEEL_PIXELS_PER_NOTCH = 120
-// Chromium on a 2x laptop travels further than GTK's three lines. The notch
-// stays 120 so the arithmetic is still "a notch is a notch"; the gain is how
-// far that notch moves on screen.
+
 var WHEEL_GAIN = 2
 
-// Numerically the identity at these two values, and written as a ratio anyway:
-// the constant that matters is "a notch moves 120 pixels", and it is the one a
-// reader changes.
+// Invariant: Rotation units and pixel distance remain separate even when their conversion ratio is one.
 function wheelDistance(angleDelta) {
   return (Number(angleDelta) || 0) / WHEEL_UNITS_PER_NOTCH * WHEEL_PIXELS_PER_NOTCH
 }
 
-// Pixels to move the view. `pixelDelta` wins when the device reports it
-// (touchpad, high-res wheel); otherwise the notch mapping. The gain is
-// applied here so QML cannot forget it.
+// Invariant: Device pixel deltas take precedence over angle deltas, with gain applied once.
 function wheelPixels(angleDelta, pixelDelta) {
   var pixels = Number(pixelDelta) || 0
   if (pixels === 0) pixels = wheelDistance(angleDelta)
   return pixels * WHEEL_GAIN
 }
 
-// Where the view lands after a movement already expressed in pixels —
-// `pixelDelta` from a touchpad, or `wheelDistance` from a mouse notch.
 function wheelScrollByPixels(contentY, pixels, contentHeight, viewportHeight,
                              originY, topMargin, bottomMargin) {
   var bounds = contentYBounds(originY, contentHeight, viewportHeight,
@@ -1663,67 +1117,41 @@ function wheelScrollByPixels(contentY, pixels, contentHeight, viewportHeight,
   return clampContentY((Number(contentY) || 0) - (Number(pixels) || 0), bounds)
 }
 
-// Where the view lands, inside what it can actually reach.
 function wheelScrollTarget(contentY, angleDelta, contentHeight, viewportHeight,
                            originY, topMargin, bottomMargin) {
   return wheelScrollByPixels(contentY, wheelDistance(angleDelta), contentHeight,
     viewportHeight, originY, topMargin, bottomMargin)
 }
 
-// Where a click on a section name scrolls to: its heading, clamped into the
-// range the page can actually reach, so the last section lands at the end of
-// the page rather than asking for a gap under it. -1 for a name the page does
-// not have, which the caller ignores.
 function settingsScrollTarget(sections, key, contentHeight, viewportHeight) {
   var known = sortedSections(sections)
   var wanted = String(key || "")
-  for (var i = 0; i < known.length; i++) {
-    if (known[i].key !== wanted) continue
+  for (var sectionIndex = 0; sectionIndex < known.length; sectionIndex++) {
+    if (known[sectionIndex].key !== wanted) continue
     var content = Number(contentHeight) || 0
     var viewport = Number(viewportHeight) || 0
     var limit = Math.max(0, content - viewport)
-    return Math.max(0, Math.min(known[i].y, limit))
+    return Math.max(0, Math.min(known[sectionIndex].y, limit))
   }
   return -1
 }
 
-// Whether a message arriving in the reader should be marked read by the fact
-// of its arrival.
-//
-// A preview is not opening. Stepping down a list would otherwise mark every
-// message it passed read without any of them having been looked at, which is
-// the reason moving stopped opening in the first place — so the panel marks a
-// previewed message read once the cursor has stayed on it, and arrival leaves
-// it alone.
+// Invariant: A preview must not mark mail read; explicit opening may mark its unread message.
 function marksReadOnArrival(summary, isPreview) {
   return !!summary && summary.unread === true && isPreview !== true
 }
 
-// Whether a dwell on a previewed message has anything to mark: it has to still
-// be in the list, and still be unread.
 function previewReadable(messages, id) {
   var at = indexById(messages, id)
   return at >= 0 && !!messages[at] && messages[at].unread === true
 }
 
-// Whether the sender's remote images may be fetched for the message now on
-// screen.
-//
-// The standing "always show images" answer is an answer about a message
-// somebody chose to read. Fetching one still tells its host that this address
-// opened this mail at this moment — which is what the notice in the reader
-// says out loud — and a cursor passing over a row has opened nothing. So a
-// preview keeps the pictures blocked however that answer stands, and opening
-// the message, or asking for them in the reader, loads them.
+// Invariant: Standing image permission applies to an explicitly opened message; a preview must not contact tracking hosts.
 function showsRemoteImages(alwaysShow, isPreview) {
   return alwaysShow === true && isPreview !== true
 }
 
-// ------------------------------------------------------------ selection
-
-// The rows checked for a bulk action. A list of ids rather than a flag on the
-// summaries, because a summary is what the provider said about a message and
-// which rows the user has ticked is not that.
+// Invariant: Selection belongs to interaction state rather than provider-owned message summaries.
 function toggleId(ids, id) {
   var list = Array.isArray(ids) ? ids.slice() : []
   var key = String(id || "")
@@ -1734,109 +1162,97 @@ function toggleId(ids, id) {
   return list
 }
 
-// Every id from one row to another, inclusive, in list order — what a
-// Shift+click means. Either end unknown to the list means just the other.
 function idsBetween(list, fromId, toId) {
   var source = Array.isArray(list) ? list : []
-  var a = indexById(source, fromId)
-  var b = indexById(source, toId)
-  if (a < 0 && b < 0) return []
-  if (a < 0) a = b
-  if (b < 0) b = a
-  var lo = Math.min(a, b)
-  var hi = Math.max(a, b)
-  var out = []
-  for (var i = lo; i <= hi; i++) out.push(source[i].id)
-  return out
+  var fromIndex = indexById(source, fromId)
+  var toIndex = indexById(source, toId)
+  if (fromIndex < 0 && toIndex < 0) return []
+  if (fromIndex < 0) fromIndex = toIndex
+  if (toIndex < 0) toIndex = fromIndex
+  var firstIndex = Math.min(fromIndex, toIndex)
+  var lastIndex = Math.max(fromIndex, toIndex)
+  var result = []
+  for (var rowIndex = firstIndex; rowIndex <= lastIndex; rowIndex++) result.push(source[rowIndex].id)
+  return result
 }
 
 function unionIds(ids, more) {
-  var out = Array.isArray(ids) ? ids.slice() : []
+  var result = Array.isArray(ids) ? ids.slice() : []
   var extra = Array.isArray(more) ? more : []
-  for (var i = 0; i < extra.length; i++) {
-    if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  for (var labelIndex = 0; labelIndex < extra.length; labelIndex++) {
+    if (result.indexOf(extra[labelIndex]) < 0) result.push(extra[labelIndex])
   }
-  return out
+  return result
 }
 
-// Shift-click applies the endpoint's next checked state to the whole range.
-// Clearing a range never adds its unchecked gaps or touches rows outside it.
+// Invariant: Range toggling follows the endpoint's next state; clearing cannot select unchecked gaps or affect rows outside the range.
 function toggleRange(ids, list, fromId, toId) {
   var checked = Array.isArray(ids) ? ids : []
   if (indexById(list, toId) < 0) return checked.slice()
   var range = idsBetween(list, fromId, toId)
   if (checked.indexOf(toId) < 0) return unionIds(checked, range)
-  var out = []
-  for (var i = 0; i < checked.length; i++) {
-    if (range.indexOf(checked[i]) < 0) out.push(checked[i])
+  var result = []
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    if (range.indexOf(checked[messageIndex]) < 0) result.push(checked[messageIndex])
   }
-  return out
+  return result
 }
 
-// The checked ids that are still listed. A reload, a search or an action can
-// take rows away, and a selection that kept naming them would act on messages
-// the user can no longer see.
+// Invariant: Selection drops rows that are no longer visible so later bulk actions cannot target hidden messages.
 function retainIds(ids, list) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
-  var out = []
-  for (var i = 0; i < checked.length; i++) {
-    if (indexById(source, checked[i]) >= 0) out.push(checked[i])
+  var result = []
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    if (indexById(source, checked[messageIndex]) >= 0) result.push(checked[messageIndex])
   }
-  return out
+  return result
 }
 
 function allIds(list) {
   var source = Array.isArray(list) ? list : []
-  var out = []
-  for (var i = 0; i < source.length; i++) out.push(source[i].id)
-  return out
+  var result = []
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) result.push(source[rowIndex].id)
+  return result
 }
 
 function summariesById(list, ids) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
-  var out = []
-  for (var i = 0; i < checked.length; i++) {
-    var index = indexById(source, checked[i])
-    if (index >= 0) out.push(source[index])
+  var result = []
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    var index = indexById(source, checked[messageIndex])
+    if (index >= 0) result.push(source[index])
   }
-  return out
+  return result
 }
 
-// Where the cursor goes when several rows leave at once: the first survivor
-// after it, or the last one before it. Worked out on the list as it still is,
-// like cursorAfterRemoval, and for the same reason.
+// Invariant: Bulk removal chooses the next surviving cursor row from the original order, before those rows disappear.
 function cursorAfterRemovals(list, removedIds, cursorId) {
   var source = Array.isArray(list) ? list : []
   var gone = Array.isArray(removedIds) ? removedIds : []
   var index = indexById(source, cursorId)
   if (index < 0) return ""
-  var i
-  for (i = index; i < source.length; i++) {
-    if (gone.indexOf(source[i].id) < 0) return source[i].id
+  var candidateIndex
+  for (candidateIndex = index; candidateIndex < source.length; candidateIndex++) {
+    if (gone.indexOf(source[candidateIndex].id) < 0) return source[candidateIndex].id
   }
-  for (i = index - 1; i >= 0; i--) {
-    if (gone.indexOf(source[i].id) < 0) return source[i].id
+  for (candidateIndex = index - 1; candidateIndex >= 0; candidateIndex--) {
+    if (gone.indexOf(source[candidateIndex].id) < 0) return source[candidateIndex].id
   }
   return ""
 }
 
-// One star key over several rows: they all go the way the majority has not
-// gone yet. All starred means unstar; anything else means star, so a mixed
-// selection lands in one state rather than swapping every row.
+// Invariant: A mixed selection uses one star action; only an entirely starred selection is unstarred.
 function starActionFor(summaries) {
   var rows = Array.isArray(summaries) ? summaries : []
   if (rows.length === 0) return "star"
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i] || !rows[i].starred) return "star"
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (!rows[rowIndex] || !rows[rowIndex].starred) return "star"
   }
   return "unstar"
 }
 
-// "3 messages archived": the count, then the single-message note with its
-// capital taken off. One rule for every action, so a new action's note only
-// has to be written once.
 function batchNote(count, actionLabel) {
   var label = String(actionLabel || "")
   if (label === "") return pluralize(count, "message")
@@ -1844,28 +1260,24 @@ function batchNote(count, actionLabel) {
 }
 
 function selectionStatus(count) {
-  var n = Math.max(0, Math.floor(Number(count) || 0))
-  return n === 0 ? "" : n + " selected"
+  var selectedCount = Math.max(0, Math.floor(Number(count) || 0))
+  return selectedCount === 0 ? "" : selectedCount + " selected"
 }
 
-// The rows whose request failed, put back where they were: each is taken
-// from the list as it stood before the action and inserted at its old
-// place, or as near as the rows still around it allow. Rows whose request
-// succeeded are left as the action left them.
+// Invariant: Batch rollback restores only failed rows; successful removals remain removed.
 function restoreRows(current, before, failedIds) {
   var now = Array.isArray(current) ? current.slice() : []
   var was = Array.isArray(before) ? before : []
   var ids = Array.isArray(failedIds) ? failedIds : []
-  for (var i = 0; i < was.length; i++) {
-    var row = was[i]
+  for (var rowIndex = 0; rowIndex < was.length; rowIndex++) {
+    var row = was[rowIndex]
     if (!row || ids.indexOf(String(row.id)) < 0) continue
     var at = indexById(now, row.id)
     if (at >= 0) { now[at] = row; continue }
-    // The first later row of the old order that is still present decides
-    // where this one goes back; none means the end.
+
     var insertAt = now.length
-    for (var j = i + 1; j < was.length; j++) {
-      var later = indexById(now, was[j].id)
+    for (var followingIndex = rowIndex + 1; followingIndex < was.length; followingIndex++) {
+      var later = indexById(now, was[followingIndex].id)
       if (later >= 0) { insertAt = later; break }
     }
     now.splice(insertAt, 0, row)
@@ -1873,8 +1285,6 @@ function restoreRows(current, before, failedIds) {
   return now
 }
 
-// "2 of 5 could not be moved to trash: <reason>" — the count that failed,
-// the count asked, the action in the words its note uses, and why.
 function batchFailureNote(asked, failed, actionLabel, error) {
   var label = String(actionLabel || "")
   var verb = label === "" ? "acted on" : label.charAt(0).toLowerCase() + label.slice(1)
@@ -1882,42 +1292,24 @@ function batchFailureNote(asked, failed, actionLabel, error) {
   return failed + " of " + asked + " could not be " + verb + (reason === "" ? "" : ": " + reason)
 }
 
-// ------------------------------------------------------------ folder tree
-
-// The rail's labels as a tree: "Archive/2026" sits under "Archive", indented,
-// and a parent can be folded. The delimiter is the server's own where the
-// provider reported one and "/" where it said nothing, which is what Gmail
-// nests with. An IMAP server that answers LIST with a NIL delimiter has no
-// hierarchy at all, and the provider passes that on as "": then a folder
-// named "a/b" is one folder, not a parent and a child.
-//
-// An ancestor no label names — a folder the server marked \Noselect, or a
-// Gmail label whose parent was never created — is still a row, because its
-// children have to hang from something; it has no id, opens nothing, and
-// folds like any other parent.
-//
-// Rows come back depth-first, siblings in name order, with the rows under a
-// folded parent left out. `unread` on a folded parent is its subtree's, so
-// folding a queue does not hide that it has mail in it.
+// Invariant: Missing ancestors remain nonselectable tree rows. A folded parent includes descendant unread counts so folding cannot hide unread mail.
 function labelTree(labels, collapsedPaths) {
   var all = Array.isArray(labels) ? labels : []
   var folded = Array.isArray(collapsedPaths) ? collapsedPaths : []
-  // Children keyed on a prototype-less object: a label named "constructor"
-  // or "__proto__" is a label, not a property of Object.
+  // Invariant: Server-controlled names such as constructor and __proto__ must remain ordinary child keys.
   var root = { children: Object.create(null), order: [] }
-  for (var i = 0; i < all.length; i++) {
-    var label = all[i]
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    var label = all[labelIndex]
     if (!label || label.system) continue
-    var delimiter = labelDelimiter(label)
-    var full = String(label.name || label.rawName || "")
+    var full = String(label.name || "")
     if (full === "") continue
-    var parts = delimiter === "" ? [full] : full.split(delimiter)
+    var parts = full.split("/")
     var node = root
     var path = ""
-    for (var p = 0; p < parts.length; p++) {
-      var part = parts[p]
-      if (part === "" && p > 0) continue
-      path = path === "" ? part : path + delimiter + part
+    for (var partIndex = 0; partIndex < parts.length; partIndex++) {
+      var part = parts[partIndex]
+      if (part === "" && partIndex > 0) continue
+      path = path === "" ? part : path + "/" + part
       if (!node.children[part]) {
         node.children[part] = { name: part, path: path, label: null,
           unread: 0, children: Object.create(null), order: [] }
@@ -1931,23 +1323,23 @@ function labelTree(labels, collapsedPaths) {
 
   function subtreeUnread(node) {
     var sum = node.unread
-    for (var c = 0; c < node.order.length; c++) sum += subtreeUnread(node.children[node.order[c]])
+    for (var childIndex = 0; childIndex < node.order.length; childIndex++) sum += subtreeUnread(node.children[node.order[childIndex]])
     return sum
   }
 
-  var out = []
+  var result = []
   function walk(node, depth) {
-    var names = node.order.slice().sort(function(a, b) {
-      var left = a.toLowerCase(), right = b.toLowerCase()
+    var names = node.order.slice().sort(function(leftName, rightName) {
+      var left = leftName.toLowerCase(), right = rightName.toLowerCase()
       return left < right ? -1 : (left > right ? 1 : 0)
     })
-    for (var n = 0; n < names.length; n++) {
-      var child = node.children[names[n]]
+    for (var nameIndex = 0; nameIndex < names.length; nameIndex++) {
+      var child = node.children[names[nameIndex]]
       var hasChildren = child.order.length > 0
       var expanded = !hasChildren || folded.indexOf(child.path) < 0
-      out.push({
+      result.push({
         id: child.label ? String(child.label.id || "") : "",
-        rawName: child.label ? String(child.label.rawName || child.label.name || "") : "",
+        rawName: child.label ? String(child.label.name || "") : "",
         name: child.name,
         path: child.path,
         depth: depth,
@@ -1960,35 +1352,25 @@ function labelTree(labels, collapsedPaths) {
     }
   }
   walk(root, 0)
-  return out
+  return result
 }
 
-// The labels in the order the rail draws them, folded rows left out — what
-// the Ctrl digits number, so a digit never opens a row that is not on screen.
+// Invariant: Digit shortcuts number only selectable labels in the visible folded-tree order.
 function visibleLabels(labels, collapsedPaths) {
   var rows = labelTree(labels, collapsedPaths)
   var all = Array.isArray(labels) ? labels : []
-  // One pass over the labels, not one per row: a rail of thousands of
-  // folders is rebuilt on every fold.
+  // Performance: Index labels once because a large folder rail is rebuilt on every fold.
   var byId = Object.create(null)
-  for (var l = 0; l < all.length; l++) {
-    if (all[l] && byId[String(all[l].id || "")] === undefined) byId[String(all[l].id || "")] = all[l]
+  for (var listIndex = 0; listIndex < all.length; listIndex++) {
+    if (all[listIndex] && byId[String(all[listIndex].id || "")] === undefined) byId[String(all[listIndex].id || "")] = all[listIndex]
   }
-  var out = []
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i].selectable) continue
-    var label = byId[rows[i].id]
-    if (label !== undefined) out.push(label)
+  var result = []
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (!rows[rowIndex].selectable) continue
+    var label = byId[rows[rowIndex].id]
+    if (label !== undefined) result.push(label)
   }
-  return out
-}
-
-// The separator a provider nests with: its own where it reported one, "/"
-// where it reported nothing, and "" where it said in so many words that
-// there is no hierarchy — IMAP's NIL delimiter.
-function labelDelimiter(label) {
-  if (!label || label.delimiter === undefined || label.delimiter === null) return "/"
-  return String(label.delimiter)
+  return result
 }
 
 function togglePath(paths, path) {
@@ -1996,12 +1378,12 @@ function togglePath(paths, path) {
 }
 
 function activityStatus(counts) {
-  var c = counts || {}
+  var activityCounts = counts || {}
   function count(value) { return Math.max(0, Math.floor(Number(value)) || 0) }
-  var sending = count(c.sending)
-  var queuedSends = count(c.queuedSends)
-  var running = count(c.running)
-  var waiting = count(c.waiting)
+  var sending = count(activityCounts.sending)
+  var queuedSends = count(activityCounts.queuedSends)
+  var running = count(activityCounts.running)
+  var waiting = count(activityCounts.waiting)
   var parts = []
   if (sending > 0) parts.push(sending === 1 ? "Sending" : "Sending " + sending)
   if (queuedSends > 0) parts.push(queuedSends + " queued to send")
@@ -2010,151 +1392,72 @@ function activityStatus(counts) {
   return parts.join(" \u00b7 ")
 }
 
-// ------------------------------------------------------------ label names
-
-// A label's path taken apart and put together with the delimiter its
-// provider nests with: "/" for Gmail, whatever the server said for IMAP.
-// The path helpers take the delimiter `labelDelimiter` gives: a separator
-// to split on, or "" for a server with no hierarchy, where every path is a
-// leaf, nothing has a parent, and nothing can be put under anything.
-function labelLeaf(path, delimiter) {
+function labelLeaf(path) {
   var text = String(path || "")
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep === "") return text
-  var at = text.lastIndexOf(sep)
-  return at < 0 ? text : text.slice(at + sep.length)
+  var at = text.lastIndexOf("/")
+  return at < 0 ? text : text.slice(at + 1)
 }
 
-function labelParent(path, delimiter) {
+function labelParent(path) {
   var text = String(path || "")
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep === "") return ""
-  var at = text.lastIndexOf(sep)
+  var at = text.lastIndexOf("/")
   return at < 0 ? "" : text.slice(0, at)
 }
 
-function labelPathJoin(parent, leaf, delimiter) {
+function labelPathJoin(parent, leaf) {
   var head = String(parent || "")
   var tail = String(leaf || "").trim()
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (head === "" || sep === "") return tail
-  return head + sep + tail
+  return head === "" ? tail : head + "/" + tail
 }
 
-// Whether a name typed for a label is one the provider can take: not empty,
-// and not carrying the delimiter, which would make two labels of one.
-function labelNameProblem(name, delimiter) {
+function labelNameProblem(name) {
   var text = String(name || "").trim()
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
   if (text === "") return "A label needs a name"
-  if (sep !== "" && text.indexOf(sep) >= 0) return "A name cannot contain " + sep + "; use New sub-label to nest"
+  if (text.indexOf("/") >= 0) return "A name cannot contain /; use New sub-label to nest"
   return ""
 }
 
-// What a server with no hierarchy says to a label asked to go under
-// another, or "" where nesting is possible.
-function labelNestProblem(parentPath, delimiter) {
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep !== "" || String(parentPath || "") === "") return ""
-  return "This server keeps its folders in one flat list, so nothing can go under " + String(parentPath)
-}
-
-// Where a label may be moved: every other label that is not beneath it, plus
-// the top level. Moving a label under its own descendant would swallow it.
-function labelMoveTargets(labels, movingPath, delimiter) {
+// Invariant: A label cannot move under itself or a descendant.
+function labelMoveTargets(labels, movingPath) {
   var all = Array.isArray(labels) ? labels : []
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
   var moving = String(movingPath || "")
-  var out = [{ id: "", name: "Top level", path: "" }]
-  // No hierarchy: the top level is the only place, and the label is there.
-  if (sep === "") return out
-  for (var i = 0; i < all.length; i++) {
-    var label = all[i]
+  var result = [{ id: "", name: "Top level", path: "" }]
+  for (var accountIndex = 0; accountIndex < all.length; accountIndex++) {
+    var label = all[accountIndex]
     if (!label || label.system) continue
-    var path = String(label.name || label.rawName || "")
+    var path = String(label.name || "")
     if (path === "" || path === moving) continue
-    if (moving !== "" && path.indexOf(moving + sep) === 0) continue
-    if (path === labelParent(moving, sep)) continue
-    out.push({ id: String(label.id || ""), name: path, path: path })
+    if (moving !== "" && path.indexOf(moving + "/") === 0) continue
+    if (path === labelParent(moving)) continue
+    result.push({ id: String(label.id || ""), name: path, path: path })
   }
-  return out
+  return result
 }
 
-// The watched ids after a folder was renamed or moved, or deleted. An IMAP
-// folder's id is its wire name, so a rename changes the id of the folder
-// and of every folder beneath it; a watch on any of them follows to the id
-// the fresh listing gives that path. A Gmail id survives a rename and is
-// kept as it is. A watch on a folder the listing no longer has — deleted,
-// or gone with its parent — is dropped rather than polled forever. The
-// same array comes back when nothing changed, so a caller can tell.
-function migrateMonitoredIds(monitored, before, after, oldPath, newPath, delimiter) {
-  return migrateMonitoredChanges(monitored, [{ before: before, oldPath: oldPath,
-    newPath: newPath, delimiter: delimiter }], after)
-}
-
-// Apply every pending path change before consulting the final listing. An
-// intermediate name need never appear in that listing, and a surviving child
-// remains watched when its parent alone was deleted.
-function migrateMonitoredChanges(monitored, moves, after) {
+// Invariant: Gmail label IDs survive renames; only labels absent from a successful listing stop being watched.
+function retainedMonitoredIds(monitored, labels) {
   var ids = Array.isArray(monitored) ? monitored : []
-  var now = Array.isArray(after) ? after : []
-  var out = []
-  function pathOf(label) { return label ? String(label.name || label.rawName || "") : "" }
-  for (var k = 0; k < ids.length; k++) {
-    var id = String(ids[k] || "")
-    if (id === "") continue
-    if (indexById(now, id) >= 0) { out.push(id); continue }
-    var path = ""
-    for (var m = 0; m < moves.length; m++) {
-      var move = moves[m]
-      var before = Array.isArray(move.before) ? move.before : []
-      if (path === "") {
-        var old = indexById(before, id)
-        if (old >= 0) path = pathOf(before[old])
-      }
-      var from = String(move.oldPath || "")
-      var to = String(move.newPath || "")
-      var sep = String(move.delimiter === undefined || move.delimiter === null ? "/" : move.delimiter)
-      if (from !== "" && path !== "" && (path === from || (sep !== "" && path.indexOf(from + sep) === 0))) {
-        if (to === "") { path = ""; break }
-        path = to + path.slice(from.length)
-      }
-    }
-    if (path === "") continue
-    for (var j = 0; j < now.length; j++) {
-      if (pathOf(now[j]) === path && String(now[j].id || "") !== "") {
-        if (out.indexOf(String(now[j].id)) < 0) out.push(String(now[j].id))
-        break
-      }
-    }
+  var remaining = Object.create(null)
+  var all = Array.isArray(labels) ? labels : []
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    var id = String(all[labelIndex] && all[labelIndex].id || "")
+    if (id !== "") remaining[id] = true
   }
-  if (out.length === ids.length) {
-    var same = true
-    for (var n = 0; n < ids.length; n++) if (out[n] !== ids[n]) same = false
-    if (same) return ids
-  }
-  return out
+  var result = ids.filter(function(id) { return remaining[String(id)] === true })
+  return result.length === ids.length ? ids : result
 }
 
-// "3 new in Receipts", or the two labels with the most, for the status line.
 function monitoredNote(grown) {
   var list = Array.isArray(grown) ? grown.slice() : []
   if (list.length === 0) return ""
-  list.sort(function(a, b) { return Number(b.delta || 0) - Number(a.delta || 0) })
+  list.sort(function(left, right) { return Number(right.delta || 0) - Number(left.delta || 0) })
   var parts = []
-  for (var i = 0; i < list.length && i < 2; i++)
-    parts.push(Math.max(1, Math.floor(Number(list[i].delta) || 1)) + " new in " + String(list[i].name || ""))
+  for (var activityIndex = 0; activityIndex < list.length && activityIndex < 2; activityIndex++)
+    parts.push(Math.max(1, Math.floor(Number(list[activityIndex].delta) || 1)) + " new in " + String(list[activityIndex].name || ""))
   var more = list.length - parts.length
   return parts.join(", ") + (more > 0 ? " and " + more + " more" : "")
 }
 
-
-// ------------------------------------------------------------ type to find
-
-// How well a few typed letters name a row. Every letter must appear in the
-// text, in order; the closer together and the nearer the start of words they
-// fall, the better. Zero is no match. The letters are compared case-folded,
-// so "sfl" finds "SFL" and "the-sfl.com" alike.
 function fuzzyScore(query, text) {
   var needle = String(query || "").toLowerCase().replace(/\s+/g, "")
   var hay = String(text || "").toLowerCase()
@@ -2165,8 +1468,8 @@ function fuzzyScore(query, text) {
   var score = 0
   var from = 0
   var last = -2
-  for (var i = 0; i < needle.length; i++) {
-    var found = hay.indexOf(needle.charAt(i), from)
+  for (var characterIndex = 0; characterIndex < needle.length; characterIndex++) {
+    var found = hay.indexOf(needle.charAt(characterIndex), from)
     if (found < 0) return 0
     score += 10
     if (found === last + 1) score += 8
@@ -2177,28 +1480,23 @@ function fuzzyScore(query, text) {
   return score
 }
 
-// The rows a typed query keeps, best first, each remembering where it sat
-// in the full list — `sourceIndex`, not `index`, which a Repeater hands its
-// delegate for the row's place on screen — so choosing one still names the
-// same thing. An empty query keeps every row in its own order. A row is
-// matched on whatever it carries: its name, the name it was given, its
-// address.
+// Invariant: sourceIndex preserves the original row identity; index is reserved for the Repeater delegate's displayed position.
 function filterRows(rows, query) {
   var list = Array.isArray(rows) ? rows : []
   var typed = String(query || "").trim()
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i]
+  var result = []
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    var row = list[rowIndex]
     if (!row) continue
-    var text = [row.name, row.label, row.email].filter(function(v) { return v !== undefined && v !== null && String(v) !== "" }).join(" ")
+    var text = [row.name, row.label, row.email].filter(function(fieldValue) { return fieldValue !== undefined && fieldValue !== null && String(fieldValue) !== "" }).join(" ")
     var score = typed === "" ? 1 : fuzzyScore(typed, text)
     if (score <= 0) continue
     var kept = {}
     for (var key in row) kept[key] = row[key]
-    kept.sourceIndex = i
+    kept.sourceIndex = rowIndex
     kept.score = score
-    out.push(kept)
+    result.push(kept)
   }
-  if (typed !== "") out.sort(function(a, b) { return b.score - a.score || a.sourceIndex - b.sourceIndex })
-  return out
+  if (typed !== "") result.sort(function(left, right) { return right.score - left.score || left.sourceIndex - right.sourceIndex })
+  return result
 }

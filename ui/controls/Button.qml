@@ -3,42 +3,27 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
-// The button. One component for every clickable thing in the kit.
-// States compose independently and are applied in priority order:
-//
-//   pressed (mouse down)         pressed fill
-//   activeFocus (Tab focus)      focus fill + focus border token
-//   hasCursor || hover           hover-cursor fill (+ border if `bordered`)
-//   selected                     selected fill + optional selected border
-//   active                       selected fill
-//   idle                         transparent or normal border if `bordered`
-//
-// All fills/borders come from `qs.Commons.Style` tokens, so themes
-// control the look via [controls] in shell.toml.
-//
-// Emits `hovered(bool)` so panels with their own keyboard cursor model
-// can update state on mouse enter/leave.
 BorderSurface {
   id: root
 
   property string text: ""
   property string iconText: ""
   property string tooltipText: ""
+  property real tooltipMaximumWidth: 0
+  property bool tooltipBelow: false
 
-  // State flags (see comment above for paint priority).
   property bool selected: false
   property bool active: false
   property bool hasCursor: false
   property bool focusable: false
   property bool bordered: false
 
-  // Colors. Defaults track the theme; per-instance overrides are honored.
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color background: "transparent"
-  property color accent: Color.accent
+  property color accent: Commons.Color.accent
 
-  // Sizing.
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.body
   property real iconSize: Style.font.icon
@@ -47,31 +32,43 @@ BorderSurface {
   property real horizontalPadding: Style.spacing.controlPaddingX
   property real verticalPadding: Style.spacing.controlPaddingY
   property bool leftAlign: false
+  // Docs: the widest the button may be. A longer label wraps onto more lines instead of running past it, so a
+  // confirmation's choice is never cut short at a large text size.
+  property real maximumWidth: Infinity
 
   leftPadding: horizontalPadding
   rightPadding: horizontalPadding
   topPadding: verticalPadding
   bottomPadding: verticalPadding
 
-  // Tooltip palette. Auto-rendered if tooltipText is set. Defaults pull
-  // from [tooltip] in shell.toml; override per-instance only when a button
-  // intentionally wants a tooltip that diverges from the theme.
-  property color tooltipBackground: Color.tooltip.background
-  property color tooltipForeground: Color.tooltip.text
-  property color tooltipBorder: Color.tooltip.border
+  property color tooltipBackground: Commons.Color.tooltip.background
+  property color tooltipForeground: Commons.Color.tooltip.text
+  property color tooltipBorder: Commons.Color.tooltip.border
 
   signal clicked()
   signal rightClicked()
   signal hovered(bool isHovered)
 
   activeFocusOnTab: focusable
-  Keys.onReturnPressed: if (focusable) root.clicked()
-  Keys.onEnterPressed: if (focusable) root.clicked()
-  Keys.onSpacePressed: if (focusable) root.clicked()
+  Accessible.role: Accessible.Button
+  Accessible.name: text || tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus && root.focusable
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
 
-  // Reserve the largest border any visual state can paint. Otherwise a
-  // borderless idle button grows by a pixel per side on hover/focus and
-  // relayouts neighboring controls.
+  // Invariant: reserve the largest possible border so hover and focus do not relayout neighboring
+  // controls.
   implicitWidth: row.implicitWidth + horizontalPadding * 2 + _reservedBorderLeft + _reservedBorderRight
   implicitHeight: row.implicitHeight + verticalPadding * 2 + _reservedBorderTop + _reservedBorderBottom
   radius: Style.cornerRadius
@@ -79,7 +76,7 @@ BorderSurface {
   readonly property bool hot: mouseArea.containsMouse || hasCursor
   readonly property bool _showFocusRing: focusable && activeFocus
   readonly property color _selectedColor: Style.selectedStateColor(root.foreground, root.accent)
-  readonly property var _tooltipBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", root.tooltipBorder, Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
+  readonly property var _tooltipBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", root.tooltipBorder, Commons.Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
   readonly property var _focusBorderSpec: Border.controlSpec("focus", root.foreground, root.accent)
   readonly property var _hoverBorderSpec: Border.controlSpec("hover-cursor", root.foreground, root.accent)
   readonly property var _selectedBorderSpec: Border.controlSpec("selected", root.foreground, root.accent)
@@ -118,21 +115,22 @@ BorderSurface {
     : active               ? Style.selectedFillFor(root.foreground, root.accent)
     : background
 
-  // Border follows the same state precedence as fill. Buttons stay
-  // borderless at rest unless `bordered` is set, but hover-cursor/focus
-  // always use the shared cursor border so the keyboard target is visible
-  // and consistent with the rest of the kit. Selected borders are off by
-  // default for plain buttons; explicitly bordered buttons keep their
-  // normal border when selected unless selected-border-width opts in to a
-  // dedicated selected border.
   borderSpec: _borderSpec
 
   Behavior on color { ColorAnimation { duration: 120 } }
 
   ToolTip {
-    visible: root.tooltipText !== "" && mouseArea.containsMouse
+    id: buttonTooltip
+    visible: root.tooltipText !== "" && (mouseArea.containsMouse || root.activeFocus)
     text: root.tooltipText
+    width: root.tooltipMaximumWidth > 0 ? Math.min(implicitWidth, root.tooltipMaximumWidth) : implicitWidth
     delay: 400
+    Binding {
+      target: buttonTooltip
+      property: "y"
+      when: root.tooltipBelow
+      value: root.height + MailStyle.space(4)
+    }
     padding: 0
     background: BorderSurface {
       color: root.tooltipBackground
@@ -145,6 +143,7 @@ BorderSurface {
       color: root.tooltipForeground
       font.family: root.fontFamily
       font.pixelSize: MailStyle.bodySmall
+      wrapMode: root.tooltipMaximumWidth > 0 ? Text.Wrap : Text.NoWrap
       leftPadding: Border.left(root._tooltipBorderSpec) + Style.spacing.controlPaddingX
       rightPadding: Border.right(root._tooltipBorderSpec) + Style.spacing.controlPaddingX
       topPadding: Border.top(root._tooltipBorderSpec) + Style.spacing.controlPaddingY
@@ -161,7 +160,7 @@ BorderSurface {
     spacing: Style.spacing.controlGap
 
     Text {
-
+      id: iconLabel
       textFormat: Text.PlainText
       visible: root.iconText !== ""
       text: root.iconText
@@ -182,7 +181,8 @@ BorderSurface {
     }
 
     Text {
-
+      id: label
+      objectName: "button-label"
       textFormat: Text.PlainText
       visible: root.text !== ""
       text: root.text
@@ -191,6 +191,11 @@ BorderSurface {
       font.pixelSize: root.fontSize
       font.bold: root.selected
       anchors.verticalCenter: parent.verticalCenter
+      width: isFinite(root.maximumWidth) ? Math.max(0, Math.min(Math.ceil(implicitWidth), root.maximumWidth
+        - root.horizontalPadding * 2 - root._reservedBorderLeft - root._reservedBorderRight
+        - (iconLabel.visible ? iconLabel.width + row.spacing : 0))) : implicitWidth
+      wrapMode: isFinite(root.maximumWidth) ? Text.Wrap : Text.NoWrap
+      horizontalAlignment: root.leftAlign ? Text.AlignLeft : Text.AlignHCenter
     }
   }
 

@@ -3,32 +3,22 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
-// Styled wrapper around Qt Quick Controls ToolTip. Drop-in: declare inside
-// the hovered item and bind `visible` to the hover state, e.g.
-//   PanelToolTip {
-//     visible: mouse.containsMouse
-//     text: "Forget network"
-//   }
-//
-// Defaults pull from [tooltip] in shell.toml via Color.tooltip.*. Override
-// the panel* properties per-instance only when you need a tooltip that
-// intentionally diverges from the theme.
-//
-// Property names are prefixed `panel*` to avoid clashing with ToolTip's
-// built-in `background`/`font` properties.
+// Docs: panel-prefixed styling properties avoid collisions with ToolTip’s built-in background and
+// font properties.
 ToolTip {
   id: root
 
-  property color panelForeground: Color.tooltip.text
-  property color panelBackground: Color.tooltip.background
-  property color panelBorder: Color.tooltip.border
+  property color panelForeground: Commons.Color.tooltip.text
+  property color panelBackground: Commons.Color.tooltip.background
+  property color panelBorder: Commons.Color.tooltip.border
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.bodySmall
   property real maximumWidth: Infinity
   implicitWidth: Math.min(contentItem.implicitWidth, maximumWidth)
 
-  readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Color.tooltip.border, Style.normalBorderWidth)
+  readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Commons.Color.tooltip.border, Style.normalBorderWidth)
 
   delay: 400
   padding: 0

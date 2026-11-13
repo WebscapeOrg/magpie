@@ -3,20 +3,9 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
-// Themed single-select dropdown. Trigger row paints with the kit's focus
-// chrome; the popup anchors below and uses Color.popups.background +
-// Color.popups.border so it reads as a panel surface rather than the
-// platform-native ComboBox look.
-//
-// `options` accepts either a plain string[] or an array of
-// { value, label } objects (label is what we render; value is what we
-// emit). Mixing is fine — each row is interpreted independently.
-//
-// Keyboard: Tab to focus the trigger, Enter/Space opens, Esc closes,
-// j/k or Up/Down walks options inside the open popup, Enter selects.
-// A sibling SearchableDropdown reuses the same visuals but adds an
-// embedded filter input — keep the two separate so each stays simple.
+// Docs: options accept strings or objects with distinct value and label fields.
 Item {
   id: root
 
@@ -24,26 +13,19 @@ Item {
   property string value: ""
   property var options: []
 
-  property color foreground: Color.popups.text
-  property color background: Color.popups.background
-  property color popupBorder: Color.popups.border
-  property color accent: Color.accent
-  readonly property var popupBorderSpec: Border.localOrSurfaceSpec("popups", "border", popupBorder, Color.popups.border, Style.normalBorderWidth)
+  property color foreground: Commons.Color.popups.text
+  property color background: Commons.Color.popups.background
+  property color popupBorder: Commons.Color.popups.border
+  property color accent: Commons.Color.accent
+  readonly property var popupBorderSpec: Border.localOrSurfaceSpec("popups", "border", popupBorder, Commons.Color.popups.border, Style.normalBorderWidth)
   property string fontFamily: MailStyle.family
   property int rowHeight: Math.max(Style.spacing.controlHeight, MailStyle.body + 18)
   property int popupRowHeight: Math.max(Style.spacing.popupRowHeight, MailStyle.body + 18)
   property bool showLabel: true
 
-  // Panel-cursor flag. When true, the trigger renders the shared
-  // hover-cursor state. Active Qt focus defaults to the same visuals.
-  // Emits `hovered(bool)` on pointer enter/leave so the panel can keep
-  // its cursor state in sync with the mouse.
   property bool hasCursor: false
 
-  // popupOpen + open()/close()/toggle() let a parent panel know when the
-  // dropdown owns keys (its embedded ListView is active) and suspend its
-  // own keyCatcher so j/k inside the popup don't double-drive the panel
-  // cursor.
+  // Invariant: parent shortcut handling must stand down while popupOpen owns navigation.
   readonly property bool popupOpen: popup.opened
   function open() { popup.open() }
   function close() { popup.close() }
@@ -52,15 +34,15 @@ Item {
   signal changed(string value)
   signal hovered(bool isHovered)
 
-  function optionValue(o) {
-    return (o && typeof o === "object") ? String(o.value) : String(o)
+  function optionValue(option) {
+    return (option && typeof option === "object") ? String(option.value) : String(option)
   }
-  function optionLabel(o) {
-    return (o && typeof o === "object") ? String(o.label) : String(o)
+  function optionLabel(option) {
+    return (option && typeof option === "object") ? String(option.label) : String(option)
   }
   function currentLabel() {
-    for (var i = 0; i < options.length; i++) {
-      if (optionValue(options[i]) === value) return optionLabel(options[i])
+    for (var optionIndex = 0; optionIndex < options.length; optionIndex++) {
+      if (optionValue(options[optionIndex]) === value) return optionLabel(options[optionIndex])
     }
     return value
   }
@@ -77,7 +59,7 @@ Item {
       textFormat: Text.PlainText
       visible: root.showLabel && root.label !== ""
       text: root.label
-      color: MailStyle.muted(root.foreground, Color.background)
+      color: MailStyle.muted(root.foreground, Commons.Color.background)
       font.family: root.fontFamily
       font.pixelSize: MailStyle.caption
       font.bold: true
@@ -136,8 +118,8 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         anchors.rightMargin: trigger.borderRight + Style.spacing.controlGap
         text: "󰅀"
-        color: MailStyle.muted(root.foreground, Color.background)
-        font.family: root.fontFamily
+        color: MailStyle.muted(root.foreground, Commons.Color.background)
+        font.family: Style.font.iconFamily || Style.font.family
         font.pixelSize: MailStyle.body
       }
 
@@ -198,17 +180,17 @@ Item {
           model: root.options
           currentIndex: -1
 
-          function indexOfValue(v) {
-            for (var i = 0; i < root.options.length; i++)
-              if (root.optionValue(root.options[i]) === v) return i
+          function indexOfValue(selectedValue) {
+            for (var optionIndex = 0; optionIndex < root.options.length; optionIndex++)
+              if (root.optionValue(root.options[optionIndex]) === selectedValue) return optionIndex
             return -1
           }
 
           function selectCurrent() {
             if (currentIndex < 0 || currentIndex >= root.options.length) return
-            var v = root.optionValue(root.options[currentIndex])
-            root.value = v
-            root.changed(v)
+            var selectedValue = root.optionValue(root.options[currentIndex])
+            root.value = selectedValue
+            root.changed(selectedValue)
             popup.close()
           }
 

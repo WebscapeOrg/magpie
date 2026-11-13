@@ -24,11 +24,13 @@ Item {
 
   QQC.Switch {
     id: toggle
+    Accessible.name: root.Accessible.name
+    Accessible.ignored: root.activeFocusOnTab
     objectName: "toggle-switch-input"
     anchors.centerIn: parent
     checked: root.checked
     enabled: root.interactive && !root.busy
-    focusPolicy: root.interactive ? Qt.StrongFocus : Qt.NoFocus
+    focusPolicy: root.interactive && !root.activeFocusOnTab ? Qt.StrongFocus : Qt.NoFocus
     palette.window: Commons.Color.background
     palette.windowText: root.foreground
     palette.highlight: root.accent

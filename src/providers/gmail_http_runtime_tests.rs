@@ -25,7 +25,6 @@ async fn server(response: Vec<u8>, delay: Duration) -> Server {
     server_sequence(vec![response], delay).await
 }
 
-// Answers the n-th request with the n-th response; the last one repeats.
 async fn server_sequence(responses: Vec<Vec<u8>>, delay: Duration) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/messages/abc", listener.local_addr().unwrap());
@@ -101,6 +100,137 @@ fn get_request() -> Request {
 }
 
 #[tokio::test]
+async fn gmail_search_keeps_query_bytes_and_only_includes_explicit_spam_or_trash() {
+    use crate::mail::tests::{account_fixture, fixture_tree, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(json!({"version":1,"activeId":"search@example.org",
+        "accounts":[{"provider":"gmail","email":"search@example.org"}]}));
+    let directory = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(
+        &directory,
+        "credentials.json",
+        json!({"installed":{"client_id":"123-search.apps.googleusercontent.com",
+            "client_secret":"synthetic-client-secret"}})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap();
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "search@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-search.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+    let queries = [
+        ("invoice", false),
+        ("in:anywhere invoice", true),
+        ("in:spam", true),
+        ("in:trash", true),
+        ("-in:spam", false),
+        (r#"subject:"in:anywhere""#, false),
+        (r#"label:"Work (2026)" OR in:trash"#, true),
+        (
+            r#"label:"é\"\\folder" subject:"$()`echo ignored` & x=1#fragment""#,
+            false,
+        ),
+    ];
+    let body = json!({"access_token":"synthetic-access-token","expires_in":3600,
+        "messages":[{"id":"confirmed","threadId":"thread"}]})
+    .to_string();
+    let peer = server(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes(),
+        Duration::ZERO,
+    )
+    .await;
+    let transport = client_builder().https_only(false).build().unwrap();
+    let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+    let before = fixture_tree(&fixture.root);
+    with_test_transport(transport, origin, async {
+        let session = crate::providers::gmail::Session::default();
+        for suffix in ["\r", "\n", "\r\n", "\0", "\t", "\u{7f}"] {
+            assert_eq!(
+                session
+                    .call(
+                        "gmail.list",
+                        &json!({"accountId":"search@example.org",
+                "query":format!("from:me{suffix}")})
+                    )
+                    .await,
+                Err("invalid_params")
+            );
+        }
+        assert!(
+            peer.requests.lock().unwrap().is_empty(),
+            "invalid queries must not refresh credentials or issue a list request"
+        );
+        assert_eq!(fixture_tree(&fixture.root), before);
+        for (query, _) in queries {
+            let response = session
+                .call(
+                    "gmail.list",
+                    &json!({"accountId":"search@example.org",
+                "query":query,"pageSize":25,"pageToken":"token&not=a-parameter"}),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response["ids"], json!(["confirmed"]));
+        }
+    })
+    .await;
+    let requests = peer.requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        queries.len() + 1,
+        "one credential refresh and one request per submitted query"
+    );
+    for ((query, include), request) in queries.iter().zip(requests.iter().skip(1)) {
+        let target = request.lines().next().unwrap().split(' ').nth(1).unwrap();
+        let url = reqwest::Url::parse(&format!("http://controlled.invalid{target}")).unwrap();
+        assert_eq!(url.path(), "/gmail/v1/users/me/messages");
+        let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(params.get("q").map(String::as_str), Some(*query));
+        assert_eq!(
+            params.get("pageToken").map(String::as_str),
+            Some("token&not=a-parameter")
+        );
+        assert_eq!(
+            params.get("includeSpamTrash").map(String::as_str),
+            include.then_some("true")
+        );
+        assert_eq!(params.len(), if *include { 4 } else { 3 });
+        assert!(request.contains("\r\nauthorization: Bearer synthetic-access-token\r\n"));
+        assert!(
+            !request.contains("synthetic-client-secret")
+                && !request.contains("synthetic-refresh-token")
+        );
+        assert!(request.ends_with("\r\n\r\n"));
+    }
+    assert_eq!(
+        fixture_tree(&fixture.root),
+        before,
+        "search must not write mailbox or credential state"
+    );
+}
+
+#[tokio::test]
 async fn mail_send_preview_reads_google_identity_without_mutation_or_local_writes() {
     use crate::mail::tests::{account_fixture, fixture_tree, isolated};
     use serde_json::json;
@@ -143,7 +273,7 @@ async fn mail_send_preview_reads_google_identity_without_mutation_or_local_write
         std::fs::write(directory.join("sentinel"), b"unchanged existing state").unwrap();
     }
     std::fs::write(fixture.state.join("omamail/outbox.json"), b"[]\n").unwrap();
-    // Keep the hostile display name separate from a Windows-valid filename.
+    // Invariant: Keep the hostile display name separate from a Windows-valid filename.
     let attachment = fixture.root.join(if cfg!(windows) {
         "attachment-工.txt"
     } else {
@@ -253,7 +383,6 @@ async fn native_concurrency_overlaps_response_waits() {
         let request = local(&server, get_request());
         work.spawn(async move { execute(&client, request, DEADLINE).await });
     }
-    // All four requests arrive before the server releases the first response.
     tokio::time::timeout(Duration::from_secs(2), async {
         while server.requests.lock().unwrap().len() != 4 {
             tokio::task::yield_now().await;
@@ -335,7 +464,7 @@ async fn timeout_and_response_bounds_are_enforced_on_actual_streams() {
 #[tokio::test]
 async fn auth_and_invalid_json_return_only_static_errors() {
     let client = client_builder().https_only(false).build().unwrap();
-    // Gmail reports per-user rate limiting as 403 with a usageLimits reason,
+    // Invariant: Gmail reports per-user rate limiting as 403 with a usageLimits reason,
     // not only as 429. Any other 403 is a permission problem.
     let limited = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded","message":"User-rate limit exceeded. Retry after 2026-09-16T00:00:00Z"}],"code":403,"message":"User-rate limit exceeded."}}"#;
     let global = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"rateLimitExceeded","message":"Rate Limit Exceeded"}],"code":403,"message":"Rate Limit Exceeded"}}"#;
@@ -346,10 +475,10 @@ async fn auth_and_invalid_json_return_only_static_errors() {
         (403, "synthetic-secret", "gmail_forbidden"),
         (403, scope, "gmail_forbidden"),
         (403, daily, "gmail_forbidden"),
-        (403, limited, "gmail_rate_limited"),
-        (403, global, "gmail_rate_limited"),
+        (403, limited, "gmail_server_rate_limited"),
+        (403, global, "gmail_server_rate_limited"),
         (411, "synthetic-secret", "gmail_length_required"),
-        (429, "synthetic-secret", "gmail_rate_limited"),
+        (429, "synthetic-secret", "gmail_server_rate_limited"),
         (200, "[]", "gmail_invalid_response"),
         (200, "synthetic-secret", "gmail_invalid_response"),
     ] {
@@ -362,7 +491,7 @@ async fn auth_and_invalid_json_return_only_static_errors() {
             Duration::ZERO,
         )
         .await;
-        // A deadline shorter than the first backoff leaves no room to retry.
+        // Invariant: A deadline shorter than the first backoff leaves no room to retry.
         let started = std::time::Instant::now();
         assert_eq!(
             execute(
@@ -378,9 +507,6 @@ async fn auth_and_invalid_json_return_only_static_errors() {
     }
 }
 
-// A message mutation answers with a ticket, is sent from the account's queue
-// with the real credential reader, token refresh and serializer, and settles
-// as a notification; the in-process caller holds the line for the answer.
 #[tokio::test]
 async fn queued_mutation_settles_by_notification_and_in_process() {
     use crate::mail::tests::{account_fixture, isolated};
@@ -476,7 +602,7 @@ async fn queued_mutation_settles_by_notification_and_in_process() {
     );
 }
 
-// A rate-limited request was rejected before it ran, so resending it — even
+// Invariant: A rate-limited request was rejected before it ran, so resending it — even
 // a mutation — cannot duplicate anything. Google asks for exponential backoff
 // starting at a second; the retry budget stays inside the request deadline.
 #[tokio::test]
@@ -503,7 +629,6 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
         .await,
         Ok(serde_json::json!({"ok":true}))
     );
-    // 20ms, then 40ms: exponential, not a tight loop.
     assert!(started.elapsed() >= Duration::from_millis(60));
     let requests = target.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 3);
@@ -513,7 +638,6 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
             .all(|r| r.starts_with("POST /messages/abc "))
     );
 
-    // Persistent limiting gives up after a bounded number of attempts.
     let target = server(limited, Duration::ZERO).await;
     assert_eq!(
         execute_with_backoff(
@@ -523,7 +647,7 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
             Duration::from_millis(1)
         )
         .await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert_eq!(
         target.requests.lock().unwrap().len(),
@@ -598,11 +722,11 @@ async fn server_cooldown_prevents_retries_and_sibling_network_requests() {
     let before = std::time::Instant::now();
     assert_eq!(
         execute(&client, request.clone(), Duration::from_secs(1)).await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert_eq!(
         execute(&client, request, Duration::from_secs(1)).await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert!(before.elapsed() < Duration::from_secs(1));
     assert_eq!(
@@ -712,12 +836,16 @@ fn retry_hints_are_numeric_bounded_and_never_preserve_server_text() {
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let body = serde_json::json!({"error":{"message":format!("private mail address. Retry after {time}"), "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo", "retryDelay":"120.5s"}]}});
     assert_eq!(body_retry_after(&body), Some(Duration::from_millis(120500)));
-    assert_eq!(
+    let deadline = chrono::DateTime::parse_from_rfc3339(&time)
+        .unwrap()
+        .timestamp_millis();
+    let before = chrono::Utc::now().timestamp_millis();
+    let delay =
         body_retry_after(&serde_json::json!({"error":{"message":format!("Retry after {time}")}}))
-            .unwrap()
-            .as_secs(),
-        89
-    );
+            .unwrap();
+    let after = chrono::Utc::now().timestamp_millis();
+    assert!((deadline - after).max(0) as u128 <= delay.as_millis());
+    assert!(delay.as_millis() <= (deadline - before).max(0) as u128);
 }
 
 #[tokio::test]
@@ -749,11 +877,12 @@ async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
             budget.cool_down(Duration::from_secs(90)).await;
             assert_eq!(
                 execute(&client, request, Duration::from_secs(1)).await,
-                Err("gmail_rate_limited")
+                Err("gmail_server_rate_limited")
             );
         })
         .await;
     assert_eq!(peer.requests.lock().unwrap().len(), 1);
+    diagnostics::flush().await;
     let saved =
         std::fs::read_to_string(fixture.state.join("omamail/diagnostics/gmail.json")).unwrap();
     for forbidden in [
@@ -774,7 +903,8 @@ async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
     assert_eq!(rows[0]["operation"], "messages.get.full");
     assert_eq!(rows[0]["cost"], 60);
     assert!(rows[1]["status"].is_null());
-    assert_eq!(rows[1]["reason"], "localBudget");
+    assert_eq!(rows[1]["reason"], "serverCooldown");
+    assert_eq!(rows[1]["outcome"], "gmail_server_rate_limited");
 }
 
 #[tokio::test]
@@ -849,7 +979,7 @@ async fn real_tls_rejects_untrusted_certificate_before_sending_credentials() {
         .add_root_certificate(certificate)
         .build()
         .unwrap();
-    // First reject the untrusted issuer; then trust that issuer and independently
+    // Invariant: First reject the untrusted issuer; then trust that issuer and independently
     // reject the mismatched IP hostname (the certificate only names localhost).
     for (client, host) in [(client().unwrap(), "localhost"), (&trusted, "127.0.0.1")] {
         let mut request = get_request();
@@ -862,7 +992,7 @@ async fn real_tls_rejects_untrusted_certificate_before_sending_credentials() {
         output.read_line(&mut report).unwrap();
         assert_eq!(report.trim(), "tls-refused-no-http");
     }
-    // A successful trusted, matching-host control proves that the previous
+    // Invariant: A successful trusted, matching-host control proves that the previous
     // rejection was hostname verification, not a malformed CA/end-entity cert.
     let mut request = get_request();
     request.url = format!("https://localhost:{port}/messages/abc");
@@ -916,14 +1046,14 @@ fn pending_dns_obeys_deadline_and_does_not_block_runtime_shutdown() {
                 .dns_resolver(Arc::new(resolver))
                 .build()
                 .unwrap();
-            // Retain the real fixed HTTPS URL: the only injected seam is a DNS
+            // Invariant: Retain the real fixed HTTPS URL: the only injected seam is a DNS
             // future that never yields an address, so no connection is possible.
             execute(&client, get_request(), Duration::from_millis(40)).await
         });
         drop(runtime);
         finished.send(result).unwrap();
     });
-    // Receive only after normal runtime destruction, not shutdown_timeout or a
+    // Invariant: Receive only after normal runtime destruction, not shutdown_timeout or a
     // leaked runtime: lingering blocking DNS work would fail this assertion.
     let result = completion
         .recv_timeout(Duration::from_secs(2))
@@ -1018,7 +1148,7 @@ async fn mutation_timeout_does_not_retry_an_accepted_request() {
     assert_eq!(peer.connections.load(Ordering::SeqCst), 1);
 }
 
-// Model a gateway which rejects unframed POSTs with 411, before any mutation.
+// Algorithm: Model a gateway which rejects unframed POSTs with 411, before any mutation.
 async fn strict_empty_post_server() -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -1126,8 +1256,13 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
             secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
         });
 
+    let until = chrono::Utc::now().timestamp_millis() + 600_000;
+    let slot = (until + 299_999) / 300_000 * 300_000;
+    let name = chrono::DateTime::from_timestamp_millis(slot)
+        .unwrap()
+        .format("Magpie-snooze-%Y-%m-%d-%H%M-UTC")
+        .to_string();
     let message = json!({"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"payload":{"headers":[{"name":"Subject","value":"Synthetic meeting"}]}});
-    let second = json!({"id":"def","threadId":"thread","labelIds":["INBOX"]});
     let response = |body: Value| {
         let body = body.to_string();
         format!(
@@ -1137,18 +1272,55 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         .into_bytes()
     };
     let grant = json!({"access_token":"synthetic-access-token","expires_in":3600});
-    let peer=server_sequence(vec![response(grant.clone()),response(message.clone()),response(json!({"messages":[message.clone(),second]})),ok(),response(grant),response(json!({"messages":[{"id":"abc","labelIds":["UNREAD"]},{"id":"def","labelIds":["TRASH"]}]})),ok()],Duration::ZERO).await;
+    let system = json!({"id":"INBOX","name":"INBOX","type":"system"});
+    let labelled = json!({"labels":[system.clone(),{"id":"Label_9","name":name,"type":"user"}]});
+    let peer = server_sequence(
+        vec![
+            // Snooze: read, thread, labels, create the hidden slot label, archive.
+            response(grant.clone()),
+            response(message.clone()),
+            response(json!({"messages":[
+                {"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["INBOX"],"internalDate":"1700000060000"}]})),
+            response(json!({"labels":[system]})),
+            response(json!({"id":"Label_9","name":name})),
+            ok(),
+            // After restart, tick wakes first: labels, the thread, the hidden mark for returned
+            // mail (made on first use), then the two changes.
+            response(grant),
+            response(labelled.clone()),
+            response(json!({"messages":[
+                {"id":"abc","threadId":"thread","labelIds":["UNREAD","Label_9"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["TRASH","Label_9"],"internalDate":"1700000060000"}]})),
+            response(labelled.clone()),
+            response(json!({"id":"Label_10","name":"Magpie-snooze-returned"})),
+            ok(),
+            ok(),
+            // Then discovery with the time left: labels, and the now empty due slot is listed.
+            response(labelled),
+            response(json!({"resultSizeEstimate":0})),
+        ],
+        Duration::ZERO,
+    )
+    .await;
     let transport = client_builder().https_only(false).build().unwrap();
     let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
     with_test_transport(transport,origin,async {
         let session=crate::backend::Session::default();
         assert!(session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":0})).await.is_err());
-        assert!(peer.requests.lock().unwrap().is_empty(),"invalid schedules must not contact Gmail");
-        let answer=session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":chrono::Utc::now().timestamp_millis()+600_000})).await.unwrap();
+        assert_eq!(
+            session.dispatch("gmail.list",&json!({"accountId":"snooze@example.org","labelId":"../labels"})).await,
+            Err("invalid_params")
+        );
+        assert!(peer.requests.lock().unwrap().is_empty(),"invalid schedules and label filters must not contact Gmail");
+        let answer=session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":until})).await.unwrap();
         assert_eq!(answer["ok"],true);
         let snapshot=session.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap();
         assert_eq!(snapshot["snoozes"].as_array().unwrap().len(),1);
         assert_eq!(snapshot["snoozes"][0]["ids"],json!(["abc","def"]));
+        assert_eq!(snapshot["snoozes"][0]["labelId"],"Label_9");
+        assert_eq!(snapshot["snoozes"][0]["state"],"sleeping");
+        assert_eq!(snapshot["snoozes"][0]["subject"],"Synthetic meeting");
         let path=fixture.state.join("omamail/inbox/snoozes.json");
         let bytes=std::fs::read(&path).unwrap();
         assert!(!String::from_utf8_lossy(&bytes).contains("synthetic-access-token"));
@@ -1163,22 +1335,244 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         assert!(restarted.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap()["snoozes"].as_array().unwrap().is_empty());
     }).await;
     let requests = peer.requests.lock().unwrap();
-    let writes: Vec<_> = requests
-        .iter()
-        .filter(|r| r.starts_with("POST /gmail/v1/users/me/messages/batchModify "))
-        .collect();
-    assert_eq!(writes.len(), 2);
-    let body = |request: &&String| {
+    assert_eq!(requests.len(), 15, "{requests:#?}");
+    let body = |request: &String| {
         serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap()
     };
-    let archive = body(&writes[0]);
-    assert_eq!(archive["removeLabelIds"], json!(["INBOX"]));
-    assert_eq!(archive["ids"], json!(["abc", "def"]));
-    let wake = body(&writes[1]);
+    let created = requests
+        .iter()
+        .find(|r| r.starts_with("POST /gmail/v1/users/me/labels "))
+        .unwrap();
     assert_eq!(
-        wake["ids"],
-        json!(["abc"]),
+        body(created),
+        json!({"name":name,"labelListVisibility":"labelHide","messageListVisibility":"hide"})
+    );
+    let mark = requests
+        .iter()
+        .filter(|r| r.starts_with("POST /gmail/v1/users/me/labels "))
+        .nth(1)
+        .unwrap();
+    assert_eq!(
+        body(mark),
+        json!({"name":"Magpie-snooze-returned","labelListVisibility":"labelHide","messageListVisibility":"hide"}),
+        "the mark for returned mail stays out of Gmail's own label lists"
+    );
+    assert!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /gmail/v1/users/me/threads/thread?"))
+            .all(|r| r.contains("format=minimal")),
+        "snooze reads label ids, not whole threads"
+    );
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.starts_with("GET /gmail/v1/users/me/messages?") && r.contains("labelIds=Label_9")),
+        "the slot is listed by its exact label id"
+    );
+    let writes: Vec<Value> = requests
+        .iter()
+        .filter(|r| r.starts_with("POST /gmail/v1/users/me/messages/batchModify "))
+        .map(body)
+        .collect();
+    assert_eq!(writes.len(), 3);
+    assert_eq!(
+        writes[0],
+        json!({"ids":["abc","def"],"addLabelIds":["Label_9"],"removeLabelIds":["INBOX"]})
+    );
+    assert_eq!(
+        writes[1],
+        json!({"ids":["abc"],"addLabelIds":["INBOX","UNREAD","Label_10"],"removeLabelIds":["Label_9"]}),
         "the message trashed after snoozing must never return"
     );
-    assert_eq!(wake["addLabelIds"], json!(["INBOX", "UNREAD"]));
+    assert_eq!(
+        writes[2],
+        json!({"ids":["def"],"addLabelIds":[],"removeLabelIds":["Label_9"]})
+    );
+}
+
+#[tokio::test]
+async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_without_private_data() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let fixture =
+        crate::mail::tests::account_fixture(serde_json::json!({"version":1,"accounts":[]}));
+    let contract: Value = serde_json::from_str(include_str!("../../backend-api.json")).unwrap();
+    let cases: Vec<_> = contract["contractCases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| {
+            case["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("Gmail request status: "))
+        })
+        .collect();
+    assert_eq!(cases.len(), 3);
+    let body = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded","message":"synthetic-private-server-detail"}]}}"#;
+    let peer = server(
+        format!(
+            "HTTP/1.1 403 Limited\r\nRetry-After: 90\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes(),
+        Duration::ZERO,
+    )
+    .await;
+    let client = client_builder().https_only(false).build().unwrap();
+    let budget = Arc::new(Budget::default());
+    let held = budget
+        .acquire(
+            1,
+            Lane::Interactive,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    let mut request = local(&peer, get_request());
+    request.budget = Some((Arc::clone(&budget), Lane::Background));
+    diagnostics::ENABLED
+        .scope((), async {
+            let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[0]["equals"]["error"].as_str().unwrap()
+            );
+            assert_eq!(
+                peer.connections.load(Ordering::SeqCst),
+                0,
+                "local admission cannot contact Gmail"
+            );
+            drop(held);
+            request.budget = Some((Arc::clone(&budget), Lane::Interactive));
+            let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[1]["equals"]["error"].as_str().unwrap()
+            );
+            let outcome = execute(&client, request, Duration::from_secs(1)).await;
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[2]["equals"]["error"].as_str().unwrap()
+            );
+        })
+        .await;
+    assert_eq!(
+        peer.requests.lock().unwrap().len(),
+        1,
+        "the shared server cooldown cannot send another request"
+    );
+    diagnostics::flush().await;
+    let saved =
+        std::fs::read_to_string(fixture.state.join("omamail/diagnostics/gmail.json")).unwrap();
+    for forbidden in [
+        "synthetic-token",
+        "synthetic-private-server-detail",
+        "Bearer",
+        "http://",
+        "https://",
+    ] {
+        assert!(!saved.contains(forbidden), "diagnostics leaked {forbidden}");
+    }
+    let rows: Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), cases.len());
+    for (index, (row, case)) in rows.as_array().unwrap().iter().zip(cases).enumerate() {
+        assert_eq!(
+            row["reason"],
+            ["localBudget", "userRateLimitExceeded", "serverCooldown"][index]
+        );
+        assert_eq!(
+            row["status"],
+            if index == 1 {
+                serde_json::json!(403)
+            } else {
+                Value::Null
+            }
+        );
+        assert_eq!(row["outcome"], case["equals"]["error"]);
+    }
+}
+
+#[tokio::test]
+async fn outbox_consumes_provider_draft_without_raw_send_or_delete_fallback() {
+    use crate::mail::tests::{account_fixture, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(
+        json!({"version":1,"accounts":[{"provider":"gmail","email":"draft@example.org"}]}),
+    );
+    let directory = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(&directory,"credentials.json",json!({"installed":{"client_id":"123-draft.apps.googleusercontent.com","client_secret":"synthetic-secret"}}).to_string().as_bytes()).unwrap();
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "draft@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-draft.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+    fn response(status: u16, body: Value) -> Vec<u8> {
+        let text = body.to_string();
+        format!(
+            "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\n\r\n{text}",
+            text.len()
+        )
+        .into_bytes()
+    }
+    for status in [200, 404, 500] {
+        let peer = server_sequence(
+            vec![
+                response(
+                    200,
+                    json!({"access_token":"synthetic-access","expires_in":3600}),
+                ),
+                response(
+                    200,
+                    json!({"drafts":[{"id":"provider-draft","message":{"id":"message-id"}}]}),
+                ),
+                response(status, json!({"id":"sent-message"})),
+            ],
+            Duration::ZERO,
+        )
+        .await;
+        let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+        let transport = reqwest::Client::builder().no_proxy().build().unwrap();
+        with_test_transport(transport,origin,async {
+            let session=crate::providers::gmail::Session::default();
+            let result=crate::outbox::delivery::send(&json!({"accountId":"draft@example.org","provider":"gmail","payload":{"raw":"SGVsbG8","threadId":"thread","draftId":"message-id"}}),&session).await;
+            if status==200 { assert_eq!(result.unwrap()["draftRemoved"],true); } else { assert!(result.is_err()); }
+        }).await;
+        let requests = peer.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            3,
+            "A failed draft send must not fall back or delete"
+        );
+        assert!(requests[0].starts_with("POST /token "));
+        assert!(requests[1].starts_with("GET /gmail/v1/users/me/drafts?"));
+        assert!(requests[2].starts_with("POST /gmail/v1/users/me/drafts/send "));
+        let body: Value =
+            serde_json::from_str(requests[2].split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(
+            body,
+            json!({"id":"provider-draft","message":{"raw":"SGVsbG8","threadId":"thread"}})
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|r| r.starts_with("DELETE ") || r.contains("/messages/send "))
+        );
+    }
 }

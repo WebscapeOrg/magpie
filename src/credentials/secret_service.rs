@@ -24,15 +24,15 @@ enum Operation<'a> {
     Delete,
 }
 
-/// Why an operation produced no secret. Only a session that failed is worth
+/// Invariant: Why an operation produced no secret. Only a session that failed is worth
 /// dropping: a locked item and a locked collection are answers the daemon gave
 /// over a connection that is still good, and dropping the session for those
 /// would renegotiate on every read against a keyring that is merely locked.
 enum Fault {
     Answer(Error),
-    /// The call did not complete. A read may be repeated on a fresh session.
+    /// Invariant: The call did not complete. A read may be repeated on a fresh session.
     Transport,
-    /// The deadline passed. The session is unusable and nothing is repeated:
+    /// Invariant: The deadline passed. The session is unusable and nothing is repeated:
     /// the deadline is the caller's bound and a second attempt would double it.
     Timeout,
 }
@@ -46,21 +46,20 @@ impl Fault {
     }
 }
 
-/// A negotiated session. `SecretService` owns the connection it was built on,
+/// Invariant: A negotiated session. `SecretService` owns the connection it was built on,
 /// so dropping the last `Arc` closes it. Held behind an `Arc` so an operation
 /// keeps it alive after it has been dropped from the cache.
 struct Session {
     service: SecretService<'static>,
 }
 
-/// The runtime owning the shared connection's zbus tasks, and the session.
 struct Shared {
     runtime: tokio::runtime::Runtime,
     session: Mutex<Option<Arc<Session>>>,
 }
 
 impl Shared {
-    /// One worker, so credential operations still run alongside each other as
+    /// Invariant: One worker, so credential operations still run alongside each other as
     /// they did when each built its own runtime. A current-thread runtime would
     /// serialise every operation behind whichever one holds it, and a stuck
     /// prompt would then block them all for the whole deadline.
@@ -77,19 +76,18 @@ impl Shared {
     }
 }
 
-/// A failed build is not remembered: the next operation tries again, as it did
+/// Invariant: A failed build is not remembered: the next operation tries again, as it did
 /// when every operation built its own runtime.
 fn shared() -> Result<&'static Shared, Error> {
     static SHARED: OnceLock<Shared> = OnceLock::new();
     if let Some(shared) = SHARED.get() {
         return Ok(shared);
     }
-    // A racing caller may install theirs first, in which case ours is dropped.
     let _ = SHARED.set(Shared::new()?);
     SHARED.get().ok_or(Error::Unavailable)
 }
 
-/// The session slot, recovered if a panic poisoned it. The slot is only written
+/// Invariant: The session slot, recovered if a panic poisoned it. The slot is only written
 /// once the connection is built, so a poisoned lock guards nothing broken and
 /// refusing it would disable credentials for the life of the process.
 fn slot(shared: &Shared) -> MutexGuard<'_, Option<Arc<Session>>> {
@@ -99,7 +97,7 @@ fn slot(shared: &Shared) -> MutexGuard<'_, Option<Arc<Session>>> {
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-/// What is left of the caller's deadline, or None once it has passed. One
+/// Invariant: What is left of the caller's deadline, or None once it has passed. One
 /// budget covers opening the session, the operation and any second attempt.
 fn remaining(until: Instant) -> Option<Duration> {
     until
@@ -120,7 +118,7 @@ fn run(key: &CredentialKey, operation: Operation<'_>) -> Result<Option<Secret>, 
     run_on(shared()?, key, operation, session_bus, DEADLINE)
 }
 
-/// Runs one operation on the shared session, opening it if there is none.
+/// Invariant: Runs one operation on the shared session, opening it if there is none.
 ///
 /// One `block_on` and one deadline cover opening the session and running the
 /// operation, so a credential read costs the caller exactly what it asked for.
@@ -131,16 +129,16 @@ fn run(key: &CredentialKey, operation: Operation<'_>) -> Result<Option<Secret>, 
 /// committed it, so repeating `CreateItem` would leave two items carrying the
 /// same attributes and `find` would answer `Ambiguous` for the rest of the
 /// credential's life. A write reports the failure and the caller asks again.
-fn run_on<F, C>(
+fn run_on<Connect, ConnectionFuture>(
     shared: &Shared,
     key: &CredentialKey,
     operation: Operation<'_>,
-    connect: F,
+    connect: Connect,
     deadline: Duration,
 ) -> Result<Option<Secret>, Error>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let until = Instant::now() + deadline;
     match attempt(shared, key, operation, &connect, until) {
@@ -155,25 +153,33 @@ where
             if !repeatable {
                 return Err(fault.error());
             }
-            attempt(shared, key, operation, &connect, until).map_err(|(_, fault)| fault.error())
+            attempt(shared, key, operation, &connect, until).map_err(|(session, fault)| {
+                if matches!(fault, Fault::Answer(_)) {
+                    return fault.error();
+                }
+                if let Some(session) = session {
+                    invalidate(shared, &session);
+                }
+                fault.error()
+            })
         }
     }
 }
 
-/// One attempt at the operation on the shared session, opening one if there is
+/// Invariant: One attempt at the operation on the shared session, opening one if there is
 /// none. Returns the session it used alongside any fault, so the caller drops
 /// that session and not a newer one.
 #[allow(clippy::type_complexity)]
-fn attempt<F, C>(
+fn attempt<Connect, ConnectionFuture>(
     shared: &Shared,
     key: &CredentialKey,
     operation: Operation<'_>,
-    connect: &F,
+    connect: &Connect,
     until: Instant,
 ) -> Result<Option<Secret>, (Option<Arc<Session>>, Fault)>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let session = match acquire(shared, connect, until) {
         Ok(session) => session,
@@ -192,17 +198,21 @@ where
         .map_err(|fault| (Some(session), fault))
 }
 
-/// The shared session, negotiated if there is none.
+/// Invariant: The shared session, negotiated if there is none.
 ///
 /// The lock is held across the negotiation so that two callers arriving at an
 /// empty slot do not each open one; opening a single session is the point. It
 /// is held outside the runtime rather than inside a task, so a caller waiting
 /// for it is only waiting for another thread to finish negotiating, and no
 /// prompt is ever awaited underneath it: every prompting call is in `execute`.
-fn acquire<F, C>(shared: &Shared, connect: &F, until: Instant) -> Result<Arc<Session>, Fault>
+fn acquire<Connect, ConnectionFuture>(
+    shared: &Shared,
+    connect: &Connect,
+    until: Instant,
+) -> Result<Arc<Session>, Fault>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let mut held = slot(shared);
     if let Some(session) = held.as_ref() {
@@ -222,7 +232,7 @@ where
         })
         .await
         .unwrap_or(Err(Fault::Timeout));
-        // A session that half-opened still holds a name on the bus.
+        // Invariant: A session that half-opened still holds a name on the bus.
         if let (Err(_), Some(connection)) = (&result, opened) {
             close(connection).await;
         }
@@ -233,7 +243,7 @@ where
     Ok(session)
 }
 
-/// Drops the session from the cache so the next operation opens a fresh one.
+/// Invariant: Drops the session from the cache so the next operation opens a fresh one.
 ///
 /// It is not closed here. Concurrent operations run on their own blocking
 /// threads and share this connection, and closing it terminates their in-flight
@@ -250,7 +260,7 @@ fn invalidate(shared: &Shared, session: &Arc<Session>) {
     }
 }
 
-/// This is close, never graceful_shutdown: waiting for a pending prompt or an
+/// Invariant: This is close, never graceful_shutdown: waiting for a pending prompt or an
 /// outstanding clone before closing would recreate the indefinite wait. It runs
 /// when a session has already failed rather than after every operation, so it
 /// no longer races the handshake of the session that follows it.
@@ -260,13 +270,13 @@ async fn close(connection: zbus::Connection) {
 
 async fn find<'a>(
     service: &'a SecretService<'a>,
-    attrs: &HashMap<String, String>,
+    attributes: &HashMap<String, String>,
 ) -> Result<Option<::secret_service::Item<'a>>, Fault> {
     let result = service
         .search_items(
-            attrs
+            attributes
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .map(|(name, value)| (name.as_str(), value.as_str()))
                 .collect(),
         )
         .await
@@ -289,12 +299,12 @@ async fn execute(
     key: &CredentialKey,
     operation: Operation<'_>,
 ) -> Result<Option<Secret>, Fault> {
-    let attrs = key
+    let attributes = key
         .attributes()
         .map_err(Fault::Answer)?
         .into_iter()
         .collect();
-    let item = find(service, &attrs).await?;
+    let item = find(service, &attributes).await?;
     match operation {
         Operation::Get => {
             let item = item.ok_or(Fault::Answer(Error::Missing))?;
@@ -311,7 +321,7 @@ async fn execute(
                     .get_default_collection()
                     .await
                     .map_err(|_| Fault::Transport)?;
-                // A blank-password collection is locked again by every fresh
+                // Invariant: A blank-password collection is locked again by every fresh
                 // login, and unlocking it is an answer the daemon gives over a
                 // connection that is still good; a password-protected one
                 // prompts inside this operation's single deadline. Refusing
@@ -322,16 +332,17 @@ async fn execute(
                 if collection.is_locked().await.map_err(|_| Fault::Transport)? {
                     collection.unlock().await.map_err(|_| Fault::Transport)?;
                 }
-                // Keep older grants intact until the current-scope item exists.
+                // Invariant: Replace only matching attributes, so concurrent first writes cannot
+                // create duplicates and older grant scopes remain intact.
                 collection
                     .create_item(
                         "Omamail",
-                        attrs
+                        attributes
                             .iter()
-                            .map(|(k, v)| (k.as_str(), v.as_str()))
+                            .map(|(name, value)| (name.as_str(), value.as_str()))
                             .collect(),
                         secret,
-                        false,
+                        true,
                         "application/octet-stream",
                     )
                     .await
@@ -349,7 +360,7 @@ async fn execute(
     }
 }
 
-/// One operation on a private session, closed immediately afterwards. The
+/// Invariant: One operation on a private session, closed immediately afterwards. The
 /// connection-lifetime tests observe a single attempt this way; production
 /// shares one session through `run` and lets the last reference close it.
 #[cfg(test)]
@@ -383,12 +394,12 @@ fn run_with(
     );
     let Shared { runtime, session } = shared;
     drop(session);
-    // Awaited rather than left to drop, so the bus has deregistered the name by
+    // Invariant: Awaited rather than left to drop, so the bus has deregistered the name by
     // the time a one-shot returns.
     if let Some(connection) = opened.lock().ok().and_then(|mut slot| slot.take()) {
         runtime.block_on(async { close(connection).await });
     }
-    // zbus's async reader/signal tasks are owned by this runtime. There is no
+    // Invariant: zbus's async reader/signal tasks are owned by this runtime. There is no
     // detached blocking secret-service call left behind when the worker returns.
     runtime.shutdown_timeout(Duration::ZERO);
     result

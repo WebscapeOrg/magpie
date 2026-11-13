@@ -3,9 +3,7 @@ import QtTest 1.3
 import "../../components" as Omamail
 import "NativeDomainFixture.js" as Native
 
-// A signature is placed by the compose view and edited on the settings page,
-// and neither half is reachable from node: one owns a text editor's contents,
-// and the other switches one live editor between account identities.
+// Invariant: actual compose and settings editors verify signature placement, editing and account ownership.
 Item {
   width: 900
   height: 700
@@ -51,15 +49,12 @@ Item {
     property int undoSendSeconds: 10
     property var auth: mailAuth
 
-    // Live mailbox state. Replaced on every poll, which is the point of the
-    // poll test below.
+    // Invariant: polling replaces summaries without changing the stored signatures.
     property var accountSummaries: [({
       id: "me@example.com", email: "me@example.com", provider: "gmail",
       label: "me", unread: 0, active: true, signedIn: true, busy: false, error: ""
     })]
 
-    // What the signature field is built over: only what a signature edit
-    // changes.
     property var accountSignatures: [({
       id: "me@example.com", email: "me@example.com", signature: "Maarten\nmadra.nl"
     })]
@@ -76,26 +71,24 @@ Item {
     function setAlwaysRenderHeavyMessages(_value) {}
     function setUndoSendSeconds(_value) {}
 
-    // A draft belongs to the mailbox it answers. With one account that is the
-    // active one, which is why these tests can go on setting `activeSignature`
-    // — tst_compose_identity.qml is where the two come apart.
+    // Invariant: this single-account fixture shares draft and active identity; tst_compose_identity.qml checks distinct owners.
     property string composeAccountId: activeAccountId
 
     function signatureFor(id) {
       var want = String(id || "")
       if (want === activeAccountId) return activeSignature
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].signature || "")
+      for (var itemIndex = 0; itemIndex < accountSignatures.length; itemIndex++)
+        if (accountSignatures[itemIndex].id === want)
+          return String(accountSignatures[itemIndex].signature || "")
       return ""
     }
 
     function accountEmailFor(id) {
       var want = String(id || "")
       if (want === activeAccountId) return accountEmail
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].email || "")
+      for (var itemIndex = 0; itemIndex < accountSignatures.length; itemIndex++)
+        if (accountSignatures[itemIndex].id === want)
+          return String(accountSignatures[itemIndex].email || "")
       return ""
     }
 
@@ -125,7 +118,6 @@ Item {
     id: settings
     width: parent.width
     service: mailService
-    calendarController: calendars
     textColor: Qt.rgba(1, 1, 1, 1)
     dimColor: Qt.rgba(0.67, 0.67, 0.67, 1)
     accentColor: Qt.rgba(1, 0.5, 0, 1)
@@ -141,20 +133,20 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
     }
 
     function namedAll(item, objectName, found) {
-      var out = found || []
-      if (!item) return out
-      if (item.objectName === objectName) out.push(item)
+      var matches = found || []
+      if (!item) return matches
+      if (item.objectName === objectName) matches.push(item)
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) namedAll(values[i], objectName, out)
-      return out
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) namedAll(values[itemIndex], objectName, matches)
+      return matches
     }
 
     function summary() {
@@ -171,8 +163,7 @@ Item {
         id: "me@example.com", email: "me@example.com", provider: "gmail",
         label: "me", unread: 0, active: true, signedIn: true, busy: false, error: ""
       })]
-      // Emptied first so the editor drops the previous test's selection and
-      // loads this test's stored signature when the account returns.
+      // Invariant: remove the previous delegate before restoring this test’s stored signature.
       mailService.accountSignatures = []
       wait(30)
       mailService.accountSignatures = [({
@@ -184,7 +175,6 @@ Item {
       compose.opened = false
     }
 
-    // The behaviour every account without a signature keeps.
     function test_an_unsigned_account_composes_as_before() {
       compose.begin("new", null, "", [])
       tryCompare(mailService, "pendingNative", 0)
@@ -204,7 +194,6 @@ Item {
       compare(named(compose, "compose-body-editor").text, "\n\nMaarten\nmadra.nl")
     }
 
-    // Under the reply, above the thread being answered.
     function test_a_reply_signs_above_the_quote() {
       mailService.activeSignature = "Maarten"
       compose.begin("reply", summary(), "Body", [])
@@ -216,22 +205,18 @@ Item {
       verify(quote > sign, "and the quoted message follows it")
     }
 
-    // A draft already carries whatever it was written with. Reopening one must
-    // not sign it a second time.
     function test_reopening_a_draft_does_not_sign_it_again() {
       mailService.activeSignature = "Maarten"
       compose.beginDraft({ mode: "draft", body: "Half written\n\nMaarten" }, "m1", [])
       compare(named(compose, "compose-body-editor").text, "Half written\n\nMaarten")
     }
 
-    // A mailto: is a new message, so it is signed like one.
     function test_a_mailto_draft_is_signed() {
       mailService.activeSignature = "Maarten"
       compose.beginDraft({ mode: "new", to: "her@example.com", body: "" }, "", [])
       tryCompare(named(compose, "compose-body-editor"), "text", "\n\nMaarten")
     }
 
-    // ------------------------------------------------------------- settings
 
     function test_the_editor_opens_on_what_is_stored() {
       var editor = named(settings, "settings-signature-editor")
@@ -280,11 +265,7 @@ Item {
         "\n\nVisible before send")
     }
 
-    // Saved when the field is done with, not on every keystroke.
-    // A compose window nobody wrote in is not a draft. The body holds the
-    // sign-off it was opened with, which `trim()` alone reads as content — so
-    // Escape used to upload a draft containing only the user's own signature,
-    // once per abandoned compose.
+    // Invariant: an untouched placed signature does not create a draft.
     function test_an_untouched_signed_compose_is_not_a_draft() {
       mailService.activeSignature = "Maarten"
       compose.begin("new", null, "", [])
@@ -301,7 +282,6 @@ Item {
       compare(compose.hasMeaningfulDraft(), true, "a sentence above it is a draft")
     }
 
-    // A reply is a draft on its quote alone, signed or not.
     function test_a_reply_is_still_a_draft() {
       mailService.activeSignature = "Maarten"
       compose.begin("reply", summary(), "Body", [])
@@ -309,8 +289,6 @@ Item {
       compare(compose.hasMeaningfulDraft(), true)
     }
 
-    // The sending mailbox reaches every account through the From menu, and the
-    // sign-off has to follow it — the whole reason the field is per-account.
     function test_changing_the_sending_mailbox_re_signs_an_untouched_body() {
       mailService.activeSignature = "Maarten"
       compose.begin("new", null, "", [])
@@ -333,9 +311,7 @@ Item {
       tryCompare(editor, "text", "Half a sentence\n\nMaarten")
     }
 
-    // Equality with the placed body is not an edit history. If somebody types
-    // and then deletes back to the sign-off, the result looks untouched but it
-    // is still their draft and a mailbox switch must not rewrite it.
+    // Invariant: reverting typed content to the original signature remains a user edit.
     function test_an_edit_reverted_to_the_signature_stays_the_users_body() {
       mailService.activeSignature = "Maarten"
       compose.begin("new", null, "", [])
@@ -352,9 +328,7 @@ Item {
       tryCompare(editor, "text", "\n\nMaarten")
     }
 
-    // The settings field used to be built over accountSummaries, which a poll
-    // replaces twice a cycle with no account having changed — destroying the
-    // delegate, and the text and the keyboard with it, mid-word.
+    // Invariant: polling must preserve the signature editor, text and keyboard focus.
     function test_a_poll_does_not_disturb_a_signature_being_typed() {
       var editor = named(settings, "settings-signature-editor")
       verify(editor)
@@ -374,8 +348,6 @@ Item {
       compare(mailService.saveCount, 0, "a poll is not a save")
     }
 
-    // First run has no signed-in mailbox and so no field. A heading and an
-    // explanation with nothing between them is not a setting.
     function test_the_section_is_absent_until_a_mailbox_exists() {
       var section = named(settings, "settings-signature-section")
       verify(section)

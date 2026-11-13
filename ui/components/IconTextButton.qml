@@ -5,11 +5,6 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// A bordered button carrying a drawn icon beside its label.
-//
-// qs.Ui's Button takes a font glyph for its icon, and this app's icons are
-// vector images. This is that button with the glyph slot replaced, using the same
-// state fills, border, padding and height as the rest of the kit.
 Rectangle {
   id: root
 
@@ -19,31 +14,35 @@ Rectangle {
   property color foreground: Commons.Color.foreground
   property color accent: Commons.Color.accent
   property bool bordered: true
-  // Reserve the normal border but leave the field clear until interaction.
   property bool outline: false
-  // The look of the icon buttons it may stand beside: no fill and no border
-  // at rest, a fill on hover, and the icon and label brightening to
-  // `hoverColor` — so a labelled action in a row of icon buttons reads as
-  // one of them. `bordered: false` alone keeps its own hover border, which
-  // the tab bars rely on.
   property bool ghost: false
   property color hoverColor: foreground
-  // A ghost stands in a row of IconButtons, so it takes their glyph size
-  // and their height; a bordered button is a form control and keeps the
-  // kit's control height and the smaller glyph that fits beside a label.
   property real iconSize: ghost ? Style.font.icon : Style.font.iconSmall
-  // Held while this button is the chosen one of a set — the RSVP row, where
-  // three buttons stand for three answers and one of them is the answer given.
-  // Never the only sign of it: the caller shows a check glyph too, because a
-  // theme can put the selected fill close enough to the normal one that
-  // colour alone says nothing.
   property bool selected: false
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.bodySmall
 
   signal clicked()
 
-  readonly property bool hot: mouse.containsMouse && enabled
+  activeFocusOnTab: true
+  Accessible.role: Accessible.Button
+  Accessible.name: text || tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
+
+  readonly property bool hot: (mouse.containsMouse || activeFocus) && enabled
 
   implicitWidth: row.implicitWidth + Style.spacing.controlPaddingX * 2
   implicitHeight: ghost
@@ -52,6 +51,7 @@ Rectangle {
   radius: Style.cornerRadius
   opacity: enabled ? 1.0 : 0.4
   color: mouse.pressed ? Style.pressedFillFor(root.foreground, root.accent)
+    : root.activeFocus ? Style.focusFillFor(root.foreground, root.accent)
     : (root.selected ? Style.selectedFillFor(root.foreground, root.accent)
       : (hot ? Style.hoverFillFor(root.foreground, root.accent)
         : (bordered && !ghost && !outline
@@ -77,8 +77,7 @@ Rectangle {
     Text {
       anchors.verticalCenter: parent.verticalCenter
       visible: root.text !== ""
-      // A label is words, never markup — and one of them carries a server's
-      // host name, which a stranger chose.
+      // Invariant: labels can contain server-controlled host names and must remain plain text.
       textFormat: Text.PlainText
       text: root.text
       color: root.ghost && (root.hot || root.selected) ? root.hoverColor : root.foreground
@@ -95,7 +94,7 @@ Rectangle {
   }
 
   Widgets.PanelToolTip {
-    visible: root.tooltipText !== "" && mouse.containsMouse
+    visible: root.tooltipText !== "" && (mouse.containsMouse || root.activeFocus)
     text: root.tooltipText
     fontFamily: root.fontFamily
   }

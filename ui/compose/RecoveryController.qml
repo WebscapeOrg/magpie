@@ -2,22 +2,16 @@ import QtQuick
 import "Recovery.js" as Recovery
 import "../account/Navigation.js" as Nav
 
-// Reconcile a recovered composer with durable delivery receipts before reopening
-// it. A transport failure cannot turn a potentially sent message into a retry.
+// Invariant: reconcile durable delivery receipts before restoring drafts; transport failures cannot authorize resending.
 QtObject {
   id: controller
   required property var app
   required property var composer
   required property var recoveryTimer
   readonly property var composeRecoveryTimer: recoveryTimer
-  // A refusal the write provably never survived can go again on the revision
-  // this window already holds: the backend answered it and left the record
-  // alone, or the host refused to send it at all with too many requests in
-  // flight. A transport failure proves nothing — the write may have landed and
-  // taken the answer with it — and its reconnect re-reads the revision first.
+  // Invariant: retry the held revision only after a proven unsent refusal; an interrupted write requires rereading storage.
   readonly property var unsentRefusals: [-32000, -32011]
-  // Six attempts, doubling from one second to 32: an outage that outlasts that
-  // is not one more writes will fix, and the warning stays up to say so.
+
   readonly property int maxRecoveryRetries: 6
   property int recoveryRetries: 0
   readonly property Timer recoveryRetryTimer: Timer {
@@ -28,19 +22,18 @@ QtObject {
   readonly property var root: app
   readonly property var compose: composer
   readonly property var service: app ? app.service : null
-  // API 3 preserves explicit edit history, including a draft edited to empty.
-  // This requirement survives releases and later, unrelated API revisions.
+  // Invariant: explicit empty-draft edit history requires the fixed API 3 feature gate.
   readonly property bool recoverySupported: !!service && !!service.backend
     && service.backend.ready && service.backend.apiVersion >= 3
+  readonly property bool pendingAttachmentRecoverySupported: !!service && !!service.backend
+    && service.backend.ready && service.backend.apiVersion >= 8
+  onPendingAttachmentRecoverySupportedChanged: {
+    if (pendingAttachmentRecoverySupported) Qt.callLater(root.drainComposeRecovery)
+  }
   readonly property bool recoveryNeedsUpdate: !!service && !!service.backend
     && service.backend.ready && !recoverySupported
   readonly property string recoveryUpdateNotice: "Draft recovery needs an updated backend. Keep this window open."
-  // The composer says one thing at a time, so a failed save hides whatever the
-  // window was already warning about. Remember that line for as long as the
-  // failure is the line on screen and put it back when a write lands. Anything
-  // else that speaks owns the slot from then on, and takes the memory with it:
-  // a warning raised after the failure is current, and must not be written over
-  // by what an older failure happened to cover.
+  // Invariant: restore an obscured notice only while the save-failure notice still owns the composer status.
   property bool recoverySaveFailurePending: false
   property string noticeBehindSaveFailure: ""
   property bool saveFailureHidUpdateNotice: false
@@ -98,8 +91,8 @@ QtObject {
       root.composeReceiptChecking = false
       root.composeDeliveryStates = states
       var restored = [], waiting = [], receipts = []
-      for (var i = 0; i < drafts.length; i++) {
-        var draft = drafts[i]
+      for (var draftIndex = 0; draftIndex < drafts.length; draftIndex++) {
+        var draft = drafts[draftIndex]
         var id = String(draft.pendingSendId || "")
         if (id === "") { restored.push(draft); continue }
         var state = states[String(draft.accountId) + "\n" + id]
@@ -112,9 +105,9 @@ QtObject {
         restored.push(recovered)
       }
       var parked = compose.parkedDrafts.slice()
-      for (var w = 0; w < waiting.length; w++) {
-        var id = String(waiting[w].pendingSendId)
-        if (!parked.some(function(entry) { return entry.sendId === id && entry.draft && String(entry.draft.accountId || "") === String(waiting[w].accountId || "") })) parked.push({sendId:id,draft:waiting[w]})
+      for (var waitingIndex = 0; waitingIndex < waiting.length; waitingIndex++) {
+        var id = String(waiting[waitingIndex].pendingSendId)
+        if (!parked.some(function(entry) { return entry.sendId === id && entry.draft && String(entry.draft.accountId || "") === String(waiting[waitingIndex].accountId || "") })) parked.push({sendId:id,draft:waiting[waitingIndex]})
       }
       compose.parkedDrafts = parked
       var all = restored.concat(waiting)
@@ -122,9 +115,9 @@ QtObject {
       root.composeRecovery = updated
       root.composeRecoveryRevision++
       root.lastComposeRecoveryText = updated.active ? JSON.stringify(updated) : ""
-      // Recovery.empty() is presentation state; Rust only stores versioned records.
+      // Invariant: Recovery.empty() is presentation state; Rust stores versioned records.
       root.writeComposeRecovery(all.length ? JSON.stringify(updated) : '{"version":1,"active":false}')
-      for (var a = 0; a < receipts.length; a++) root.queueComposeReceiptAck(receipts[a].accountId, receipts[a].sendId, root.composeRecoveryRevision)
+      for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) root.queueComposeReceiptAck(receipts[receiptIndex].accountId, receipts[receiptIndex].sendId, root.composeRecoveryRevision)
       Qt.callLater(root.restoreComposeRecovery)
     }
     next()
@@ -132,8 +125,7 @@ QtObject {
 
   function queueComposeReceiptAck(accountId, sendId, revision) {
     if (accountId === "" || sendId === "") return
-    // Forget releases the payload, not the send ID/digest tombstone. Proposal
-    // receipts use the same durable-recovery gate as every other send.
+    // Invariant: forgetting releases payloads but retains send-ID/digest tombstones after recovery is durable.
     var next = root.composeReceiptAcks.filter(function(entry) { return entry.accountId !== accountId || entry.sendId !== sendId })
     next.push({accountId:accountId,sendId:sendId,revision:revision})
     root.composeReceiptAcks = next
@@ -141,26 +133,27 @@ QtObject {
   }
   function acknowledgeComposeReceipts() {
     if (!root.service || !root.service.backend || !root.service.backend.ready) return
-    for (var i = 0; i < root.composeReceiptAcks.length; i++) {
-      (function(entry) {
-        var key = entry.accountId + "\n" + entry.sendId
-        if (entry.revision > root.composeCommittedRevision || root.composeReceiptAckBusy[key]) return
-        var busy = Object.assign({}, root.composeReceiptAckBusy); busy[key] = true; root.composeReceiptAckBusy = busy
-        root.service.backend.call("outbox.snapshot", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
-          if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
-          var state = !error && result && result.entries && result.entries.length ? result.entries[0].state : ""
-          if (state !== "sent" && state !== "cancelled" && state !== "failed") {
-            var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
-            return
-          }
-          root.service.backend.call("outbox.forget", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
-            if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
-            var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
-            if (!error) root.composeReceiptAcks = root.composeReceiptAcks.filter(function(value) { return value.accountId !== entry.accountId || value.sendId !== entry.sendId })
-          })
-        })
-      })(root.composeReceiptAcks[i])
-    }
+    for (var receiptIndex = 0; receiptIndex < root.composeReceiptAcks.length; receiptIndex++)
+      acknowledgeComposeReceipt(root.composeReceiptAcks[receiptIndex])
+  }
+
+  function acknowledgeComposeReceipt(entry) {
+    var key = entry.accountId + "\n" + entry.sendId
+    if (entry.revision > root.composeCommittedRevision || root.composeReceiptAckBusy[key]) return
+    var busy = Object.assign({}, root.composeReceiptAckBusy); busy[key] = true; root.composeReceiptAckBusy = busy
+    root.service.backend.call("outbox.snapshot", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
+      if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
+      var state = !error && result && result.entries && result.entries.length ? result.entries[0].state : ""
+      if (state !== "sent" && state !== "cancelled" && state !== "failed") {
+        var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
+        return
+      }
+      root.service.backend.call("outbox.forget", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
+        if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
+        var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
+        if (!error) root.composeReceiptAcks = root.composeReceiptAcks.filter(function(value) { return value.accountId !== entry.accountId || value.sendId !== entry.sendId })
+      })
+    })
   }
 
   function readComposeRecovery() {
@@ -204,16 +197,18 @@ QtObject {
   }
 
   function parkedBesides(draft) {
-    var out = []
+    var drafts = []
+    if (compose.interruptedDraft && compose.interruptedDraft !== draft)
+      drafts.push(compose.interruptedDraft)
     var parked = compose.parkedDrafts || []
-    for (var i = 0; i < parked.length; i++) {
-      if (parked[i].draft !== draft) out.push(Object.assign({}, parked[i].draft, {pendingSendId: String(parked[i].sendId || "")}))
+    for (var parkedIndex = 0; parkedIndex < parked.length; parkedIndex++) {
+      if (parked[parkedIndex].draft !== draft) drafts.push(Object.assign({}, parked[parkedIndex].draft, {pendingSendId: String(parked[parkedIndex].sendId || "")}))
     }
     var recovered = compose.recoveryDrafts || []
-    for (var j = 0; j < recovered.length; j++) {
-      if (recovered[j] !== draft) out.push(recovered[j])
+    for (var recoveredIndex = 0; recoveredIndex < recovered.length; recoveredIndex++) {
+      if (recovered[recoveredIndex] !== draft) drafts.push(recovered[recoveredIndex])
     }
-    return out
+    return drafts
   }
 
   function saveComposeRecovery(saved) {
@@ -226,7 +221,7 @@ QtObject {
     }
     var recordDraft = draft
     var sends = compose.parkedDrafts || []
-    for (var p = 0; p < sends.length; p++) if (sends[p].draft === draft) recordDraft = Object.assign({}, draft, {pendingSendId: String(sends[p].sendId || "")})
+    for (var sendIndex = 0; sendIndex < sends.length; sendIndex++) if (sends[sendIndex].draft === draft) recordDraft = Object.assign({}, draft, {pendingSendId: String(sends[sendIndex].sendId || "")})
     var record = { version: 1, active: true, returnView: root.composeReturnView(), draft: recordDraft, parked: root.parkedBesides(draft) }
     var raw = JSON.stringify(record)
     root.composeRecovery = record
@@ -237,10 +232,7 @@ QtObject {
     return root.composeRecoveryRevision
   }
 
-  // The editor only writes a payload whose text changed, so a refused save is
-  // the one write nothing else repeats. Drain again on a timer, which sends
-  // whatever the composer has queued by then — the failed text if nothing moved,
-  // the newer draft if it did.
+  // Invariant: unchanged draft text does not reschedule writes; a refused save needs its own retry timer.
   function scheduleComposeRecoveryRetry() {
     if (recoveryRetries >= maxRecoveryRetries) return
     recoveryRetries++
@@ -248,8 +240,7 @@ QtObject {
     recoveryRetryTimer.restart()
   }
 
-  // A write that lands is the only evidence that writing works, so it alone
-  // ends the ladder. A read says nothing about it.
+  // Invariant: only a successful write resets recovery retries; successful reads prove no write capability.
   function resetComposeRecoveryRetry() {
     recoveryRetries = 0
     recoveryRetryTimer.stop()
@@ -263,9 +254,7 @@ QtObject {
   function clearComposeRecovery(expectedRevision) {
     if (expectedRevision !== undefined
         && Number(expectedRevision) !== root.composeRecoveryRevision) return false
-    // The draft is going, so a line that warned about it has nothing to come back
-    // to. The failure's own warning is not the draft's and still needs the write
-    // that answers it, so the memory goes and the ownership stays.
+    // Invariant: clearing a draft discards its hidden notice but retains an unresolved save-failure notice.
     controller.noticeBehindSaveFailure = ""
     controller.saveFailureHidUpdateNotice = false
     composeRecoveryTimer.stop()
@@ -286,19 +275,35 @@ QtObject {
     else root.drainComposeRecovery()
   }
 
+  function needsAttachmentRecovery(record) {
+    if (!record || record.active !== true) return false
+    var drafts = [record.draft].concat(record.parked || [])
+    return drafts.some(function(draft) {
+      return draft && (draft.pendingAttachment || draft.forwardAttachmentsLoading === true
+        || String(draft.attachmentSourceMessageId || "") !== ""
+        || String(draft.forwardAttachmentError || "") !== ""
+        || String(draft.attachmentRecoveryError || "") !== ""
+        || (Array.isArray(draft.attachJobs) && draft.attachJobs.length > 0))
+    })
+  }
+
   function drainComposeRecovery() {
     if (root.composeRecoveryConflict || root.composeWriting || !root.composeWriteQueued || !root.composeRecoveryLoaded
         || !recoverySupported || root.composeStorageRevision === "") return
     var raw = root.composeWritePayload
+    var record = JSON.parse(raw)
+    if (!pendingAttachmentRecoverySupported && needsAttachmentRecovery(record)) {
+      showRecoveryNotice("Attachment recovery needs an updated backend. Keep this window open.", true)
+      return
+    }
     var mine = root.composeRecoveryRevision
     root.composeWriteQueued = false
     root.composeWriting = true
-    root.service.backend.call("compose.recoverySave", { record: JSON.parse(raw), expectedRevision: root.composeStorageRevision }, function(result, error) {
+    root.service.backend.call("compose.recoverySave", { record: record, expectedRevision: root.composeStorageRevision }, function(result, error) {
       if (!root) return
       root.composeWriting = false
       if (error || !result) {
-        // Keep the live draft. A stale process must never overwrite another
-        // instance's saved recovery just by retrying with a fresh revision.
+        // Invariant: stale processes must never overwrite another instance's recovery by retrying with a fresh revision.
         root.composeWriteQueued = true
         root.composeRecoveryConflict = !!error && error.message === "recovery_conflict"
         controller.showSaveFailureNotice()
@@ -311,8 +316,7 @@ QtObject {
       root.composeStorageRevision = String(result.revision || "")
       root.composeCommittedRevision = Math.max(root.composeCommittedRevision, mine)
       if (controller.recoverySaveFailurePending) {
-        // This write answers the warning about it, and the "needs an updated
-        // backend" line it may have covered, but not a delivery warning.
+        // Invariant: a successful save clears its own update/save warning, preserving unrelated delivery warnings.
         controller.showRecoveryNotice(
           controller.saveFailureHidUpdateNotice ? "" : controller.noticeBehindSaveFailure)
       } else if (root.composeRecoveryUpdateNoticePending) {

@@ -116,3 +116,15 @@ fn second_snapshot_starts_a_new_answer_and_unknown_tools_have_fixed_label() {
     parser.accept(stream(json!({"type":"content_block_start","content_block":{"type":"tool_use","name":"arbitrary\u{1b}secret"}}))).unwrap();
     assert_eq!(parser.progress(), "Using a tool");
 }
+
+#[test]
+fn context_tokens_use_the_final_cli_usage_once_and_never_the_assistant_text() {
+    let mut stream = ClaudeStream::new(vec![]).unwrap();
+    stream.accept(json!({"type":"assistant","message":{"content":[{"type":"text","text":"Answer"}],"usage":{"input_tokens":999}}})).unwrap();
+    assert_eq!(stream.usage(), None);
+    stream.accept(json!({"type":"result","subtype":"success","result":"Answer","usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":300,"output_tokens":400}})).unwrap();
+    assert_eq!(stream.usage(), Some(crate::inbox::prices::Usage { fresh: 100, written: 200, read: 300, output: 400 }));
+    stream.accept(json!({"type":"result","subtype":"success","result":"Answer","usage":{"input_tokens":999}})).unwrap();
+    assert_eq!(stream.usage().and_then(|usage| usage.input()), Some(600));
+    assert!(stream.display().get("usage").is_none());
+}

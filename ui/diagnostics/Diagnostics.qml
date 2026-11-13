@@ -1,8 +1,7 @@
 import QtQuick
 import Quickshell.Io
 
-// This helper remains usable when the mail backend cannot start. Only error
-// envelopes cross stdin; Python allowlists them before writing anything.
+// Invariant: Diagnostics must work without the backend; Python allowlists error envelopes before writing them.
 Item {
   id: root
   required property string pluginDir
@@ -53,7 +52,7 @@ Item {
     var requested = openRequested || mode === "open"
     openRequested = false
     if (requested) failed(message)
-    else console.warn("Magpie could not save diagnostic errors.")
+    else console.warn("Magpie Mail could not save diagnostic errors.")
   }
   Timer {
     interval: 250

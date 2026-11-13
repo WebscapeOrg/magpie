@@ -15,9 +15,9 @@ function validModel(value) {
 function startOptions(payload, selectedAgent, selectedModel, apiVersion) {
   var parsed = payload
   if (typeof parsed === "string") {
-    try { parsed = JSON.parse(parsed) } catch (e) { return { params: {payload: payload} } }
+    try { parsed = JSON.parse(parsed) } catch (parseError) { return { params: {payload: payload} } }
   }
-  // Follow-ups belong to the provider and model saved with their parent.
+  // Invariant: follow-ups retain the parent job's provider and model.
   if (parsed && parsed.parent) return { params: {payload: payload} }
   var model = String(selectedModel || "").trim()
   var selected = provider(selectedAgent)

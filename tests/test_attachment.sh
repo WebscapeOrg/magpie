@@ -219,6 +219,21 @@ answer=$(sh "$script" pick)
 check "a cancelled picker is cancelled, not an error" "$(json_field error "$answer")" "cancelled"
 unset OMAMAIL_PICK_OUT OMAMAIL_PICK_EXIT
 
+python3 - "$script" "$work" <<'PY'
+import json, os, pathlib, subprocess, sys
+script, directory = sys.argv[1:]
+name = 'control\r\b\f\x01\t "quote" \\ 日本語.txt'
+path = pathlib.Path(directory) / name
+path.write_bytes(b'synthetic attachment')
+reply = subprocess.run(['sh', script, 'read', str(path)], capture_output=True, check=True)
+value = json.loads(reply.stdout)
+assert value['filename'] == name and value['path'] == str(path), value
+reply = subprocess.run(['sh', script, 'pick'], capture_output=True, check=True,
+                       env=dict(os.environ, OMAMAIL_PICK_OUT=str(path)))
+assert json.loads(reply.stdout)['paths'] == [str(path)], reply.stdout
+print('Attachment control-character filenames and picker paths round-trip')
+PY
+
 # forget only deletes files this script wrote into the compose dir.
 printf 'keep\n' > "$work/outside.txt"
 sh "$script" forget "$work/compose" "$work/outside.txt" >/dev/null 2>&1 || true

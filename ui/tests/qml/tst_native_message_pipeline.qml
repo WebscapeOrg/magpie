@@ -13,7 +13,7 @@ Item {
     function complete(index) {
       var summaries = []
       var resources = requests[index].params.messages
-      for (var i = 0; i < resources.length; i++) summaries.push({id:resources[i].id,date:"2026-09-12T00:00:00Z",subject:"Native summary"})
+      for (var itemIndex = 0; itemIndex < resources.length; itemIndex++) summaries.push({id:resources[itemIndex].id,date:"2026-09-12T00:00:00Z",subject:"Native summary"})
       requests[index].callback({summaries:summaries},null)
     }
   }

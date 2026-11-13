@@ -2,23 +2,21 @@
 
 function decode(raw) {
   var failed = { state: "error", requiredVersion: "", requiredApiVersion: 0, latestApiVersion: 0,
-    unreleasedMethods: [], installedVersion: "",
+    unreleasedMethods: [], contractHash: "", installedVersion: "",
     executable: "", error: "Could not read backend runtime status", development: false, cliInstalled: false }
   var value
-  try { value = JSON.parse(raw) } catch (e) { return failed }
+  try { value = JSON.parse(raw) } catch (error) { return failed }
   if (!value || ["ready", "missing", "mismatch", "unsupported", "error"].indexOf(value.state) < 0
       || typeof value.requiredVersion !== "string"
       || typeof value.installedVersion !== "string" || typeof value.error !== "string") return failed
   if (value.state === "ready" && (typeof value.requiredApiVersion !== "number"
       || value.requiredApiVersion <= 0 || value.requiredApiVersion > 2147483647
       || Math.floor(value.requiredApiVersion) !== value.requiredApiVersion)) return failed
-  // The step ahead of the pin: what this checkout implements and the pinned
-  // binary does not. Absent or malformed means no step — never a guess.
   var latest = value.latestApiVersion
   if (typeof latest !== "number" || Math.floor(latest) !== latest
       || latest < value.requiredApiVersion || latest > value.requiredApiVersion + 1) latest = value.requiredApiVersion
   var unreleased = Array.isArray(value.unreleasedMethods)
-    ? value.unreleasedMethods.filter(function(m) { return typeof m === "string" && m !== "" }) : []
+    ? value.unreleasedMethods.filter(function(method) { return typeof method === "string" && method !== "" }) : []
   if (latest === value.requiredApiVersion) unreleased = []
   if (value.state === "ready" && (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value.requiredVersion)
       || value.installedVersion !== value.requiredVersion
@@ -27,6 +25,8 @@ function decode(raw) {
   return { state: value.state, requiredVersion: value.requiredVersion,
     requiredApiVersion: value.requiredApiVersion || 0,
     latestApiVersion: latest || 0, unreleasedMethods: unreleased,
+    contractHash: typeof value.contractHash === "string" && /^[a-f0-9]{64}$/.test(value.contractHash)
+      ? value.contractHash : "",
     installedVersion: value.installedVersion,
     executable: value.state === "ready" ? value.executable : "",
     error: value.error, development: value.development === true,

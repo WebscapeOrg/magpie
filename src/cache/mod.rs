@@ -1,5 +1,5 @@
-//! Private, bounded body files compatible with the desktop's legacy cache.
-//! Directory descriptors pin every path component; sender values never form paths.
+//! Invariant: Private, bounded body files compatible with the desktop's legacy cache. Directory
+//! descriptors pin every path component; sender values never form paths.
 use serde_json::{Value, json};
 use std::{
     fs::File,
@@ -76,7 +76,7 @@ fn encode(text: &str) -> String {
     out
 }
 
-fn account_name(account: &str) -> Result<String> {
+pub(crate) fn account_name(account: &str) -> Result<String> {
     if account.trim().is_empty() {
         return Err("cache_invalid_input");
     }
@@ -165,7 +165,7 @@ fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
     }
     if matches!(
         method,
-        "cache.storeRead" | "cache.storePut" | "cache.calendarRead" | "cache.calendarPut"
+        "cache.storeRead" | "cache.storePut"
     ) {
         return store::call_at(root, method, params);
     }
@@ -182,7 +182,7 @@ fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
     }
     let account = account_name(field(params, "accountId")?)?;
     if method == "cache.bodyClear" {
-        // Validate both disposable stores before deleting any account data.
+        // Invariant: Validate both disposable stores before deleting any account data.
         let mut stores = Vec::new();
         for kind in ["bodies", "resources"] {
             if let Some(dir) = directories(root, &["omamail", kind, &account], false)? {
@@ -200,7 +200,6 @@ fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
     }
     let Some(dir) = directory(root, &account, false)? else {
         return Ok(match method {
-            "cache.bodyClear" => json!({"cleared":true}),
             "cache.bodyTouch" => json!({"touched":false}),
             _ => Value::Null,
         });
@@ -251,7 +250,7 @@ fn put_at(root: &Path, params: &Value, body: &Value) -> Result<Value> {
     let account = account_name(field(params, "accountId")?)?;
     let name = body_name(field(params, "id")?)?;
     let dir = directory(root, &account, true)?.ok_or("cache_unavailable")?;
-    // Refuse preexisting links and nonregular entries before writing anything.
+    // Invariant: Refuse preexisting links and nonregular entries before writing anything.
     regular(&dir, &name, false)?;
     let mut files = entries(&dir)?;
     disk::reserve(root, bytes.len() as u64, Some(("bodies", &account, &name)))?;

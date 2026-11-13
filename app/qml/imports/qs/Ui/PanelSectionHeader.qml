@@ -3,6 +3,7 @@ import qs.Commons
 import qs.Commons as Commons
 
 Text {
+  textFormat: Text.PlainText
   property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
   color: foreground

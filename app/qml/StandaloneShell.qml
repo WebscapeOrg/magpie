@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Dialogs
+import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 
@@ -13,17 +14,23 @@ QtObject {
   property var app: null
 
   readonly property bool standalone: true
+  readonly property bool startInBackground: !!host && host.startInBackground === true
+  property bool backgroundActivationReceived: false
   readonly property string backendPath: String(host && host.backendPath || "")
+  readonly property string resourceRoot: String(host && host.resourceRoot || "")
+  readonly property var backendContract: host && host.backendContract || ({})
   readonly property string calendarPalettePath: ""
   readonly property string notificationError: String(host && host.notificationError || "")
   readonly property var capabilities: ({
     agent: !!host && !!host.capabilities && host.capabilities.agent === true,
     tray: false,
-    mailto: false,
+    mailto: !!host && !!host.capabilities && host.capabilities.mailto === true,
+    defaultMailClient: !!host && !!host.capabilities
+      && host.capabilities.defaultMailClient === true,
     notifications: !!host && !!host.capabilities
       && host.capabilities.notifications === true,
     reopen: !!host && !!host.capabilities && host.capabilities.reopen === true,
-    // An installed Omarchy theme is the palette; the appearance setting only
+    // Invariant: An installed Omarchy theme is the palette; the appearance setting only
     // has something to decide where the fallback palettes are in use.
     appearance: !Commons.Color.hasOmarchyTheme
   })
@@ -44,15 +51,27 @@ QtObject {
     return true
   }
 
+  function updateBarStatus(snapshot) {
+    if (!host || typeof host.updateBarStatus !== "function") return false
+    var value = snapshot || ({})
+    var unread = typeof value.unreadTotal === "number" && isFinite(value.unreadTotal)
+      ? Math.max(0, Math.floor(value.unreadTotal)) : 0
+    // Invariant: The native status envelope has no account or message fields, even though
+    // the shared in-process bar snapshot carries them.
+    return host.updateBarStatus({
+      ready: value.ready === true,
+      windowOpen: value.windowOpen === true,
+      showBarIcon: value.showBarIcon !== false,
+      unreadTotal: unread
+    })
+  }
+
   function hide(pluginId) {
     if (String(pluginId || "") !== String(manifest.id || "omamail")) return false
     if (app && typeof app.close === "function") app.close()
-    // With no tray, no actionable notification and no Dock to click there is
-    // no route back to a hidden window. End the process so a launcher
-    // invocation starts a reachable application again.
-    if (!capabilities.tray && !capabilities.notifications && !capabilities.reopen
-        && host && typeof host.quit === "function") host.quit()
-    else if (host && typeof host.hide === "function") host.hide()
+    // Invariant: Single-instance activation is the way back on every desktop. Closing a
+    // window never doubles as Quit, even where notifications or a Dock are unavailable.
+    if (host && typeof host.hide === "function") host.hide()
     return true
   }
 
@@ -64,6 +83,11 @@ QtObject {
 
   function openExternal(target) {
     return !!host && typeof host.openExternal === "function" && host.openExternal(String(target || ""))
+  }
+
+  function openMessageLink(target, accountEmail) {
+    return !!host && typeof host.openMessageLink === "function"
+      && host.openMessageLink(String(target || ""), String(accountEmail || ""))
   }
 
   function setClipboard(text) {
@@ -106,9 +130,37 @@ QtObject {
     return true
   }
 
+  property var clipboardCallback: null
+  property bool clipboardBusy: false
+
   function clipboardAttachment(directory, callback) {
-    if (typeof callback === "function") callback(({ok:false,error:"no-image"}))
+    if (clipboardBusy || resourceRoot === "") return false
+    clipboardBusy = true
+    clipboardCallback = callback
+    clipboardProcess.command = ["sh", resourceRoot + "/scripts/attachment.sh",
+      "clipboard", String(directory || "")]
+    clipboardProcess.running = true
     return true
+  }
+
+  property var clipboardProcessObject: Process {
+    id: clipboardProcess
+    objectName: "standalone-clipboard-attachment"
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      root.clipboardBusy = false
+      var completed = root.clipboardCallback
+      root.clipboardCallback = null
+      var result = ({ok:false,error:"no-image"})
+      if (exitCode === 0) {
+        try {
+          var parsed = JSON.parse(String(stdout.text || ""))
+          if (parsed && typeof parsed === "object") result = parsed
+        } catch (error) {}
+      }
+      if (typeof completed === "function") completed(result)
+    }
   }
 
   property var pickerObject: FileDialog {
@@ -117,19 +169,19 @@ QtObject {
     fileMode: FileDialog.OpenFiles
     onAccepted: {
       var paths = []
-      for (var i = 0; i < selectedFiles.length; i++) {
+      for (var fileIndex = 0; fileIndex < selectedFiles.length; fileIndex++) {
         var path = root.host && typeof root.host.localFilePath === "function"
-          ? String(root.host.localFilePath(selectedFiles[i]) || "") : ""
+          ? String(root.host.localFilePath(selectedFiles[fileIndex]) || "") : ""
         if (path !== "") paths.push(path)
       }
-      var done = root.fileCallback
+      var completed = root.fileCallback
       root.fileCallback = null
-      if (typeof done === "function") done(({ok:true,paths:paths}))
+      if (typeof completed === "function") completed(({ok:true,paths:paths}))
     }
     onRejected: {
-      var done = root.fileCallback
+      var completed = root.fileCallback
       root.fileCallback = null
-      if (typeof done === "function") done(({ok:false,error:"cancelled"}))
+      if (typeof completed === "function") completed(({ok:false,error:"cancelled"}))
     }
   }
 }

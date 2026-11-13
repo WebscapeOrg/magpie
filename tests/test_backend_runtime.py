@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -19,6 +20,19 @@ SOURCE = Path(__file__).resolve().parents[1] / "scripts/backend-runtime.py"
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_cleanup_does_not_stop_another_fixtures_patch(self):
+        other = patch.object(sys, 'synthetic_other_fixture', 'still active', create=True)
+        other.start()
+        try:
+            self.doCleanups()
+            self.assertEqual(getattr(sys, 'synthetic_other_fixture', None), 'still active')
+        finally:
+            other.stop()
+
+    def own_patch(self, replacement):
+        self.addCleanup(replacement.stop)
+        return replacement.start()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -35,16 +49,15 @@ class RuntimeTests(unittest.TestCase):
         self.data = Path(self.tmp.name).resolve() / "data/omamail"
         self.home = Path(self.tmp.name).resolve() / "home"
         self.binary = self.data / "bin/omamail"
-        patch.object(self.manager, "DATA_ROOT", self.data).start()
-        patch.object(self.manager, "BINARY", self.binary).start()
-        patch.object(self.manager, "LOCAL_BUILD", self.data / "local-build.json").start()
-        patch.object(self.manager, "LOCK", self.data / "runtime.lock").start()
-        self.addCleanup(patch.stopall)
-        patch.dict(os.environ, {}, clear=True).start()
-        patch.object(self.manager.Path, "home", return_value=self.home).start()
-        patch.object(self.manager.platform, "system", return_value="Linux").start()
-        patch.object(self.manager.platform, "machine", return_value="x86_64").start()
-        patch.object(self.manager, "download", side_effect=AssertionError("unexpected network")).start()
+        self.own_patch(patch.object(self.manager, "DATA_ROOT", self.data))
+        self.own_patch(patch.object(self.manager, "BINARY", self.binary))
+        self.own_patch(patch.object(self.manager, "LOCAL_BUILD", self.data / "local-build.json"))
+        self.own_patch(patch.object(self.manager, "LOCK", self.data / "runtime.lock"))
+        self.own_patch(patch.dict(os.environ, {}, clear=True))
+        self.own_patch(patch.object(self.manager.Path, "home", return_value=self.home))
+        self.own_patch(patch.object(self.manager.platform, "system", return_value="Linux"))
+        self.own_patch(patch.object(self.manager.platform, "machine", return_value="x86_64"))
+        self.own_patch(patch.object(self.manager, "download", side_effect=AssertionError("unexpected network")))
 
     def test_runtime_lives_in_xdg_data_outside_plugin_tree(self):
         data = Path(self.tmp.name).resolve() / "data"
@@ -68,6 +81,134 @@ class RuntimeTests(unittest.TestCase):
         self.binary.write_bytes(b"#!/bin/sh\nprintf 'omamail 0.8.1\\n'\n")
         self.binary.chmod(0o700)
         return self.binary.read_bytes()
+
+    def test_service_restart_never_runs_without_a_private_owned_marker(self):
+        run = self.own_patch(patch.object(self.manager.subprocess, "run"))
+        self.manager.restart_engine()
+        run.assert_not_called()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        target = marker.with_name("unrelated")
+        target.write_text("preserve")
+        marker.symlink_to(target)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        self.assertEqual(target.read_text(), "preserve")
+        marker.unlink()
+        marker.write_text("1\n")
+        marker.chmod(0o644)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.chmod(0o600)
+        link = marker.with_name("hardlink")
+        os.link(marker, link)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        link.unlink()
+        marker.parent.chmod(0o777)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.parent.chmod(0o700)
+        self.manager.restart_engine()
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/systemctl", "--user", "restart", "magpie-mail-engine.service"])
+
+    def test_service_stop_failure_preserves_installed_runtime_and_marker(self):
+        previous = self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run", side_effect=subprocess.TimeoutExpired("systemctl", 210)):
+            result = self.manager.run("uninstall")
+        self.assertEqual(result["state"], "error")
+        self.assertEqual(self.binary.read_bytes(), previous)
+        self.assertEqual(marker.read_text(), "1\n")
+        self.assertFalse(marker.with_name("engine-uninstalling").exists())
+
+    def test_uninstall_blocks_service_starts_before_stopping_and_preserves_proxy_routing(self):
+        self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        pending = marker.with_name("engine-uninstalling")
+
+        def stop(args, **kwargs):
+            self.assertEqual(args, ["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-mail-engine.service"])
+            self.assertTrue(marker.exists())
+            self.assertTrue(pending.exists())
+            self.assertEqual(pending.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(self.binary.exists())
+
+        with patch.object(self.manager.subprocess, "run", side_effect=stop) as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(marker.exists())
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_interrupted_uninstall_retries_stop_before_removing_runtime(self):
+        previous = self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        pending = marker.with_name("engine-uninstalling")
+        with patch.object(self.manager.subprocess, "run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.manager.run("uninstall")
+        self.assertTrue(marker.exists())
+        self.assertTrue(pending.exists())
+        self.assertEqual(self.binary.read_bytes(), previous)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_uninstall_retry_without_activation_marker_retains_pending_until_stop_succeeds(self):
+        previous = self.old()
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        pending.write_text("1\n")
+        pending.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run", side_effect=subprocess.TimeoutExpired("systemctl", 210)) as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "error")
+        run.assert_called_once()
+        self.assertTrue(pending.exists())
+        self.assertEqual(self.binary.read_bytes(), previous)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_uninstall_refuses_unsafe_pending_marker_without_stopping_or_removing_runtime(self):
+        previous = self.old()
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        target = pending.with_name("unrelated")
+        target.write_text("preserve")
+        pending.symlink_to(target)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "error")
+        run.assert_not_called()
+        self.assertEqual(target.read_text(), "preserve")
+        self.assertEqual(self.binary.read_bytes(), previous)
+
+    def test_restart_refuses_unfinished_uninstall_without_invoking_systemctl(self):
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        pending.write_text("1\n")
+        pending.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run") as run:
+            with self.assertRaisesRegex(self.manager.Refused, "Finish uninstalling"):
+                self.manager.restart_engine()
+        run.assert_not_called()
 
     def plugin_tree(self):
         return [(str(path.relative_to(self.root)), path.is_dir(),
@@ -263,11 +404,11 @@ touch linked
             if after:
                 after()
             return sums if url.endswith("SHA256SUMS") else archive
-        patch.object(self.manager, "download", side_effect=download).start()
+        self.own_patch(patch.object(self.manager, "download", side_effect=download))
 
     def test_missing_status_never_downloads(self):
         result = self.manager.run("status")
-        self.assertEqual(result, dict(state="missing", requiredVersion="0.8.2", requiredApiVersion=1, latestApiVersion=1, unreleasedMethods=[], installedVersion="", executable=str(self.binary), error="", cliInstalled=False))
+        self.assertEqual(result, dict(state="missing", requiredVersion="0.8.2", requiredApiVersion=1, latestApiVersion=1, unreleasedMethods=[], contractHash=hashlib.sha256((self.root / "backend-api.json").read_bytes()).hexdigest(), installedVersion="", executable=str(self.binary), error="", cliInstalled=False))
         self.assertFalse(self.binary.parent.exists())
 
     def test_release_status_uses_only_local_pin_and_api_despite_newer_cargo(self):
@@ -394,6 +535,34 @@ touch linked
         self.assertEqual(result["state"], "error")
         self.assertNotIn("secret", str(result))
 
+    def test_probe_retains_group_identity_until_descendants_stop(self):
+        self.old()
+        real_killpg = os.killpg
+        observed = []
+
+        def stop(group, signum):
+            try:
+                os.waitid(os.P_PID, group, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                self.fail("the version probe reaped its leader before signaling the group")
+            observed.append(group)
+            real_killpg(group, signum)
+
+        with patch.object(self.manager.os, "killpg", side_effect=stop):
+            self.assertEqual(self.manager.version_of(self.binary), "0.8.1")
+        self.assertEqual(len(observed), 1)
+
+    def test_successful_probe_stops_its_background_descendants(self):
+        self.old()
+        marker = self.root / "forbidden-write"
+        child = f"import time;from pathlib import Path;time.sleep(1);Path({str(marker)!r}).touch()"
+        self.binary.write_text(f"#!{sys.executable}\n" +
+            f"import subprocess,sys;subprocess.Popen([sys.executable,'-c',{child!r}]," +
+            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print('omamail 0.8.1')\n")
+        self.assertEqual(self.manager.version_of(self.binary), "0.8.1")
+        time.sleep(1.1)
+        self.assertFalse(marker.exists(), "a successful probe must also stop its descendants")
+
     def test_binary_symlink_refused_even_for_uninstall(self):
         self.old()
         outside = self.root / "outside"
@@ -410,7 +579,7 @@ touch linked
         self.assertEqual(self.manager.run("install")["state"], "error")
         self.assertEqual(self.binary.read_bytes(), old)
         self.release(self.archive())
-        with patch.object(self.manager, "BINARY_LIMIT", 1):
+        with patch.object(self.manager, "MAX_BINARY_BYTES", 1):
             self.assertEqual(self.manager.run("install")["state"], "error")
         self.assertEqual(self.binary.read_bytes(), old)
 

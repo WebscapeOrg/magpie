@@ -34,6 +34,7 @@ Item {
 
     function preferredSendAs(_recipients) { return null }
     function accountEmailFor(id) { return id === composeAccountId ? accountEmail : "" }
+    function signatureFor(_id) { return "" }
     function switchTo(id) {
       switchedTo = String(id || "")
       activeAccountId = switchedTo
@@ -74,8 +75,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var childIndex = 0; childIndex < values.length; childIndex++) {
+        var found = named(values[childIndex], objectName)
         if (found) return found
       }
       return null
@@ -157,7 +158,7 @@ Item {
       mailService.sendIdentities = [
         { accountId: "me@example.com", email: "me@example.com",
           displayName: "", label: "me" },
-        { accountId: "imap:home@example.com", email: "home@example.com",
+        { accountId: "home@example.com", email: "home@example.com",
           displayName: "", label: "home" }
       ]
       compose.beginDraft({
@@ -173,7 +174,7 @@ Item {
         "clicking From must open the mailbox menu")
       compose.chooseFrom(mailService.sendIdentities[1])
       compare(compose.fromEmail, "home@example.com")
-      compare(mailService.switchedTo, "imap:home@example.com")
+      compare(mailService.switchedTo, "home@example.com")
       compare(named(compose, "compose-to-field").text, "jane@example.com",
         "changing From must keep the draft")
     }
@@ -293,6 +294,30 @@ Item {
       picker.contactChosen({ name: "Bob", email: "bob@example.com" }, "cc")
       compare(compose.ccVisible, true)
       compare(named(compose, "compose-cc-field").text, "Bob <bob@example.com>")
+    }
+
+    function test_malformed_contact_cannot_add_a_recipient_to_the_dispatched_envelope() {
+      compose.begin("new", null, "", [])
+      named(compose, "compose-to-field").text = "intended@example.test"
+      var picker = named(compose, "compose-contacts-picker")
+      picker.contactChosen({ name: "Visible contact", email: "visible@example.test,hidden@example.test" }, "to")
+      var send = named(compose, "compose-send-button")
+      verify(send)
+      mouseClick(send, send.width / 2, send.height / 2)
+      verify(mailService.lastSent !== null)
+      compare(mailService.lastSent.to, "intended@example.test",
+        "A structured contact must not inject additional mailboxes into service.send")
+    }
+
+    function test_quoted_contact_remains_one_recipient_when_chosen_twice() {
+      compose.begin("new", null, "", [])
+      var picker = named(compose, "compose-contacts-picker")
+      var contact = { name: "Quoted contact", email: '"quoted,local"@example.test' }
+      picker.contactChosen(contact, "to")
+      picker.contactChosen(contact, "to")
+      var send = named(compose, "compose-send-button")
+      mouseClick(send, send.width / 2, send.height / 2)
+      compare(mailService.lastSent.to, 'Quoted contact <"quoted,local"@example.test>')
     }
   }
 }

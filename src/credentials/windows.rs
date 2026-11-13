@@ -19,7 +19,7 @@ fn target(key: &CredentialKey) -> Result<Vec<u16>, Error> {
 pub(super) fn get(key: &CredentialKey) -> Result<Secret, Error> {
     let target = target(key)?;
     let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
-    // CredRead owns the returned allocation until CredFree. Never interpret the
+    // Invariant: CredRead owns the returned allocation until CredFree. Never interpret the
     // opaque blob as a NUL-terminated string or write its contents to a log.
     if unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) } == 0 {
         return Err(error());
@@ -98,7 +98,7 @@ mod tests {
             Security::{ImpersonateAnonymousToken, RevertToSelf},
             System::Threading::GetCurrentThread,
         };
-        // Thread-scoped impersonation needs no test user's password and never
+        // Invariant: Thread-scoped impersonation needs no test user's password and never
         // modifies the runner's actual credential set.
         assert_ne!(unsafe { ImpersonateAnonymousToken(GetCurrentThread()) }, 0);
         struct Revert;
@@ -111,9 +111,11 @@ mod tests {
         }
         let revert = Revert;
         let key = CredentialKey {
-            provider: "imap".into(),
-            account_id: "imap:denied-fixture@example.invalid".into(),
-            kind: CredentialKind::ImapPassword,
+            provider: "gmail".into(),
+            account_id: "denied-fixture@example.invalid".into(),
+            kind: CredentialKind::GoogleRefreshToken {
+                client_id: "synthetic-client".into(),
+            },
         };
         let read = get(&key).map(|_| ());
         let write = put(&key, b"synthetic-denied-write");

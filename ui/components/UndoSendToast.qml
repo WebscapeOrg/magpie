@@ -7,10 +7,8 @@ import qs.Ui
 Rectangle {
   id: root
 
-  required property int secondsRemaining
-  // How many sends are parked. Past one, the countdown is the newest's and
-  // Undo says so.
   property int queuedCount: 1
+  property bool awaitingConnection: false
   required property color textColor
   required property color dimColor
   required property color accentColor
@@ -20,25 +18,39 @@ Rectangle {
 
   signal undoRequested()
 
-  implicitWidth: content.implicitWidth + MailStyle.space(16)
+  implicitWidth: Math.ceil(messageMetrics.advanceWidth) + undoButton.implicitWidth + content.spacing + MailStyle.space(16)
   implicitHeight: Math.max(content.implicitHeight + MailStyle.space(12), MailStyle.space(42))
+  width: Math.min(implicitWidth, parent ? parent.width - MailStyle.space(32) : implicitWidth)
+  readonly property bool stacked: parent && parent.width - MailStyle.space(32) < implicitWidth
   radius: Style.cornerRadius
   color: Qt.rgba(popupBackgroundColor.r, popupBackgroundColor.g,
     popupBackgroundColor.b, 1)
   border.width: Style.normalBorderWidth
   border.color: popupBorderColor
 
-  Row {
+  TextMetrics {
+    id: messageMetrics
+    text: message.text
+    font: message.font
+  }
+
+  Grid {
     id: content
     anchors.centerIn: parent
+    width: root.width - MailStyle.space(16)
+    columns: root.stacked ? 1 : 2
     spacing: MailStyle.space(12)
+    verticalItemAlignment: Grid.AlignVCenter
 
     Text {
+      id: message
       objectName: "undo-send-message"
-      anchors.verticalCenter: parent.verticalCenter
-      text: root.queuedCount > 1
-        ? root.queuedCount + " queued \u00b7 newest in " + root.secondsRemaining + "s"
-        : "Sending in " + root.secondsRemaining + "s"
+      width: root.stacked ? content.width
+        : Math.max(0, content.width - undoButton.implicitWidth - content.spacing)
+      wrapMode: Text.WordWrap
+      text: root.awaitingConnection ? "Saved. Will send when connected." : root.queuedCount > 1
+        ? root.queuedCount + " messages queued"
+        : "Message queued"
       textFormat: Text.PlainText
       color: root.textColor
       font.family: root.panelFontFamily
@@ -46,8 +58,9 @@ Rectangle {
     }
 
     Widgets.Button {
+      id: undoButton
       objectName: "undo-send-button"
-      anchors.verticalCenter: parent.verticalCenter
+      focusable: true
       text: root.queuedCount > 1 ? "Undo last  alt+z" : "Undo  alt+z"
       foreground: root.accentColor
       accent: root.accentColor

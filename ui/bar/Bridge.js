@@ -1,8 +1,6 @@
 .pragma library
 
-// Replacement bars cannot receive the credential-bearing Service QObject.
-// This plugin-owned interface shares only detached preview data and the three
-// operations already offered by the bar. It never stores a service object.
+// Invariant: replacement bars must never receive the credential-bearing Service QObject.
 var active = null
 
 function text(value) {
@@ -14,26 +12,47 @@ function identifier(value) {
 }
 
 function settings(values, defaults) {
-  var out = {}
+  var output = {}
   var source = values || {}
   for (var key in defaults) {
     var value = source[key]
     if (typeof value !== typeof defaults[key]) continue
-    if (typeof value === "string" && value.length <= 4096) out[key] = value
-    else if (typeof value === "number" && isFinite(value)) out[key] = value
-    else if (typeof value === "boolean") out[key] = value
+    if (typeof value === "string" && value.length <= 4096) output[key] = value
+    else if (typeof value === "number" && isFinite(value)) output[key] = value
+    else if (typeof value === "boolean") output[key] = value
   }
-  return out
+  return output
+}
+
+// The plugin's entry in shell.json, on the bar or in plugins[], without its id. It fills Magpie's own
+// settings file on a first run and is not read after that.
+function shellEntrySettings(config, pluginId) {
+  var layout = config && config.bar && config.bar.layout
+  var entries = []
+  var sections = ["left", "center", "right"]
+  for (var section = 0; section < sections.length; section++) {
+    var lane = layout && layout[sections[section]]
+    if (Array.isArray(lane)) entries = entries.concat(lane)
+  }
+  if (config && Array.isArray(config.plugins)) entries = entries.concat(config.plugins)
+  var entry = entries.filter(function(candidate) { return candidate && candidate.id === pluginId })[0]
+  if (!entry) return null
+  var saved = {}
+  var found = false
+  for (var key in entry) {
+    if (key === "id") continue
+    saved[key] = entry[key]
+    found = true
+  }
+  return found ? saved : null
 }
 
 function snapshot(value) {
   var source = value || {}
   var messages = Array.isArray(source.barMessages) ? source.barMessages : []
-  var events = Array.isArray(source.barEvents) ? source.barEvents : []
   var mail = []
-  var calendar = []
-  for (var i = 0; i < Math.min(messages.length, 3); i++) {
-    var message = messages[i] || {}
+  for (var messageIndex = 0; messageIndex < Math.min(messages.length, 3); messageIndex++) {
+    var message = messages[messageIndex] || {}
     mail.push({
       id: identifier(message.id), accountId: identifier(message.accountId),
       subject: text(message.subject), unread: message.unread === true,
@@ -43,32 +62,21 @@ function snapshot(value) {
       sourceLabel: text(message.sourceLabel), receivedLabel: text(message.receivedLabel)
     })
   }
-  for (var j = 0; j < Math.min(events.length, 2); j++) {
-    var event = events[j] || {}
-    var start = event.start && event.start.ms
-    if (typeof start !== "number" || !isFinite(start)) continue
-    calendar.push({
-      uid: identifier(event.uid), start: { ms: start },
-      summary: text(event.summary), sourceLabel: text(event.sourceLabel),
-      callUrl: identifier(event.callUrl)
-    })
-  }
   return {
     ready: source.ready === true, windowOpen: source.windowOpen === true,
     showBarIcon: source.showBarIcon !== false,
     unreadTotal: typeof source.unreadTotal === "number" && isFinite(source.unreadTotal)
       ? Math.max(0, Math.floor(source.unreadTotal)) : 0,
     barTooltip: text(source.barTooltip), contentDirection: text(source.contentDirection),
-    barMessages: mail, barEvents: calendar
+    barMessages: mail
   }
 }
 
-function publish(readSnapshot, applySettings, refresh, refreshCalendarPreview) {
+function publish(readSnapshot, applySettings, refresh) {
   var api = Object.freeze({
     snapshot: function() { return active === api ? snapshot(readSnapshot()) : null },
     applySettings: function(values) { if (active === api) applySettings(values) },
-    refresh: function() { if (active === api) refresh() },
-    refreshCalendarPreview: function() { if (active === api) refreshCalendarPreview() }
+    refresh: function() { if (active === api) refresh() }
   })
   active = api
   return api
@@ -76,5 +84,5 @@ function publish(readSnapshot, applySettings, refresh, refreshCalendarPreview) {
 
 function current() { return active }
 
-// Retiring services must not clear a replacement registered during hot reload.
+// Invariant: a retiring service must not clear a replacement registered during hot reload.
 function clear(api) { if (active === api) active = null }

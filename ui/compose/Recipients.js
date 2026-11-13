@@ -1,8 +1,6 @@
 .pragma library
 
-// A follow-up to our own message addresses its To list, not its author.
-// Only the draft owner's identities count as self; another mailbox on a
-// merged view can still be a real recipient. Never carry Bcc into a reply.
+// Invariant: replies to our own messages address the original To recipients.
 function replyFields(summary, mode, ownAddresses) {
   var source = summary || ({})
   var own = normalize(ownAddresses)
@@ -10,14 +8,14 @@ function replyFields(summary, mode, ownAddresses) {
   var seen = ({})
   var to = []
   var cc = []
-  var i
-  for (i = 0; i < own.length; i++) self[own[i].email.toLowerCase()] = true
+  var ownIndex
+  for (ownIndex = 0; ownIndex < own.length; ownIndex++) self[own[ownIndex].email.toLowerCase()] = true
   var sender = cleanContact(source.from)
   var outgoing = !!(sender && self[sender.email.toLowerCase()])
   function keep(values, target) {
     var contacts = normalize(values)
-    for (var j = 0; j < contacts.length; j++) {
-      var email = contacts[j].email
+    for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+      var email = contacts[contactIndex].email
       var key = email.toLowerCase()
       if (self[key] || seen[key]) continue
       seen[key] = true
@@ -40,73 +38,110 @@ function replyFields(summary, mode, ownAddresses) {
 function cleanContact(value) {
   var contact = value || ({})
   var name = String(contact.name || "").replace(/[\r\n]+/g, " ").trim()
-  var email = String(contact.email || "").replace(/[\r\n\s]+/g, "").trim()
-  if (email.indexOf("@") <= 0 || email.indexOf("@") === email.length - 1) return null
+  var email = String(contact.email || "").trim()
+  if (/[\u0000-\u001f\u007f]/.test(email)
+      || !/^(?:"(?:[^"\\]|\\.)*"|[^\s()<>\[\]:;@\\,"]+)@(?:[^\s()<>\[\]:;@\\,"]+|\[(?:IPv6:)?[0-9a-fA-F:.]+\])$/.test(email)) return null
   return ({ name: name, email: email })
 }
 
 function normalize(values) {
   var contacts = Array.isArray(values) ? values : []
   var seen = ({})
-  var out = []
-  for (var i = 0; i < contacts.length; i++) {
-    var contact = cleanContact(contacts[i])
+  var output = []
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = cleanContact(contacts[contactIndex])
     if (!contact) continue
     var key = contact.email.toLowerCase()
     if (seen[key]) continue
     seen[key] = true
-    out.push(contact)
+    output.push(contact)
   }
-  return out
+  return output
+}
+
+function addressParts(text) {
+  var value = String(text || "")
+  var parts = []
+  var start = 0
+  var angleStart = -1
+  var angleEnd = -1
+  var quoted = false
+  var escaped = false
+  var bracketed = false
+  function finish(end) {
+    var text = value.substring(start, end)
+    var mailbox = angleStart >= start && angleEnd >= angleStart
+      ? value.substring(angleStart, angleEnd) : text
+    parts.push({start: start, text: text, mailbox: mailbox})
+    start = end + 1
+    angleStart = -1
+    angleEnd = -1
+  }
+  for (var index = 0; index < value.length; index++) {
+    var character = value.charAt(index)
+    if (escaped) { escaped = false; continue }
+    if (quoted && character === "\\") { escaped = true; continue }
+    if (character === "\"") { quoted = !quoted; continue }
+    if (quoted) continue
+    if (character === "<") angleStart = index + 1
+    else if (character === ">") angleEnd = index
+    else if (character === "[") bracketed = true
+    else if (character === "]") bracketed = false
+    else if ((character === "," || character === ";") && !bracketed
+        && (angleStart < 0 || angleEnd >= angleStart)) finish(index)
+  }
+  finish(value.length)
+  return parts
 }
 
 function currentToken(text) {
-  var value = String(text || "")
-  var comma = value.lastIndexOf(",")
-  var semicolon = value.lastIndexOf(";")
-  return value.substring(Math.max(comma, semicolon) + 1).trim()
+  var parts = addressParts(text)
+  return parts[parts.length - 1].text.trim()
 }
 
 function usedAddresses(text) {
-  var parts = String(text || "").split(/[,;]/)
+  var parts = addressParts(text)
   var used = ({})
-  for (var i = 0; i < parts.length - 1; i++) {
-    var angle = parts[i].match(/<([^>]+)>/)
-    var email = angle ? angle[1] : parts[i]
-    used[String(email || "").trim().toLowerCase()] = true
+  for (var partIndex = 0; partIndex < parts.length - 1; partIndex++) {
+    used[parts[partIndex].mailbox.trim().toLowerCase()] = true
   }
   return used
 }
 
 function suggest(values, text, limit) {
+  return suggestIndexed(index(values),text,limit)
+}
+
+function index(values) {
+  var contacts = normalize(values)
+  var result = contacts.map(function(contact) {
+    return {contact:contact,email:contact.email.toLowerCase(),name:contact.name.toLowerCase(),
+      sort:(contact.name || contact.email).toLowerCase()}
+  })
+  result.sort(function(left,right) { return left.sort < right.sort ? -1 : left.sort > right.sort ? 1 : 0 })
+  return result
+}
+
+function suggestIndexed(contacts, text, limit) {
   var query = currentToken(text).toLowerCase()
   if (query === "") return []
-  var contacts = normalize(values)
   var used = usedAddresses(text)
-  var ranked = []
-  for (var i = 0; i < contacts.length; i++) {
-    var contact = contacts[i]
-    var email = contact.email.toLowerCase()
-    var name = contact.name.toLowerCase()
+  var count = Math.max(1, Math.floor(Number(limit) || 5))
+  var prefix = []
+  var matches = []
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = contacts[contactIndex]
+    var email = contact.email
+    var name = contact.name
     if (used[email] || query === email) continue
     var emailAt = email.indexOf(query)
     var nameAt = name.indexOf(query)
     if (emailAt < 0 && nameAt < 0) continue
-    ranked.push({
-      contact: contact,
-      score: emailAt === 0 || nameAt === 0 ? 0 : 1
-    })
+    if (emailAt === 0 || nameAt === 0) prefix.push(contact.contact)
+    else if (matches.length < count) matches.push(contact.contact)
+    if (prefix.length >= count) break
   }
-  ranked.sort(function(left, right) {
-    if (left.score !== right.score) return left.score - right.score
-    var leftName = (left.contact.name || left.contact.email).toLowerCase()
-    var rightName = (right.contact.name || right.contact.email).toLowerCase()
-    return leftName < rightName ? -1 : (leftName > rightName ? 1 : 0)
-  })
-  var count = Math.max(1, Math.floor(Number(limit) || 5))
-  var out = []
-  for (var j = 0; j < ranked.length && j < count; j++) out.push(ranked[j].contact)
-  return out
+  return prefix.concat(matches).slice(0,count)
 }
 
 function address(contact) {
@@ -114,48 +149,47 @@ function address(contact) {
   if (!value) return ""
   if (value.name === "") return value.email
   var name = value.name.replace(/([\\"])/g, "\\$1")
-  if (/[,<>]/.test(name)) name = "\"" + name + "\""
+  if (/[()<>\[\]:;@\\",]/.test(name)) name = "\"" + name + "\""
   return name + " <" + value.email + ">"
 }
 
 function accept(text, contact) {
   var value = String(text || "")
-  var comma = value.lastIndexOf(",")
-  var semicolon = value.lastIndexOf(";")
-  var split = Math.max(comma, semicolon)
-  var prefix = split >= 0 ? value.substring(0, split + 1).trim() + " " : ""
+  var parts = addressParts(value)
+  var start = parts[parts.length - 1].start
+  var prefix = start > 0 ? value.substring(0, start).trim() + " " : ""
   return prefix + address(contact)
 }
 
 function append(text, contact) {
-  var addr = address(contact)
-  if (!addr) return String(text || "")
+  var recipient = address(contact)
+  if (!recipient) return String(text || "")
   var current = String(text || "").trim()
-  if (current === "") return addr
+  if (current === "") return recipient
   current = current.replace(/[,;]+$/, "").trim()
   var used = usedAddresses(current + ",")
   var clean = cleanContact(contact)
   if (clean && used[clean.email.toLowerCase()]) return current
-  return current + ", " + addr
+  return current + ", " + recipient
 }
 
 function filter(values, query, limit) {
   var contacts = normalize(values)
-  var q = String(query || "").trim().toLowerCase()
-  var out = []
-  for (var i = 0; i < contacts.length; i++) {
-    var c = contacts[i]
-    if (q === "" || c.email.toLowerCase().indexOf(q) >= 0 || c.name.toLowerCase().indexOf(q) >= 0) {
-      out.push(c)
+  var normalizedQuery = String(query || "").trim().toLowerCase()
+  var output = []
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = contacts[contactIndex]
+    if (normalizedQuery === "" || contact.email.toLowerCase().indexOf(normalizedQuery) >= 0 || contact.name.toLowerCase().indexOf(normalizedQuery) >= 0) {
+      output.push(contact)
     }
   }
-  out.sort(function(left, right) {
+  output.sort(function(left, right) {
     var leftName = (left.name || left.email).toLowerCase()
     var rightName = (right.name || right.email).toLowerCase()
     return leftName < rightName ? -1 : (leftName > rightName ? 1 : 0)
   })
   if (typeof limit === "number" && limit > 0) {
-    return out.slice(0, limit)
+    return output.slice(0, limit)
   }
-  return out
+  return output
 }

@@ -11,7 +11,13 @@ fn key(provider: &str, account: &str, kind: CredentialKind) -> CredentialKey {
 #[test]
 fn credentials_reject_invalid_metadata_before_native_access() {
     for bad in ["", "a\n", "a\r", "a\r\n", "a\0", "a\t"] {
-        let key = key("imap", bad, CredentialKind::ImapPassword);
+        let key = key(
+            "gmail",
+            bad,
+            CredentialKind::GoogleRefreshToken {
+                client_id: "client".into(),
+            },
+        );
         assert!(matches!(NativeStore.get(&key), Err(Error::InvalidKey)));
         assert_eq!(NativeStore.put(&key, b"synthetic"), Err(Error::InvalidKey));
         assert_eq!(NativeStore.delete(&key), Err(Error::InvalidKey));
@@ -28,7 +34,13 @@ fn credentials_reject_invalid_metadata_before_native_access() {
         assert_eq!(NativeStore.put(&key, b"synthetic"), Err(Error::InvalidKey));
         assert_eq!(NativeStore.delete(&key), Err(Error::InvalidKey));
     }
-    let wrong_provider = key("jmap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let wrong_provider = key(
+        "jmap",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     assert!(matches!(
         NativeStore.get(&wrong_provider),
         Err(Error::InvalidKey)
@@ -37,7 +49,13 @@ fn credentials_reject_invalid_metadata_before_native_access() {
 
 #[test]
 fn credentials_reject_nul_before_native_access() {
-    let key = key("imap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let key = key(
+        "gmail",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     for secret in [b"".as_slice(), b"a\0", b"\0a", b"a\0b"] {
         assert_eq!(NativeStore.put(&key, secret), Err(Error::InvalidSecret));
     }
@@ -67,7 +85,7 @@ fn credentials_preserve_linux_scope_and_native_key_is_unambiguous() {
     assert_ne!(key.native_id().unwrap(), other.native_id().unwrap());
 }
 
-/// Explicit native runner gate. Never silently succeeds when the store is locked,
+/// Invariant: Explicit native runner gate. Never silently succeeds when the store is locked,
 /// absent, or unavailable. Unique synthetic entries are removed by Drop even on panic.
 #[test]
 #[ignore = "requires an unlocked native credential store; run explicitly on each native runner"]
@@ -81,13 +99,6 @@ fn credentials_native_contract() {
             .as_nanos()
     );
     let keys = vec![
-        key("imap", &format!("imap:{id}"), CredentialKind::ImapPassword),
-        key("jmap", &format!("jmap:{id}"), CredentialKind::JmapSecret),
-        key(
-            "imap",
-            &format!("imap:other-{id}"),
-            CredentialKind::ImapPassword,
-        ),
         key(
             "gmail",
             &id,
@@ -103,16 +114,11 @@ fn credentials_native_contract() {
             },
         ),
         key(
-            "outlook",
-            &format!("outlook:{id}"),
-            CredentialKind::OutlookRefreshToken {
+            "gmail",
+            &format!("other-{id}"),
+            CredentialKind::GoogleRefreshToken {
                 client_id: "synthetic-client-one".into(),
             },
-        ),
-        key(
-            "caldav",
-            &format!("source-{id}"),
-            CredentialKind::CalendarPassword,
         ),
     ];
     struct Cleanup(Vec<CredentialKey>);
@@ -138,13 +144,15 @@ fn credentials_native_contract() {
         b"control\x01",
         b"opaque\xff",
     ];
-    for (i, key) in cleanup.0.iter().enumerate() {
+    for (index, key) in cleanup.0.iter().enumerate() {
         NativeStore
-            .put(key, format!("synthetic-{i}").as_bytes())
+            .put(key, format!("synthetic-{index}").as_bytes())
             .unwrap();
     }
-    for (i, key) in cleanup.0.iter().enumerate() {
-        assert!(NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{i}").as_bytes());
+    for (index, key) in cleanup.0.iter().enumerate() {
+        assert!(
+            NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{index}").as_bytes()
+        );
     }
     for (index, sample) in samples.iter().enumerate() {
         NativeStore.put(&cleanup.0[0], sample).unwrap();
@@ -154,7 +162,7 @@ fn credentials_native_contract() {
         );
     }
     let mut normalized = cleanup.0[0].clone();
-    normalized.account_id = format!("imap:{}", id.to_uppercase());
+    normalized.account_id = id.to_uppercase();
     assert!(NativeStore.get(&normalized).unwrap().as_slice() == b"opaque\xff");
     assert_eq!(
         NativeStore.put(&cleanup.0[0], b"forbidden\0"),
@@ -175,7 +183,7 @@ fn credentials_native_contract() {
     }
 }
 
-// A process-local native-store substitute for existing isolated dispatcher
+// Invariant: A process-local native-store substitute for existing isolated dispatcher
 // fixtures. It cannot be enabled by production builds, settings or environment.
 static STORE: std::sync::Mutex<Option<std::sync::Arc<dyn CredentialStore>>> =
     std::sync::Mutex::new(None);
@@ -220,7 +228,13 @@ impl CredentialStore for SingleCredential {
 
 #[test]
 fn credentials_reject_oversize_secrets_without_native_access() {
-    let key = key("imap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let key = key(
+        "gmail",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     assert_eq!(
         NativeStore.put(&key, &vec![b'x'; 65537]),
         Err(Error::TooLarge)
@@ -297,4 +311,85 @@ fn credentials_native_linux_retains_legacy_attribute_scopes() {
         "clearing a current grant deleted an old item"
     );
     cleanup.0.delete().unwrap();
+}
+
+#[test]
+fn openai_api_key_slot_is_separate_from_other_credentials() {
+    let slot = CredentialKey {
+        provider: "openai".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::OpenAiApiKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "openai-api-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    let claude = CredentialKey {
+        provider: "anthropic".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::ClaudeApiKey,
+    };
+    assert_ne!(slot.native_id().unwrap(), claude.native_id().unwrap());
+    for (provider, account) in [("anthropic", "default"), ("gmail", "default"), ("openai", "dave@example.test"), ("openai", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::OpenAiApiKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
+}
+
+#[test]
+fn atlas_key_slot_is_separate_from_other_credentials() {
+    let slot = CredentialKey {
+        provider: "atlas".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::AtlasKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "atlas-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    let openai = CredentialKey {
+        provider: "openai".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::OpenAiApiKey,
+    };
+    assert_ne!(slot.native_id().unwrap(), openai.native_id().unwrap());
+    for (provider, account) in [("openai", "default"), ("gmail", "default"), ("atlas", "dave@example.test"), ("atlas", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::AtlasKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
+}
+
+#[test]
+fn claude_api_key_slot_is_separate_from_gmail_credentials() {
+    let slot = CredentialKey {
+        provider: "anthropic".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::ClaudeApiKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "claude-api-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    assert_ne!(
+        slot.native_id().unwrap(),
+        key("gmail", "default", CredentialKind::GoogleRefreshToken { client_id: "client".into() })
+            .native_id()
+            .unwrap()
+    );
+    for (provider, account) in [("gmail", "default"), ("anthropic", "dave@example.test"), ("anthropic", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::ClaudeApiKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
 }

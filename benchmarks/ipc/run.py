@@ -6,8 +6,8 @@ ROOT=Path(__file__).resolve().parents[2]
 HERE=Path(__file__).resolve().parent
 
 def stats(values):
-    s=sorted(values)
-    return {'medianMs':statistics.median(s),'p95Ms':s[min(len(s)-1, int(len(s)*.95))],'samplesMs':values}
+    ordered=sorted(values)
+    return {'medianMs':statistics.median(ordered),'p95Ms':ordered[min(len(ordered)-1, int(len(ordered)*.95))],'samplesMs':values}
 
 def main():
     protocol=(ROOT/'src/backend/protocol.rs').read_text()
@@ -42,7 +42,7 @@ pub fn send(out:&mut impl Write,v:Value){reply(out,v).unwrap()}
 }
 fn main(){
  let mut out=io::stdout().lock();
- // Allocate fixtures before the handshake, outside the measurements.
+ // Performance: Allocate fixtures before the handshake, outside the measurements.
  let sizes=[1024usize,32768,262144,1048576,10485760];
  let fixtures:Vec<String>=sizes.iter().map(|s|"x".repeat(*s)).collect();
  for line in io::stdin().lock().lines(){
@@ -102,7 +102,7 @@ Scope {
       || result.data!==root.expected[root.sizeIndex]){
     root.fail("Response validation failed"); return
    }
-   // Same-host wall clocks, sub-ms values remain limited by QML Date.now.
+   // Performance: Same-host wall clocks, sub-ms values remain limited by QML Date.now.
    var response=end-result.startedMs
    if(response < -1 || result.startedMs<root.batchStart-1){root.fail("Clock mismatch");return}
    root.responseSum+=Math.max(0,response)
@@ -137,8 +137,13 @@ Scope {
         load_before=os.getloadavg()
         process=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
         try: output,_=process.communicate(timeout=250)
-        finally:
-            if process.poll() is None:os.killpg(process.pid,signal.SIGKILL);process.wait()
+        except subprocess.TimeoutExpired:
+            # Invariant: The unreaped leader reserves its process-group identity, even if
+            # only a descendant still holds an output pipe open.
+            try: os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.communicate()
+            raise
         if process.returncode != 0 or 'IPC_BENCH_ERROR' in output:raise RuntimeError(output[-5000:])
         line=next((line.split('IPC_BENCH_RESULT ',1)[1] for line in output.splitlines() if 'IPC_BENCH_RESULT ' in line),None)
         if line is None:raise RuntimeError(output[-5000:])

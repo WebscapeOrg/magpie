@@ -101,13 +101,12 @@ void NativeProcess::setRunningValue(bool running)
 void NativeProcess::setRunning(bool running)
 {
     if (running == m_running) return;
-    if (running) {
-        setRunningValue(true);
-        start();
-    } else {
-        setRunningValue(false);
+    setRunningValue(running);
+    if (!running) {
         stopTree();
+        return;
     }
+    start();
 }
 
 void NativeProcess::start()
@@ -135,8 +134,8 @@ void NativeProcess::start()
     }
     QStringList arguments;
     arguments.reserve(m_command.size() - 1);
-    for (qsizetype i = 1; i < m_command.size(); ++i)
-        arguments.append(m_command.at(i).toString());
+    for (qsizetype argumentIndex = 1; argumentIndex < m_command.size(); ++argumentIndex)
+        arguments.append(m_command.at(argumentIndex).toString());
 
     m_processGroupId = 0;
     m_stdoutPending.clear();
@@ -210,21 +209,21 @@ void NativeProcess::killTree()
     m_processGroupId = 0;
 }
 
-void NativeProcess::consume(QByteArray &pending, const QByteArray &data,
+void NativeProcess::consume(QByteArray &pending, const QByteArray &bytes,
                             bool standardError)
 {
     if (m_streamFailed) return;
     qsizetype offset = 0;
-    while (offset < data.size()) {
-        const qsizetype newline = data.indexOf('\n', offset);
-        const qsizetype end = newline < 0 ? data.size() : newline;
+    while (offset < bytes.size()) {
+        const qsizetype newline = bytes.indexOf('\n', offset);
+        const qsizetype end = newline < 0 ? bytes.size() : newline;
         const qsizetype length = end - offset;
         if (pending.size() + length >= maximumLineBytes()) {
             failStream(standardError ? QStringLiteral("stderr record is too large")
                                      : QStringLiteral("stdout record is too large"));
             return;
         }
-        pending.append(data.constData() + offset, length);
+        pending.append(bytes.constData() + offset, length);
         if (newline < 0) return;
         emitLine(pending, standardError);
         pending.clear();
@@ -298,12 +297,12 @@ bool NativeProcess::prepareWindowsContainment()
     startup->lpAttributeList = attributes;
     m_attributeList = attributes;
     m_extendedStartupInfo = startup;
-    m_process.setCreateProcessArgumentsModifier([this](QProcess::CreateProcessArguments *args) {
+    m_process.setCreateProcessArgumentsModifier([this](QProcess::CreateProcessArguments *arguments) {
         auto *extended = static_cast<STARTUPINFOEXW *>(m_extendedStartupInfo);
-        extended->StartupInfo = *reinterpret_cast<STARTUPINFOW *>(args->startupInfo);
+        extended->StartupInfo = *reinterpret_cast<STARTUPINFOW *>(arguments->startupInfo);
         extended->StartupInfo.cb = sizeof(STARTUPINFOEXW);
-        args->startupInfo = reinterpret_cast<Q_STARTUPINFO *>(&extended->StartupInfo);
-        args->flags |= EXTENDED_STARTUPINFO_PRESENT;
+        arguments->startupInfo = reinterpret_cast<Q_STARTUPINFO *>(&extended->StartupInfo);
+        arguments->flags |= EXTENDED_STARTUPINFO_PRESENT;
     });
     return true;
 }

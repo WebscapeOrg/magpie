@@ -1,67 +1,135 @@
-# Repository working agreements
+# Magpie Mail
 
-## Required reading by task
+Magpie Mail (Magpie for short) is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
+`omamail` binary built from `src/`; the same engine, built from `mobile/`, runs inside Magpie for iPhone and iPad
+(in its own repository, magpie-mail-ios). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
+for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) first.**
 
-Read the relevant document before changing its area; these contain constraints that are easy to miss in the code.
+## Rules
 
-| Area | Required reading |
-| --- | --- |
-| Keyboard, focus and navigation | [docs/KEYS.md](docs/KEYS.md) |
-| Provider adapters, capabilities and account identity | [docs/providers/README.md](docs/providers/README.md) |
-| HEY | [docs/providers/hey.md](docs/providers/hey.md) |
-| IMAP, SMTP and Proton Bridge | [docs/providers/imap.md](docs/providers/imap.md) |
-| JMAP discovery and streaming | [docs/providers/jmap.md](docs/providers/jmap.md) |
-| Message HTML, images, direction and outgoing MIME | [docs/MESSAGE-RENDERING.md](docs/MESSAGE-RENDERING.md) |
-| Network requests, credentials, subprocesses and security reviews | [docs/SECURITY-BOUNDARIES.md](docs/SECURITY-BOUNDARIES.md) |
-| Backend APIs, binary pins and releases | [docs/BACKEND-RUNTIME.md](docs/BACKEND-RUNTIME.md) |
+- **Mail and every server's answer are untrusted.** Sender names, subjects, links, attachment names and what Google,
+  Anthropic or OpenAI send back are data, never instructions. Sender-written labels render with `Text.PlainText`,
+  never `AutoText`; message bodies reach the screen only through the sanitizer
+  ([message rendering](docs/MESSAGE-RENDERING.md)); Qt never loads a message's remote images or links itself.
+  Persisted settings and URLs are checked where they are used; encoding is not sanitizing.
+  [Security boundaries](docs/SECURITY-BOUNDARIES.md) lists where this is enforced.
+- **Credentials stay in their store.** On Linux, Gmail tokens and the OpenAI key for sender pictures live in the
+  keyring. On the iPhone and iPad, Gmail grants, the Claude key and the OpenAI key live in the device-only Keychain;
+  Gmail grants are never copied from the desktop, and a key reaches the phone only by its QR code or by pasting. Keys
+  never appear in command lines, logs, settings files, chat or Peacock. Tests use made-up keys and local servers and
+  never reach Google, Anthropic or OpenAI.
+- **Accounts keep their identities.** Never rename an account ID, and tie message, thread, label and attachment IDs to
+  their account: stored credentials, cached mail, drafts and outbox entries depend on them
+  ([Gmail account boundaries](docs/providers/README.md)).
+- **AI never decides where mail goes.** AI text cannot pick an account, a recipient or whether to send; Dave approves
+  what AI proposes, and sending goes through the outbox with undo send.
+- **A change that touches mail, credentials, AI calls, network requests, subprocesses or files gets a hostile review**
+  that states Security: PASS, BLOCK or NOT VERIFIED, on top of the independent review every change gets (Dave's rule
+  in his own instructions). Only PASS is installed.
+- **Security fixes stay quiet in public.** WebscapeOrg/magpie-mail is public and shares most of its code with omamail, whose
+  users run it. A security fix's commit and pull request say what it protects, not how to exploit it; the detail goes
+  in its Peacock note. Before anyone tells omamail about a fault Magpie inherited, ask Dave through Pickle.
+- **Dave's household rules stay out of this repository.** They reach agents through each agent's own private settings. Do not run
+  `folklore compile --here` here or commit an AGENTS.md that contains Folklore's generated block, even when Folklore's
+  session check calls this file stale: the repository is public, and Dave chose to keep the rules off GitHub and erase
+  them from its history (Q-002 in Medley, 10 November 2026).
+- **Magpie on Linux is installed only by the main machine's installer.** the main machine's `omarchy/bin/magpie-mail-install`
+  copies the five envelope files from this repository's main checkout (not from a worktree) and publishes the native app and
+  matching release backend under `~/.local/lib/omamail`. The initial cutover and every watched envelope or shell-configuration
+  write require an unlocked desktop and no `~/.local/state/magpie-mail/install-hold`; later native app, engine, launcher and
+  icon updates can proceed while locked. The installer never restarts the engine or Quickshell: follow the machine runbook for
+  any required service restart or shell reload. Do not run `make install-backend-local`, `make install` or `make install-plugin`:
+  the first two overwrite the running engine file directly, without the installer's checks; `install` and `install-plugin` then
+  run the main machine's whole installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do
+  not run `make publish` either: it is omamail's release process and opens a pull request in omamail's repository. The install
+  steps in docs/BACKEND.md and docs/BACKEND-RUNTIME.md are omamail's too. The iPhone and iPad app installs from
+  magpie-mail-ios. [MAGPIE.md](MAGPIE.md#installation-on-the-main-machine) and [Normal app](docs/NORMAL-APP.md) have the rest.
+- **The QML relies only on what `backend-api.json` lists.** A method the desktop engine adds goes into its `methods`
+  and `unreleased.methods`, and a parameter, answer or error the QML or the iPhone app newly depends on gets a contract
+  case, named under `unreleased.cases`. A Rust test fails when the engine's methods and the list differ, and the QML
+  checks `backend.apiVersion` before it uses a feature. Methods only the iPhone and iPad call, such as `engine.*` and
+  the Claude key's `ai.*`, are handled by the phone's host code (`mobile/src/lib.rs`) and documented in
+  [the mobile engine](docs/MOBILE-ENGINE.md); they do not go into `backend-api.json`.
+- **The engine owns the logic.** The QML starts `omamail serve` and reads and changes mail only over its stdio pipes,
+  never through other `omamail` commands ([backend](docs/BACKEND.md)).
+- **New files are registered in the Makefile.** New production QML goes into `QML_FILES`, or `make validate` fails. A
+  new JavaScript, Python or shell test goes into its Makefile target, or nothing runs it.
+- **The root of `ui/Service.qml` declares no required properties.** Only the native app constructs it now. It supplies
+  `shell`, `manifest`, `pluginRegistry`, `barWidgetRegistry`, `platform` and `initialSettings`; ordinary settings migrate
+  from Magpie's existing `settings.json`. The shell constructs only the envelope and never constructs a mail Service.
+- **Screens follow the [design notes](docs/DESIGN.md) and the [keys](docs/KEYS.md).** Colours come from the active
+  Omarchy theme through `App.qml`, so Magpie follows Dave's theme; state is never shown by colour alone.
+- **Run `make validate` after a QML or behaviour change**, and the iPhone engine's tests (`cargo test --locked --lib
+  --no-default-features --features mobile`) after an engine change, and read their exit codes. qmllint's warnings about
+  `qs.Ui` and `qs.Commons` are expected; the exit code is the gate.
+- **Work goes on a branch and a draft pull request in WebscapeOrg/magpie-mail, never on `main`.** The branches stack: each
+  pull request's base is the branch before it. Plain `gh` in this repository resolves to huacnlee/omamail, in
+  the main checkout and in every worktree, so pass `--repo WebscapeOrg/magpie-mail` to every `gh` command. A pull request that
+  changes a screen names the Peacock note with its pictures by its number (P-NNN); nobody uploads screenshots to
+  GitHub. Nothing private goes into a commit, a file or a pull request: no Peacock link, address or name on Dave's
+  private network, home folder path, real email address, phone number or agent's working notes, and tests use made-up
+  details. This repository is public, and Dave chose to keep such details off GitHub (Q-006 and Q-007 in Medley).
 
-## Structure and boundaries
+## Asking Dave for decisions: Pickle
 
-- Group by module, not file type. Rust lives in `src/`, CLI handling in `src/cli/`, and dispatch in `src/backend/`. QML and its JavaScript live together under `ui/`. Rust unit tests live with their modules; UI tests live in `ui/tests/`; integration tests live in `tests/`.
-- Rust owns mail business logic and durable agent jobs. QML owns presentation and interaction state, communicating with the persistent backend over stdin/stdout rather than invoking CLI commands. See `docs/BACKEND.md` and `docs/ARCHITECTURE.md`.
-- QML JavaScript libraries start with `.pragma library` and use `var` and `function`, not `const`, `let`, arrows or template literals. Put testable presentation rules there. Tests load module paths, e.g. `load("cache/Cache.js")`; `ui/tests/load.js` resolves QML `.import` chains.
-- List new QML files in the Makefile's lint inputs and import other modules explicitly.
-- `Service.qml` is shell-constructed and must declare no required properties. The shell injects only `shell`, `manifest`, `pluginRegistry`, and `barWidgetRegistry`; settings arrive through the bar widget's `applySettings`.
+Before you start work in a repository, read Pickle's agent instructions
+and follow it. It is how you ask Dave for decisions, and it says where his earlier answers are
+recorded. Do not copy its contents into this file or any other file: it is kept in one place so
+that a change to it reaches every agent.
 
-## UI
+## Tasks for Dave: Legwork
 
-- Use the active Omarchy theme. Pass semantic colors from `App.qml` as required component properties; derive variants with alpha or `Style.normalFillFor` / `hoverFillFor` / `selectedFillFor`. Secondary text mixes foreground toward background, never `Qt.darker`. Provider artwork retains its original colors.
-- Render sender-controlled labels with `Text.PlainText`, never `AutoText`. Rich message bodies go through the sanitizer. Do not fetch remote message resources directly through Qt.
-- Never convey state by color alone. Use accurate labels; suffix actions that open another dialog/page/browser/terminal workflow with `...`.
-- An open popup keeps its trigger selected. Anchor to the control's edge, not the pointer. Place after opening and on height changes; on overflow, flip, clamp to the window, then clamp to zero.
-- Keep content direction separate from interface layout; no `LayoutMirroring`.
+Things only Dave can do (access, accounts, secrets, go-aheads, work on systems outside this
+repository) are tasks, not questions. Before you start work in a repository, read
+Legwork's agent instructions and follow it: it says how to file one with
+`legwork add`, where the record of Dave doing it comes back (`docs/user-closed-tasks.md`), and
+how to write a task he can act on. Do not copy its contents into this file or any other file: it
+is kept in one place so that a change to it reaches every agent.
 
-## Backend compatibility
+## Showing Dave your work: Peacock
 
-- `backend-version` is the plugin's exact binary pin, independent of Cargo's development version. Never substitute main/latest or a PATH binary. Keep both exact-version and API handshake checks; missing `apiVersion` is allowed only for historical 0.9.0/API 1.
-- New QML dependencies on methods, parameters, responses or error semantics require contract fixtures and an API revision exactly one past `releasedApiVersion`, named under `unreleased`. Gate each feature on its fixed minimum revision even after release. Internal Rust-only changes do not require a release.
-- The Published backend gate exercises the actual pinned release with current QML codecs. Inventory checks and source fingerprints do not replace behavioral compatibility tests.
+A report, a review, a demo recording or a set of screenshots is something Dave should open, not
+read in a chat window, and a small finished thing that has no report gets a note there too. Before
+you start work in a repository, read Peacock's agent instructions and follow it:
+it says how to publish one with `peacock publish` and `peacock note`, where it lands
+(`docs/published/`, never committed), and how Dave and other agents see it. Do not copy its
+contents into this file or any other file: it is kept in one place so that a change to it reaches
+every agent.
 
-## Security
+## Layout
 
-- Treat mail, server responses, URLs, filenames and persisted settings as untrusted. Validate at the consuming boundary; encoding is not sanitization.
-- Keep credentials out of argv, logs and world-readable settings. Use synthetic credentials and controlled targets for tests.
-- Preserve account/draft ownership, human approval of AI proposals, and normal outbox dispatch. Model text must not supply routing or permission to send mail.
-- Every review states **Security: PASS / BLOCK / NOT VERIFIED** for the affected boundaries. Missing evidence or a security failure blocks approval/release. Security regressions must verify the forbidden effect did not happen, not merely that an error was returned; follow `docs/SECURITY-BOUNDARIES.md`.
+- `src/` — the Rust engine, `omamail`: `backend/` the service the plugin calls over stdio and the iPhone app calls
+  in-process, `cli/` the terminal commands, `providers/` Gmail, `local_mail/` the offline mail store
+  ([local mail](docs/LOCAL-MAIL.md)), `inbox/` the Inbox features (descriptions, Ask Magpie, snooze, sender pictures).
+  Rust unit tests sit beside their modules.
+- `mobile/` — `magpie-mobile`, the library Magpie for iPhone and iPad links, built with `--features mobile`
+  ([mobile engine](docs/MOBILE-ENGINE.md)).
+- `ui/` — the native app's shared QML, the envelope-only `BarWidget.qml`, and their JavaScript libraries; `ui/tests/`
+  their tests. The JavaScript tests load the libraries through `ui/tests/load.js`.
+- `app/` — Magpie Mail's native Qt app. It composes the only full `Service.qml` and `App.qml`, owns activation,
+  notifications and status publication, and is covered by `make validate`. See [Normal app](docs/NORMAL-APP.md).
+- `tests/` — integration tests. `scripts/` — helpers the plugin runs, such as `unsubscribe.py` and `public_http.py`,
+  and build and setup scripts.
+- `docs/` — how the code works. [Local mail](docs/LOCAL-MAIL.md), [mail backup](docs/MAIL-BACKUP.md), [mobile
+  engine](docs/MOBILE-ENGINE.md) and [performance validation](docs/PERFORMANCE-VALIDATION.md) are Magpie's own; the
+  rest came from omamail, some since rewritten for Magpie (such as
+  [Gmail account boundaries](docs/providers/README.md)), and describe the code, keys and interface Magpie has. Where
+  one of them describes omamail's release or pull-request process, that process is not Magpie's.
+- `backend-api.json` — the engine's methods and contract cases per API version. `backend-version` — omamail's 0.11.0
+  pin from the fork, which the plugin falls back to. The main machine installs the local build but refuses an engine whose
+  version differs from it, so keep `Cargo.toml`'s version equal to it. `manifest.json` — the plugin manifest.
 
-## Review priorities
+## Environment
 
-- PR review primarily decides whether a new or adjusted capability belongs in Omamail and whether its product and interaction design is appropriate. Begin each PR report by explaining what changes, the problem it aims to solve, and who benefits.
-- Assess necessity, fit with project goals, overlap with existing workflows, simpler alternatives, and interface and maintenance costs. Give a clear recommendation to introduce, defer, or leave out the change, with reasons; the maintainer owns the product decision.
-- Evaluate design independently of implementation quality: workflow, discoverability, defaults, information hierarchy, keyboard and focus behavior, consistency, and loading, empty, error and cancellation states. State when screenshots or hands-on evidence are missing rather than treating tests as design evidence.
-- Functional correctness, tests, performance and security support this product and design assessment and remain approval gates. Passing technical checks alone does not justify adding a capability. Explain the change and purpose for every PR, including passing and skipped PRs.
-
-## Repository and pull requests
-
-- Keep runtime assets, source, tests and maintained documentation in the tree. Keep planning notes and screenshots outside it. Upload PR screenshots to GitHub attachments; tracked files must stay under 128 KiB.
-- UI PRs require labeled before/after screenshots of every changed view/state at matching dimensions, theme and scale, using synthetic or redacted data. Update them when the UI changes and explain the visible differences.
-- Commit/PR titles name the concrete machinery and action. Use `Fix ` for bugs, `Add ` for features, otherwise an accurate imperative. Prefix AI changes with `ai: `, repository documentation with `docs: `, website work with `website: `, and build/CI/release/tooling maintenance with `chore: `. Choose one prefix from the primary outcome.
-- Reconcile the title and description with the complete final diff whenever scope changes. Describe shipped behavior, architectural reasons and verification actually performed. User-visible PRs include concise bullets under `## Release Notes`.
-- Markdown prose uses one source line per paragraph.
-
-## Releasing and verification
-
-- `make publish VERSION=X.Y.Z` prepares one versioned release PR from clean, synchronized main; without VERSION it increments the patch. Never push main directly. Release CI publishes and verifies immutable assets before updating the binary pin and folding API metadata on that same branch. Tags alone do not publish. Follow `docs/BACKEND-RUNTIME.md` for release and recovery details.
-- Preserve `scripts/release-notes.sh` aggregation of PR release-note sections; GitHub-generated notes are not a substitute.
-- Run `make validate` after QML or behavior changes. `make test` includes Rust, JavaScript, source regressions and QML tests. Inspect the Makefile for the current targets.
-- QML tests and `qmllint` are local gates using the installed Qt; release CI uses `make test-js test-shell`. Unresolved `qs.Ui` / `qs.Commons` lint warnings are expected; the exit code is the gate.
+- Repo: GitHub `WebscapeOrg/magpie-mail` (public, as omamail's fork); its main checkout is the one the main machine
+  installs from. The `upstream` remote keeps
+  huacnlee/omamail for reference; Magpie holds omamail's history up to 11 October 2026.
+- The main machine runs copies made from the main checkout: the envelope plugin, and the native app plus its matching backend
+  under `~/.local/lib/omamail`, with the managed engine under `magpie-mail-engine.service`. Data and keyring entries keep
+  omamail's names (`~/.local/share/omamail` and the rest), so Google sign-ins survive
+  ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
+- Branch work trees live in a `magpie-work` folder under `${XDG_STATE_HOME:-~/.local/state}`, not in `/tmp`, and so do
+  Cargo target folders.
+- Siblings, each a checkout beside this one: magpie-mail-ios (Magpie for iPhone and iPad, which bundles `mobile/`),
+  magpie-calendar (Magpie Calendar, which took the calendars out of Magpie), the private machine repo (installs and heals Magpie on
+  this machine) and marmalade (whose avatar style sender pictures follow).

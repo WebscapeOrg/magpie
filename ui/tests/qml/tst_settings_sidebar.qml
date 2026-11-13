@@ -3,10 +3,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// Where the window is, is a history. Every page is an entry on it, every Back
-// — the bar on a page, Escape, a draft closing — pops one, and the root is
-// what the window closes on. These are the rules `App.qml` applies on top of
-// `account/Navigation.js`, run against the real views with a fake service.
 Item {
   width: 1800
   height: 1300
@@ -36,11 +32,6 @@ Item {
     property string clientDescription: ""
     property string credentialsPath: ""
     property var credentials: null
-    property var settings: ({
-      imapHost: "imap.example.org", imapPort: 993,
-      smtpHost: "smtp.example.org", smtpPort: 465,
-      username: "", aliases: [], insecure: false
-    })
 
     function recheck() {}
     function saveCredentials() {}
@@ -80,7 +71,7 @@ Item {
     property int inboxUnread: 0
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property string pluginDir: ""
     property string accountEmail: "me@example.com"
     property string accountAddress: "me@example.com"
@@ -94,7 +85,7 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "imap", email: "me@example.com" }]
+    property var accountSummaries: [{ provider: "gmail", email: "me@example.com" }]
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]
@@ -108,51 +99,32 @@ Item {
     property var selectedBody: ({ text: "Original body", source: "plain" })
     property var selectedMessage: null
 
-    property var log: []
-    property var lastSavedDraft: null
-
     signal accountAdded()
     signal replySent()
 
-    function record(text) {
-      var next = log.slice()
-      next.push(text)
-      log = next
-    }
-    function count(text) {
-      var n = 0
-      for (var i = 0; i < log.length; i++) if (log[i] === text) n++
-      return n
-    }
     function editingIndex() { return 0 }
     function addAccount(provider) {
-      record("add:" + String(provider || ""))
       accountCount += 1
       accountAdded()
     }
     function configureCurrentAccount(values) {
-      record("configure:" + String(values.provider || ""))
       if (values.provider !== undefined) providerId = String(values.provider)
     }
     function discardCurrentDraft() {
-      record("discard")
       if (accountCount > 1) accountCount -= 1
     }
     function switchToIndex(_index) { return true }
     function selectMailbox(key) {
       mailboxKey = String(key || "")
-      record("mailbox:" + mailboxKey)
     }
     function search(query) {
       searchQuery = String(query || "")
-      record("search:" + searchQuery)
     }
     function preferredSendAs(_recipients) { return null }
     function refreshRecipientContacts() {}
     function cursorOffset(_id, _delta) { return "" }
     function clearSelection() {
       selectedId = ""
-      record("clear")
     }
     function select(id) {
       selectedId = String(id || "")
@@ -162,28 +134,10 @@ Item {
       detailPainted = false
       detailLoading = true
     }
-    // What the fetch would deliver, delivered by the test when it wants it.
-    function land() {
-      detailLoading = false
-      detailPainted = true
-      selectedMessage = ({
-        id: selectedId,
-        messageId: "<" + selectedId + "@example.com>",
-        threadId: "thread-1",
-        subject: "One",
-        from: ({ email: "sender@example.com", display: "Sender" }),
-        replyTo: ({ email: "sender@example.com" }),
-        to: [], cc: [], bcc: [],
-        fullTime: "today"
-      })
-      selectedBody = ({ text: "Original body", source: "plain" })
-    }
     function loadAttachments(_messageId, _attachments, callback) { callback([], "") }
     function send(_fields) { return true }
     function undoSend() { return false }
     function saveDraft(fields, callback) {
-      lastSavedDraft = fields
-      record("saveDraft")
       callback("draft-1", "")
     }
     function refresh() {}
@@ -201,36 +155,24 @@ Item {
     name: "SettingsSidebar"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
-    function flick() {
-      var page = named(app, "settings-page")
+    function settingsScroller() {
+      var page = findChild(app, "settings-page")
       var item = page
       while (item && String(item.toString()).indexOf("QQuickFlickable") < 0) item = item.parent
       return item
     }
 
-    // The window `App` measures itself by is the one it draws, not the test
-    // root: find it by its title to size it.
-    function window() {
-      return having(app, function(it) { return it.title === "🐦 Magpie" })
+    // Invariant: size the real App window; the test root is not its layout viewport.
+    function appWindow() {
+      return findMatching(app, function(item) { return item.title === "✉️ Magpie Mail" })
     }
 
-    function having(item, accept) {
+    function findMatching(item, accept) {
       if (!item) return null
       if (accept(item)) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = having(values[i], accept)
+      for (var index = 0; index < values.length; index++) {
+        var found = findMatching(values[index], accept)
         if (found) return found
       }
       return null
@@ -240,31 +182,24 @@ Item {
       mailService.anyAccountReady = true
       mailService.hasSavedAccounts = true
       app.opened = true
-      window().width = MailStyle.space(980)
+      appWindow().width = MailStyle.space(980)
       app.backToList()
       app.resetNavigation()
       app.openSettings()
       waitForRendering(app)
     }
 
-    // The rail names the sections in the page's order, and the page reports
-    // where each begins, in that same order.
-    // By key rather than by position: these used to be `sections[2]` and
-    // friends, so adding a section renumbered assertions that had nothing to
-    // do with it.
+    // Invariant: find sections by stable keys so inserting another section does not shift assertions.
     function sectionY(page, key) {
-      for (var i = 0; i < page.sections.length; i++)
-        if (page.sections[i].key === key) return page.sections[i].y
+      for (var index = 0; index < page.sections.length; index++)
+        if (page.sections[index].key === key) return page.sections[index].y
       return -1
     }
 
-    // The wheel, at a real call site rather than against a Flickable a test
-    // built. `WheelScroller` is dropped into a dozen scrollers now and nothing
-    // covered any of them; this is the one with a fixture already.
     function test_the_settings_page_scrolls_a_notch_at_a_time() {
       app.openSettings()
       wait(50)
-      var view = flick()
+      var view = settingsScroller()
       verify(view, "the page scrolls inside a Flickable")
       view.contentY = 0
 
@@ -276,70 +211,61 @@ Item {
     }
 
     function test_the_rail_lists_the_pages_sections_in_order() {
-      var rail = named(app, "settings-sidebar")
+      var rail = findChild(app, "settings-sidebar")
       verify(rail && rail.visible, "a wide window has a rail")
-      var page = named(app, "settings-page")
-      var keys = page.sections.map(function(s) { return s.key })
-      compare(keys.join(","), "display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
-      for (var i = 1; i < page.sections.length; i++)
-        verify(page.sections[i].y > page.sections[i - 1].y, "sections are laid out top to bottom")
-      for (var j = 0; j < keys.length; j++)
-        verify(named(rail, "settings-section-" + keys[j]), "the rail has a row for " + keys[j])
+      var page = findChild(app, "settings-page")
+      var keys = page.sections.map(function(section) { return section.key })
+      compare(keys.join(","), "restart,display,backend,bar,reading,notifications,writing,mailboxes,oauth")
+      for (var index = 1; index < page.sections.length; index++)
+        verify(page.sections[index].y > page.sections[index - 1].y, "sections are laid out top to bottom")
+      for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+        verify(findChild(rail, "settings-section-" + keys[keyIndex]), "the rail has a row for " + keys[keyIndex])
     }
 
-    // A click scrolls the page to the section rather than opening another
-    // page: Settings stays one place in history, and the highlight follows.
     function test_a_click_scrolls_the_page_and_the_highlight_follows() {
-      var rail = named(app, "settings-sidebar")
-      var page = named(app, "settings-page")
-      var view = flick()
+      var rail = findChild(app, "settings-sidebar")
+      var page = findChild(app, "settings-page")
+      var view = settingsScroller()
       verify(view, "the page scrolls inside a Flickable")
       compare(view.contentY, 0)
-      compare(rail.activeKey, "display",
+      compare(rail.activeKey, "restart",
         "the top of the page is the first section, whichever that is")
       compare(app.navKinds.join(","), "list,settings")
 
-      // The rail sits against the page, and the pair is centred in the area.
       var area = rail.parent
       verify(Math.abs((rail.x + rail.width + MailStyle.space(18)) - page.x) < 1, "the rail is against the page's left edge")
       verify(Math.abs(rail.x - (area.width - page.x - page.width)) < 1, "and the block is centred")
-      // Back belongs to the block too: on its left edge, above the rail.
-      var back = named(app, "page-back")
+      var back = findChild(app, "page-back")
       verify(back.visible)
       var railLeft = rail.mapToItem(back.parent, 0, 0).x
       verify(Math.abs(back.x - railLeft) < 1, "Back is aligned with the rail's left edge")
 
-      var writing = named(rail, "settings-section-writing")
+      var writing = findChild(rail, "settings-section-writing")
       mouseClick(writing)
       tryVerify(function() { return Math.abs(view.contentY - sectionY(page, "writing")) < 1 }, 1000,
         "the page slid until the Writing heading was at the top")
       compare(app.navKinds.join(","), "list,settings", "still one page in history")
       tryCompare(rail, "activeKey", "writing")
 
-      // Every section can be put at the top, the last included: the content
-      // is padded under the page for exactly that.
-      mouseClick(named(rail, "settings-section-oauth"))
+      // Invariant: bottom padding lets the final settings heading reach the viewport top.
+      mouseClick(findChild(rail, "settings-section-oauth"))
       tryVerify(function() { return Math.abs(view.contentY - sectionY(page, "oauth")) < 1 }, 1000,
         "the last heading reaches the top too")
       tryCompare(rail, "activeKey", "oauth")
 
-      // Scrolled by other means — the wheel, say — the highlight still
-      // follows the page, because the page is what it describes.
       view.contentY = 0
-      tryCompare(rail, "activeKey", "display")
+      tryCompare(rail, "activeKey", "restart")
       view.contentY = sectionY(page, "mailboxes") + 5
       tryCompare(rail, "activeKey", "mailboxes")
     }
 
-    // Narrow, the rail has no room; the page keeps the whole width and its
-    // own scroll, which is all it ever had.
     function test_back_button_is_clickable_data() {
       return [{tag:"wide",width:980},{tag:"compact",width:600}]
     }
     function test_back_button_is_clickable(data) {
-      window().width=data.width
+      appWindow().width=data.width
       waitForRendering(app)
-      var back=named(app,"page-back")
+      var back=findChild(app,"page-back")
       verify(back.visible)
       compare(back.parent.childAt(back.x+back.width/2,back.y+back.height/2),back,"Back is above the scroll viewport")
       mouseClick(back,back.width/2,back.height/2)
@@ -347,9 +273,9 @@ Item {
     }
 
     function test_settings_viewport_reaches_header_and_content_inset_scrolls() {
-      var view=flick()
-      var page=named(app,"settings-page")
-      var rail=named(app,"settings-sidebar")
+      var view=settingsScroller()
+      var page=findChild(app,"settings-page")
+      var rail=findChild(app,"settings-sidebar")
       compare(view.mapToItem(rail.parent.parent,0,0).y,0)
       verify(page.y>0,"initial spacing belongs to scrollable content")
       view.contentY=page.y
@@ -357,14 +283,14 @@ Item {
     }
 
     function test_a_narrow_window_has_no_rail() {
-      window().width = 600
+      appWindow().width = 600
       waitForRendering(app)
-      var rail = named(app, "settings-sidebar")
+      var rail = findChild(app, "settings-sidebar")
       verify(rail && !rail.visible)
-      var page = named(app, "settings-page")
+      var page = findChild(app, "settings-page")
       verify(page.visible, "the page itself is still drawn")
-      var back=named(app,"page-back")
-      var view=flick()
+      var back=findChild(app,"page-back")
+      var view=settingsScroller()
       var before=back.mapToItem(view,0,0).y
       view.contentY=40
       compare(back.mapToItem(view,0,0).y,before-40,"compact Back scrolls away with content")

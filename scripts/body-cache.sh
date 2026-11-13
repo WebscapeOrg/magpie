@@ -22,19 +22,37 @@ usage() {
 command=${1:-}
 dir=${2:-}
 [ -n "$command" ] && [ -n "$dir" ] || usage
+case "$dir" in
+  /*) ;;
+  *) usage ;;
+esac
+case "$dir" in */|*/../*|*/./*|*/..|*/.|*//*) usage ;; esac
+component=$dir
+while [ "$component" != / ]; do
+  [ ! -L "$component" ] || usage
+  component=$(dirname -- "$component")
+done
 
 # The caller builds names with a prefix-free escape, so a name can never contain
 # a separator. Refusing one here as well means a bug up there cannot become a
 # write outside the cache.
 safe_name() {
   case "$1" in
-    ''|*/*|.|..) return 1 ;;
+    ''|*/*|.|..|*[![:print:]]*) return 1 ;;
   esac
   return 0
 }
 
+decimal_limit() {
+  value=$1
+  case "$value" in ''|*[!0-9]*) usage ;; esac
+  [ "${#value}" -le 7 ] || usage
+  while [ "${value#0}" != "$value" ]; do value=${value#0}; done
+  printf '%s\n' "${value:-0}"
+}
+
 prune_dir() {
-  keep=$1
+  keep=$(decimal_limit "$1")
   [ -d "$dir" ] || return 0
   # Newest first, then drop everything past the limit. Names carry no spaces or
   # newlines by construction, so a plain read splits them correctly.
@@ -51,13 +69,15 @@ umask 077
 case "$command" in
   put)
     name=${3:-}
-    limit=${4:-1000}
+    limit=$(decimal_limit "${4:-1000}")
     safe_name "$name" || usage
     IFS= read -r payload
     [ -n "$payload" ] || exit 3
     mkdir -p "$dir"
     chmod 700 "$dir" 2>/dev/null || true
-    tmp="$dir/.tmp.$$"
+    tmp=$(mktemp "$dir/.tmp.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    trap 'exit 1' HUP INT TERM
     printf '%s\n' "$payload" > "$tmp"
     chmod 600 "$tmp"
     mv -f "$tmp" "$dir/$name"
@@ -66,6 +86,7 @@ case "$command" in
   touch)
     name=${3:-}
     safe_name "$name" || usage
+    [ ! -L "$dir/$name" ] || usage
     [ -f "$dir/$name" ] && touch -m -- "$dir/$name"
     ;;
   prune)
@@ -73,8 +94,8 @@ case "$command" in
     ;;
   clear)
     # Only ever the directory this plugin built, and only if it looks like it.
-    case "$dir" in
-      */omamail/bodies/*) rm -rf -- "$dir" ;;
+    case "$(dirname -- "$dir")" in
+      */omamail/bodies) rm -rf -- "$dir" ;;
       *) usage ;;
     esac
     ;;

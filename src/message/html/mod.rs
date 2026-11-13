@@ -3,10 +3,9 @@
 macro_rules! re {
     ($pattern:literal) => {{
         static VALUE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        #[allow(clippy::regex_creation_in_loops)] // OnceLock compiles once, outside repeated work.
-        let pattern = VALUE
-            .get_or_init(|| regex::Regex::new($pattern).expect("constant HTML policy pattern"));
-        pattern
+        #[allow(clippy::regex_creation_in_loops)]
+        // Performance: OnceLock compiles once outside repeated work.
+        VALUE.get_or_init(|| regex::Regex::new($pattern).expect("constant HTML policy pattern"))
     }};
 }
 mod policy;
@@ -67,109 +66,112 @@ pub fn table_part(name: &str) -> bool {
         "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th"
     )
 }
-pub fn rows<'a>(n: &'a Node, out: &mut Vec<&'a Node>) {
-    for c in &n.children {
-        if c.kind == "text" || c.name == "table" {
+pub fn rows<'node>(node: &'node Node, output: &mut Vec<&'node Node>) {
+    for child in &node.children {
+        if child.kind == "text" || child.name == "table" {
             continue;
         }
-        if c.name == "tr" {
-            out.push(c)
+        if child.name == "tr" {
+            output.push(child)
         }
-        rows(c, out)
+        rows(child, output)
     }
 }
-pub fn grid(n: &Node) -> bool {
-    let mut r = vec![];
-    rows(n, &mut r);
-    r.iter()
-        .filter(|r| {
-            r.children
+pub fn grid(node: &Node) -> bool {
+    let mut table_rows = vec![];
+    rows(node, &mut table_rows);
+    table_rows
+        .iter()
+        .filter(|row| {
+            row.children
                 .iter()
-                .filter(|c| matches!(c.name.as_str(), "td" | "th"))
+                .filter(|child| matches!(child.name.as_str(), "td" | "th"))
                 .count()
                 >= 2
         })
         .count()
         >= 2
 }
-fn as_block(n: &mut Node) {
-    let style = n.attr("style").to_owned();
-    n.name = "div".into();
-    n.attrs.clear();
+fn as_block(node: &mut Node) {
+    let style = node.attr("style").to_owned();
+    node.name = "div".into();
+    node.attrs.clear();
     if !style.is_empty() {
-        n.set("style", &style)
+        node.set("style", &style)
     }
 }
-fn flatten_parts(n: &mut Node) {
-    for c in &mut n.children {
-        if c.kind == "text" || c.name == "table" {
+fn flatten_parts(node: &mut Node) {
+    for child in &mut node.children {
+        if child.kind == "text" || child.name == "table" {
             continue;
         }
-        flatten_parts(c);
-        if table_part(&c.name) {
-            as_block(c)
+        flatten_parts(child);
+        if table_part(&child.name) {
+            as_block(child)
         }
     }
 }
-fn flatten_tables(n: &mut Node, limit: usize, depth: usize) {
-    for c in &mut n.children {
-        if c.kind == "text" {
+fn flatten_tables(node: &mut Node, limit: usize, depth: usize) {
+    for child in &mut node.children {
+        if child.kind == "text" {
             continue;
         }
-        if c.name != "table" {
-            flatten_tables(c, limit, depth);
+        if child.name != "table" {
+            flatten_tables(child, limit, depth);
             continue;
         }
-        let keep = depth < limit && grid(c);
-        flatten_tables(c, limit, depth + usize::from(keep));
+        let keep = depth < limit && grid(child);
+        flatten_tables(child, limit, depth + usize::from(keep));
         if !keep {
-            flatten_parts(c);
-            as_block(c)
+            flatten_parts(child);
+            as_block(child)
         }
     }
 }
-fn collapse(n: &mut Node) {
+fn collapse(node: &mut Node) {
     let mut kept = vec![];
-    for mut c in std::mem::take(&mut n.children) {
-        collapse(&mut c);
-        if c.attrs.is_empty() {
-            if matches!(c.name.as_str(), "span" | "font" | "small" | "big") {
-                kept.extend(c.children);
+    for mut child in std::mem::take(&mut node.children) {
+        collapse(&mut child);
+        if !child.attrs.is_empty() {
+            kept.push(child);
+            continue;
+        }
+        if matches!(child.name.as_str(), "span" | "font" | "small" | "big") {
+            kept.extend(child.children);
+            continue;
+        }
+        if matches!(
+            child.name.as_str(),
+            "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav"
+        ) {
+            let meaningful: Vec<_> = child
+                .children
+                .iter()
+                .enumerate()
+                .filter(|(_, value)| value.kind != "text" || !value.text.trim().is_empty())
+                .collect();
+            if meaningful.len() == 1 && block(&meaningful[0].1.name) {
+                let index = meaningful[0].0;
+                kept.push(child.children.remove(index));
                 continue;
             }
-            if matches!(
-                c.name.as_str(),
-                "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav"
-            ) {
-                let meaningful: Vec<_> = c
-                    .children
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, v)| v.kind != "text" || !v.text.trim().is_empty())
-                    .collect();
-                if meaningful.len() == 1 && block(&meaningful[0].1.name) {
-                    let index = meaningful[0].0;
-                    kept.push(c.children.remove(index));
-                    continue;
-                }
-            }
         }
-        kept.push(c)
+        kept.push(child)
     }
-    n.children = kept
+    node.children = kept
 }
-fn colour_attr(n: &str) -> bool {
-    matches!(n, "bgcolor" | "bordercolor" | "color")
+fn colour_attr(name: &str) -> bool {
+    matches!(name, "bgcolor" | "bordercolor" | "color")
 }
-fn colour_style(n: &str) -> bool {
+fn colour_style(name: &str) -> bool {
     matches!(
-        n,
+        name,
         "color" | "background" | "background-color" | "border-color" | "outline-color"
     )
 }
-fn resource(n: &str) -> bool {
+fn resource(name: &str) -> bool {
     matches!(
-        n,
+        name,
         "background"
             | "srcset"
             | "lowsrc"
@@ -187,35 +189,35 @@ fn resource(n: &str) -> bool {
             | "cite"
     )
 }
-fn clean_attrs(n: &mut Node, colors: bool, styles: Vec<(String, String)>) {
-    let centre = !matches!(n.name.as_str(), "td" | "th");
+fn clean_attrs(node: &mut Node, colors: bool, styles: Vec<(String, String)>) {
+    let centre = !matches!(node.name.as_str(), "td" | "th");
     let mut seen = HashSet::new();
-    let is_img = n.name == "img";
-    let is_link = n.name == "a";
-    n.attrs.retain(|a| {
-        re!(r"^[a-z_:][a-z0-9_.:-]*$").is_match(&a.name)
-            && !resource(&a.name)
-            && !(a.name.ends_with(":href") || (a.name == "href" && !is_link))
-            && !(a.name == "src" && !is_img)
-            && !(colour_attr(&a.name) && !colors)
-            && !re!(r"^on[a-z]+$").is_match(&a.name)
-            && !(a.name == "href" && !safe_href(a.value.as_deref().unwrap_or("")))
+    let is_image = node.name == "img";
+    let is_link = node.name == "a";
+    node.attrs.retain(|attribute| {
+        re!(r"^[a-z_:][a-z0-9_.:-]*$").is_match(&attribute.name)
+            && !resource(&attribute.name)
+            && !(attribute.name.ends_with(":href") || (attribute.name == "href" && !is_link))
+            && !(attribute.name == "src" && !is_image)
+            && !(colour_attr(&attribute.name) && !colors)
+            && !re!(r"^on[a-z]+$").is_match(&attribute.name)
+            && !(attribute.name == "href" && !safe_href(attribute.value.as_deref().unwrap_or("")))
             && !(centre
-                && a.name == "align"
-                && re!(r"(?i)^center\b").is_match(a.value.as_deref().unwrap_or("")))
-            && seen.insert(a.name.clone())
+                && attribute.name == "align"
+                && re!(r"(?i)^center\b").is_match(attribute.value.as_deref().unwrap_or("")))
+            && seen.insert(attribute.name.clone())
     });
-    if n.has("style") {
+    if node.has("style") {
         let kept = styles
             .into_iter()
-            .filter(|(k, v)| {
-                !(!colors && colour_style(k))
-                    && !(centre && k == "text-align" && re!(r"(?i)^center\b").is_match(v))
-                    && !v.to_ascii_lowercase().contains("url")
-                    && !v.contains('\\')
+            .filter(|(name, value)| {
+                !(!colors && colour_style(name))
+                    && !(centre && name == "text-align" && re!(r"(?i)^center\b").is_match(value))
+                    && !value.to_ascii_lowercase().contains("url")
+                    && !value.contains('\\')
             })
             .collect::<Vec<_>>();
-        set_style(n, &kept)
+        set_style(node, &kept)
     }
 }
 fn bounded_option(options: &Value, key: &str, default: usize, cap: usize) -> usize {
@@ -236,6 +238,11 @@ fn bounded_option(options: &Value, key: &str, default: usize, cap: usize) -> usi
     };
     numeric.floor().max(0.0).min(cap as f64) as usize
 }
+fn has_data_scheme(source: &str) -> bool {
+    let scheme = re!(r"(?i)^data:");
+    scheme.is_match(source) || scheme.is_match(&normalized(source))
+}
+
 pub(super) struct Images<'a> {
     options: &'a Value,
     pub kept: usize,
@@ -245,6 +252,7 @@ pub(super) struct Images<'a> {
     pub limit: usize,
     admitted: usize,
     embedded_bytes: usize,
+    decoded_bytes: u64,
 }
 impl<'a> Images<'a> {
     pub fn new(options: &'a Value) -> Self {
@@ -257,54 +265,58 @@ impl<'a> Images<'a> {
             limit: bounded_option(options, "maxImages", 24, 256),
             admitted: 0,
             embedded_bytes: 0,
+            decoded_bytes: 0,
         }
     }
     pub fn prepared(&self, source: &str) -> String {
         self.options
             .get("remoteImageData")
-            .and_then(|m| m.get(source))
+            .and_then(|prepared_images| prepared_images.get(source))
             .and_then(Value::as_str)
-            .filter(|s| raster(s))
+            .filter(|source| raster(source))
             .unwrap_or("")
             .into()
     }
     pub fn allowed(&self) -> bool {
         self.options.get("allowRemoteImages") == Some(&Value::Bool(true))
     }
-    // Count every rendered image, including CID and sender-embedded data. The
-    // markup length budget no longer counts base64, so it must have its own
-    // shared budget before either reader hands those bytes to Qt.
+    // Invariant: both renderers admit only measured raster bytes. Unknown CID
+    // payloads and compressed images cannot bypass the shared memory budgets.
     fn admit(&mut self, source: &str) -> bool {
         const MAX_EMBEDDED_BYTES: usize = 16 * 1024 * 1024;
-        let bytes = if source
-            .get(..5)
-            .is_some_and(|head| head.eq_ignore_ascii_case("data:"))
-        {
-            source.len()
-        } else {
-            0
-        };
+        const MAX_DECODED_BYTES: u64 = 128 * 1024 * 1024;
+        let bytes = source.len();
         if self.admitted >= self.limit || bytes > MAX_EMBEDDED_BYTES - self.embedded_bytes {
+            self.blocked += 1;
+            return false;
+        }
+        let Some(decoded_bytes) = raster_decoded_bytes(&normalized(source)) else {
+            self.blocked += 1;
+            return false;
+        };
+        if decoded_bytes > MAX_DECODED_BYTES - self.decoded_bytes {
             self.blocked += 1;
             return false;
         }
         self.admitted += 1;
         self.embedded_bytes += bytes;
+        self.decoded_bytes += decoded_bytes;
         true
     }
-    fn keep(&mut self, n: &mut Node) -> bool {
-        if !n.has("src") {
+    fn keep(&mut self, node: &mut Node) -> bool {
+        if !node.has("src") {
             return true;
         }
-        let source = n.attr("src").to_owned();
-        match image_kind(&source) {
-            "inline" => self.admit(&source),
-            "none" => true,
-            "remote" => {
-                if tracking(n) {
-                    self.blocked += 1;
-                    return false;
-                }
+        let source = node.attr("src").to_owned();
+        let kind = image_kind(&source);
+        if matches!(kind, ImageSource::Embedded | ImageSource::Remote) && tracking(node) {
+            self.blocked += 1;
+            return false;
+        }
+        match kind {
+            ImageSource::Embedded => self.admit(&source),
+            ImageSource::Absent => true,
+            ImageSource::Remote => {
                 if self.loadable < self.limit {
                     self.loadable += 1
                 }
@@ -316,101 +328,104 @@ impl<'a> Images<'a> {
                 if !self.admit(&prepared) {
                     return false;
                 }
-                n.set("src", &prepared);
+                node.set("src", &prepared);
                 self.kept += 1;
                 true
             }
-            _ => false,
+            ImageSource::Unsafe | ImageSource::Local => false,
         }
     }
 }
-fn clean(n: &mut Node, images: &mut Images<'_>, colors: bool) {
+fn clean(node: &mut Node, images: &mut Images<'_>, colors: bool) {
     let mut kept = vec![];
-    for mut c in std::mem::take(&mut n.children) {
-        if c.kind == "text" {
-            kept.push(c);
+    for mut child in std::mem::take(&mut node.children) {
+        if child.kind == "text" {
+            kept.push(child);
             continue;
         }
-        if dropped(&c.name) {
+        if dropped(&child.name) {
             continue;
         }
-        if c.name == "center" {
-            c.name = "div".into()
+        if child.name == "center" {
+            child.name = "div".into()
         }
-        let styles = declarations(c.attr("style"));
-        if !tree::void(&c.name) && hidden(&styles) {
+        let styles = declarations(child.attr("style"));
+        if child.has("hidden") {
             continue;
         }
-        if c.name == "img" && images.sources.len() < images.limit {
-            let source = c.attr("src");
-            if image_kind(source) == "remote"
-                && !tracking(&c)
-                && !images.sources.iter().any(|s| s == source)
+        if (!tree::void(&child.name) || child.name == "img") && hidden(&styles) {
+            continue;
+        }
+        if child.name == "img" && images.sources.len() < images.limit {
+            let source = child.attr("src");
+            if image_kind(source) == ImageSource::Remote
+                && !tracking(&child)
+                && !images.sources.iter().any(|candidate| candidate == source)
             {
                 images.sources.push(source.into())
             }
         }
         for (key, value) in &styles {
-            if c.name == "img"
+            if child.name == "img"
                 && matches!(key.as_str(), "width" | "height")
-                && !c.has(key)
-                && let Some(caps) = re!(r"(?i)^(\d+(?:\.\d+)?)px$").captures(value)
+                && !child.has(key)
+                && let Some(captures) = re!(r"(?i)^(\d+(?:\.\d+)?)px$").captures(value)
             {
-                c.set(key, &caps[1])
+                child.set(key, &captures[1])
             }
             if key == "direction"
-                && !c.has("dir")
+                && !child.has("dir")
                 && matches!(value.trim().to_ascii_lowercase().as_str(), "ltr" | "rtl")
             {
-                c.set("dir", &value.trim().to_ascii_lowercase())
+                child.set("dir", &value.trim().to_ascii_lowercase())
             }
         }
-        clean_attrs(&mut c, colors, styles);
-        if c.name == "img" && !images.keep(&mut c) {
+        clean_attrs(&mut child, colors, styles);
+        if child.name == "img" && !images.keep(&mut child) {
             continue;
         }
-        clean(&mut c, images, colors);
-        if c.children.iter().any(|c| c.name == "img") {
-            let styles = declarations(c.attr("style"))
+        clean(&mut child, images, colors);
+        if child.children.iter().any(|child| child.name == "img") {
+            let styles = declarations(child.attr("style"))
                 .into_iter()
-                .filter(|(n, v)| {
-                    !matches!(n.as_str(), "line-height" | "font-size")
-                        || !re!(r"(?i)^0(?:\.0+)?(?:px|pt|%|em|rem)?$").is_match(v)
+                .filter(|(name, value)| {
+                    !matches!(name.as_str(), "line-height" | "font-size")
+                        || !re!(r"(?i)^0(?:\.0+)?(?:px|pt|%|em|rem)?$").is_match(value)
                 })
                 .collect::<Vec<_>>();
-            set_style(&mut c, &styles)
+            set_style(&mut child, &styles)
         }
-        kept.push(c)
+        kept.push(child)
     }
-    n.children = kept
+    node.children = kept
 }
-pub fn measure(n: &Node, html: &str) -> Value {
+pub fn measure(node: &Node, html: &str) -> Value {
     fn walk(
-        n: &Node,
+        node: &Node,
         depth: usize,
         tags: &mut usize,
         images: &mut usize,
         tables: &mut usize,
     ) -> usize {
         let mut deepest = depth;
-        for c in &n.children {
-            if c.kind == "text" {
+        for child in &node.children {
+            if child.kind == "text" {
                 continue;
             }
             *tags += 1;
-            if c.name == "img" {
+            if child.name == "img" {
                 *images += 1
             }
-            let d = depth + usize::from(c.name == "table");
-            if c.name == "table" {
+            let child_depth = depth + usize::from(child.name == "table");
+            if child.name == "table" {
                 *tables += 1
             }
-            deepest = deepest.max(walk(c, d, tags, images, tables))
+            deepest = deepest.max(walk(child, child_depth, tags, images, tables))
         }
         deepest
     }
     let (mut tags, mut images, mut tables) = (0, 0, 0);
-    let depth = walk(n, 0, &mut tags, &mut images, &mut tables);
+    let depth = walk(node, 0, &mut tags, &mut images, &mut tables);
     json!({"length":html.encode_utf16().count(),"tags":tags,"images":images,"tables":tables,"tableDepth":depth})
 }
 pub fn too_heavy(size: &Value) -> bool {
@@ -419,26 +434,20 @@ pub fn too_heavy(size: &Value) -> bool {
         || size["tables"].as_u64().unwrap_or(0) > 60
         || size["tableDepth"].as_u64().unwrap_or(0) > 4
 }
-// The length bounds the markup Qt has to lay out. The bytes of a picture
-// carried as a data URI are not markup, and counting them turned a small
-// message into the plain-text refusal the moment its pictures loaded.
-pub fn too_heavy_to_draw(n: &Node, size: &Value) -> bool {
-    fn embedded(n: &Node) -> u64 {
-        n.children
+// Invariant: embedded raster bytes do not count as layout markup; counting them previously refused small messages after images loaded.
+pub fn too_heavy_to_draw(node: &Node, size: &Value) -> bool {
+    fn embedded(node: &Node) -> u64 {
+        node.children
             .iter()
-            .filter(|c| c.kind != "text")
-            .map(|c| {
-                let source = c.attr("src");
-                let own = if c.name == "img"
-                    && source
-                        .get(..5)
-                        .is_some_and(|head| head.eq_ignore_ascii_case("data:"))
-                {
+            .filter(|child| child.kind != "text")
+            .map(|child| {
+                let source = child.attr("src");
+                let own = if child.name == "img" && has_data_scheme(source) {
                     source.encode_utf16().count() as u64
                 } else {
                     0
                 };
-                own + embedded(c)
+                own + embedded(child)
             })
             .sum()
     }
@@ -447,53 +456,56 @@ pub fn too_heavy_to_draw(n: &Node, size: &Value) -> bool {
         size["length"]
             .as_u64()
             .unwrap_or(0)
-            .saturating_sub(embedded(n))
+            .saturating_sub(embedded(node))
     );
     too_heavy(&drawn)
 }
-pub fn read_plain(n: &Node) -> Value {
-    fn walk(n: &Node, text: &mut String, images: &mut Vec<String>) {
-        for c in &n.children {
-            if c.kind == "text" {
-                if !c.raw {
-                    text.push_str(&decode(&source_space(&c.text)))
+pub fn read_plain(node: &Node) -> Value {
+    fn walk(node: &Node, text: &mut String, images: &mut Vec<String>) {
+        for child in &node.children {
+            if child.kind == "text" {
+                if !child.raw {
+                    text.push_str(&decode(&source_space(&child.text)))
                 }
                 continue;
             }
-            if dropped(&c.name) {
+            if dropped(&child.name) {
                 continue;
             }
-            if c.name == "img" {
-                if tracking(c) {
+            if child.name == "img" {
+                if tracking(child) {
                     continue;
                 }
-                images.push(c.attr("src").into());
+                images.push(child.attr("src").into());
                 text.push_str(&format!("[image {}]", images.len()));
                 continue;
             }
-            if c.name == "br" {
+            if child.name == "br" {
                 text.push('\n');
                 continue;
             }
-            if c.name == "li" {
+            if child.name == "li" {
                 text.push_str("• ")
             }
-            walk(c, text, images);
-            if block(&c.name) || matches!(c.name.as_str(), "td" | "th") {
+            walk(child, text, images);
+            if block(&child.name) || matches!(child.name.as_str(), "td" | "th") {
                 text.push('\n')
             }
         }
     }
     let mut text = String::new();
     let mut images = vec![];
-    walk(n, &mut text, &mut images);
+    walk(node, &mut text, &mut images);
     let text = re!(r"[^\S\n]+\n").replace_all(&text, "\n");
     let text = re!(r"\n[^\S\n]+").replace_all(&text, "\n");
     let text = re!(r"\n{3,}").replace_all(&text, "\n\n");
     json!({"text":text.trim(),"images":images,"bodyDirection":crate::message::direction::resolve_body(text.trim(),crate::message::direction::AUTO)})
 }
-pub fn to_text(s: &str) -> Result<String, &'static str> {
-    Ok(read_plain(&parse(s)?)["text"].as_str().unwrap_or("").into())
+pub fn to_text(source: &str) -> Result<String, &'static str> {
+    Ok(read_plain(&parse(source)?)["text"]
+        .as_str()
+        .unwrap_or("")
+        .into())
 }
 pub fn sanitize(source: &str, options: &Value) -> Result<Value, &'static str> {
     let mut root = parse(source)?;

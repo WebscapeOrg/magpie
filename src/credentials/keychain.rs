@@ -1,12 +1,12 @@
 //! Generic-password items through Apple's Security framework; no CLI helpers.
 use super::*;
-use security_framework::passwords::{
-    delete_generic_password, get_generic_password, set_generic_password,
-};
+#[cfg(not(target_os = "ios"))]
+use security_framework::passwords::set_generic_password;
+use security_framework::passwords::{delete_generic_password, get_generic_password};
 const SERVICE: &str = "org.omamail.credentials.v1";
 
 fn error(error: security_framework::base::Error) -> Error {
-    // errSecItemNotFound. Authorization denial, locked keychains and other
+    // Invariant: errSecItemNotFound. Authorization denial, locked keychains and other
     // platform errors are failures, never a claim that an account is signed out.
     if error.code() == -25300 {
         Error::Missing
@@ -18,6 +18,24 @@ pub(super) fn get(key: &CredentialKey) -> Result<Secret, Error> {
     Secret::new(get_generic_password(SERVICE, &key.native_id()?).map_err(error)?)
 }
 pub(super) fn put(key: &CredentialKey, secret: &[u8]) -> Result<(), Error> {
+    #[cfg(target_os = "ios")]
+    {
+        use security_framework::{
+            access_control::{ProtectionMode, SecAccessControl},
+            passwords::{PasswordOptions, set_generic_password_options},
+        };
+        let mut options = PasswordOptions::new_generic_password(SERVICE, &key.native_id()?);
+        options.set_access_synchronized(Some(false));
+        options.set_access_control(
+            SecAccessControl::create_with_protection(
+                Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
+                0,
+            )
+            .map_err(error)?,
+        );
+        set_generic_password_options(secret, options).map_err(error)
+    }
+    #[cfg(not(target_os = "ios"))]
     set_generic_password(SERVICE, &key.native_id()?, secret).map_err(error)
 }
 pub(super) fn delete(key: &CredentialKey) -> Result<(), Error> {

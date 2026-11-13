@@ -9,8 +9,9 @@ Item {
     property int apiVersion: 8
     property var requests: []
     function call(method,params,done) {
-      if(method === "attachment.thumbnail") requests=requests.concat([{params:params,done:done}])
-      return {cancel:function(){}}
+      var request={method:method,params:params,done:done,cancelled:false}
+      if(method === "attachment.preview") requests=requests.concat([request])
+      return {cancel:function(){request.cancelled=true}}
     }
   }
   Component {
@@ -33,9 +34,7 @@ Item {
     id: account
     pluginDir:"/synthetic/plugin"
     backend:backend
-    providerId:"imap"
     configuredEmail:"ada@example.org"
-    imapSettings:({imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",smtpPort:465,username:"ada@example.org"})
     clientOverride:clientFactory
   }
   TestCase {
@@ -44,7 +43,8 @@ Item {
     function init(){
       account.accountId="ada@example.org"
       account.auth.toolsChecked=true;account.auth.missingTools=[]
-      account.auth.passwordChecked=true;account.auth.password="synthetic-password"
+      account.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+      account.auth.loggedIn = true
       backend.apiVersion=8
       account.selectedId="one";account.selectedAttachments=[file]
       compare(account.ready,true)
@@ -64,10 +64,12 @@ Item {
     function test_previews_use_listed_metadata_and_return_prepared_bytes(){
       var result=""
       account.previewAttachment("one",{attachmentId:"same-part",mimeType:"text/html"},function(data){result=data})
-      compare(account.api.requests.length,1)
-      compare(account.api.requests[0].messageId,"one")
-      account.api.requests[0].done("cGRm","")
+      compare(account.api.requests.length,0)
       compare(backend.requests.length,1)
+      compare(backend.requests[0].params.accountId,"ada@example.org")
+      compare(backend.requests[0].params.messageId,"one")
+      compare(backend.requests[0].params.attachmentId,"same-part")
+      compare(backend.requests[0].params.filename,"report.pdf")
       compare(backend.requests[0].params.mimeType,"application/pdf")
       backend.requests[0].done({data:"prepared-raster"},null)
       compare(result,"prepared-raster")
@@ -76,25 +78,25 @@ Item {
       var result="pending"
       account.previewAttachment("one",file,function(data){result=data})
       account.selectedId="two"
-      account.api.requests[0].done("cGRm","")
-      compare(backend.requests.length,0)
-      compare(result,"")
+      backend.requests[0].done({data:"stale-raster"},null)
+      compare(result,"pending")
       account.selectedId="one"
       account.previewAttachment("one",file,function(data){result=data})
-      account.api.requests[1].done("cGRm","")
-      compare(backend.requests.length,1)
+      compare(backend.requests.length,2)
       account.accountId="bob@example.net"
-      backend.requests[0].done({data:"foreign-raster"},null)
-      compare(result,"")
+      backend.requests[1].done({data:"foreign-raster"},null)
+      compare(result,"pending")
+      compare(account.api.requests.length,0)
     }
-    function test_cancel_stops_fetch_and_never_renders_its_response(){
+    function test_cancel_withdraws_request_and_ignores_late_preview(){
       var called=false
       var handle=account.previewAttachment("one",file,function(){called=true})
       handle.cancel()
-      compare(account.api.requests[0].aborted,true)
-      account.api.requests[0].done("cGRm","")
+      compare(backend.requests[0].cancelled,true)
+      backend.requests[0].done({data:"cancelled-raster"},null)
       compare(called,false)
-      compare(backend.requests.length,0)
+      compare(backend.requests.length,1)
+      compare(account.api.requests.length,0)
     }
   }
 }

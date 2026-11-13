@@ -3,14 +3,8 @@ import QtTest 1.3
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "../../account/Accounts.js" as Accounts
+import "../../account" as Account
 
-// A label change goes to the account whose menu asked for it. Ada and Bob
-// both have a folder named Work — an IMAP id is a folder name, unique in one
-// account and no further — so a rename or a delete confirmed after the
-// window switched to Bob must still reach Ada's server and never Bob's, and
-// a switch closes the popups that were about Ada. The watched ids follow a
-// renamed folder to its new name, on to disk, and a deleted folder's watch
-// goes with it. The counts a poll asks for are bounded.
 Item {
   width: 900
   height: 600
@@ -40,7 +34,7 @@ Item {
       property var auth: null
       property string email: ""
       function handle() { return ({ aborted: false }) }
-      function later(fn) { Qt.callLater(fn); return handle() }
+      function later(callback) { Qt.callLater(callback); return handle() }
       function listMessages() { return handle() }
       function getMessages() { return handle() }
       function getMessage() { return handle() }
@@ -81,7 +75,7 @@ Item {
         record.deletes = record.deletes.concat([email + ":" + id])
         return later(function() { callback(null, "") })
       }
-      function abortRequest(h) { if (h) h.aborted = true }
+      function abortRequest(handle) { if (handle) handle.aborted = true }
     }
   }
 
@@ -93,6 +87,43 @@ Item {
 
   Omamail.App { id: app; service: mailService }
 
+  QtObject {
+    id: retryRecord
+    property int requests: 0
+    property int errors: 0
+    property bool holdReplies: false
+    property var reply: null
+  }
+
+  QtObject {
+    id: retryAccount
+    property bool ready: true
+    property string providerId: "gmail"
+    property var monitoredIds: []
+    property var labels: []
+    property string rawQuery: ""
+    property string rawLabelId: ""
+    property string selectedName: ""
+    property var cache: QtObject { function putLabels(_labels) {} }
+    property var api: QtObject {
+      function getLabels(callback) {
+        retryRecord.requests++
+        if (retryRecord.holdReplies) { retryRecord.reply = callback; return }
+        callback([], "controlled listing failure")
+      }
+    }
+    function fail(_error) { retryRecord.errors++ }
+    function monitoredMigrated(ids) { monitoredIds = ids }
+    function selectLabel(name, id) { selectedName = name; rawLabelId = id }
+    function selectMailbox(_key) { rawQuery = ""; rawLabelId = "" }
+  }
+
+  Loader {
+    id: retryLoader
+    active: false
+    sourceComponent: Component { Account.LabelActions { account: retryAccount } }
+  }
+
   TestCase {
     name: "LabelOwnership"
     when: windowShown
@@ -101,40 +132,38 @@ Item {
 
     readonly property string ada: "ada@example.com"
     readonly property string bob: "bob@example.com"
-    readonly property string adaId: "imap:ada@example.com"
-    readonly property string bobId: "imap:bob@example.com"
+    readonly property string adaId: "ada@example.com"
+    readonly property string bobId: "bob@example.com"
 
     function entry(email, monitored) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail", clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic",
         label: "", signature: "", monitored: monitored || []
       }
     }
 
-    function folder(id) { return ({ id: id, name: id, rawName: id, delimiter: "/", unread: 0, system: false }) }
+    function folder(id, name) { return ({ id: id, name: name || id, unread: 0, system: false }) }
 
     function seed(entries, activeId) {
       var list = Accounts.emptyList()
-      for (var i = 0; i < entries.length; i++) list = Accounts.add(list, entries[i])
+      for (var accountIndex = 0; accountIndex < entries.length; accountIndex++) list = Accounts.add(list, entries[accountIndex])
       list = Accounts.setActive(list, activeId)
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
       wait(0)
       mailService.refreshCurrent()
-      for (var h = 0; h < entries.length; h++) {
-        var account = mailService.accountAt(h)
+      for (var hostIndex = 0; hostIndex < entries.length; hostIndex++) {
+        var account = mailService.accountAt(hostIndex)
         verify(account !== null)
         account.clientOverride = controlledClient
         account.auth.toolsChecked = true
         account.auth.missingTools = []
-        account.auth.passwordChecked = true
-        account.auth.password = "test-password"
+        account.auth.credentials = ({ clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic", projectId: "test" })
+        account.auth.loggedIn = true
+        account.auth.refreshBusy = true
         tryCompare(account, "ready", true)
-        // The stand-in says whose it is, so the record can tell the two apart.
-        account.api.email = entries[h].email
+        account.api.email = entries[hostIndex].email
         account.labels = [folder("Work"), folder("Work/2026"), folder("Receipts")]
       }
     }
@@ -143,7 +172,7 @@ Item {
       function find(item) {
         if (item.objectName === name) return item
         var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
+        for (var childIndex = 0; childIndex < kids.length; childIndex++) { var found = find(kids[childIndex]); if (found) return found }
         return null
       }
       return find(app)
@@ -156,10 +185,97 @@ Item {
 
     function init() { record.reset(); app.resetNavigation() }
 
-    // The menu opens for Ada. The window switches to Bob — straight through
-    // the service, as a key would — and the popups close. The answers the
-    // prompt and the confirmation would have given still name Ada, and
-    // reach Ada's server alone.
+    function cleanup() {
+      retryLoader.active = false
+      retryRecord.holdReplies = false
+      retryRecord.reply = null
+      wait(0)
+    }
+
+    function test_failed_listing_retries_once_for_a_live_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryLoader.active = true
+      verify(retryLoader.item !== null)
+      retryLoader.item.reloadLabels()
+      compare(retryRecord.requests, 1)
+      tryCompare(retryRecord, "requests", 2)
+      compare(retryRecord.errors, 2)
+      wait(20)
+      compare(retryRecord.requests, 2)
+      retryLoader.active = false
+      wait(0)
+    }
+
+    function test_failed_listing_retry_ends_with_its_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryLoader.active = true
+      var removed = retryLoader.item
+      verify(removed !== null)
+      removed.reloadLabels()
+      compare(retryRecord.requests, 1)
+      retryLoader.active = false
+      wait(20)
+      verify(!Qt.isQtObject(removed))
+      compare(retryRecord.requests, 1, "a destroyed owner must not issue the deferred provider reload")
+      compare(retryRecord.errors, 1)
+    }
+
+    function test_queued_listing_reply_cannot_reload_a_destroyed_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryRecord.holdReplies = true
+      retryLoader.active = true
+      var removed = retryLoader.item
+      verify(removed !== null)
+      removed.reloadLabels()
+      removed.reloadLabels()
+      compare(retryRecord.requests, 1)
+      var reply = retryRecord.reply
+      retryLoader.active = false
+      wait(20)
+      verify(!Qt.isQtObject(removed))
+      retryRecord.holdReplies = false
+      retryRecord.reply = null
+      reply([], "controlled listing failure")
+      wait(20)
+      compare(retryRecord.requests, 1)
+      compare(retryRecord.errors, 0)
+    }
+
+    function test_open_label_follows_its_id_after_a_failed_rename_refresh() {
+      retryRecord.holdReplies = true
+      retryAccount.rawQuery = "label:Work"
+      retryAccount.rawLabelId = "Label_1"
+      retryAccount.selectedName = ""
+      retryAccount.monitoredIds = ["Label_1"]
+      retryLoader.active = true
+      retryLoader.item.afterLabelMoved({id: "Label_1"})
+      retryRecord.reply([], "controlled listing failure")
+      wait(1)
+      retryRecord.reply([{id: "Label_1", name: "Jobs"}], "")
+      compare(retryAccount.rawLabelId, "Label_1")
+      compare(retryAccount.selectedName, "Jobs")
+      compare(retryAccount.monitoredIds, ["Label_1"])
+    }
+
+    function test_rename_refresh_does_not_restore_a_label_the_user_left() {
+      retryRecord.holdReplies = true
+      retryAccount.rawQuery = "label:Work"
+      retryAccount.rawLabelId = "Label_1"
+      retryAccount.selectedName = ""
+      retryLoader.active = true
+      retryLoader.item.afterLabelMoved({id: "Label_1"})
+      retryAccount.rawLabelId = "Label_2"
+      retryRecord.reply([{id: "Label_1", name: "Jobs"}, {id: "Label_2", name: "Receipts"}], "")
+      compare(retryAccount.rawLabelId, "Label_2")
+      compare(retryAccount.selectedName, "")
+    }
+
     function test_a_change_goes_to_the_account_whose_menu_asked() {
       seed([entry(ada), entry(bob)], adaId)
       var menu = popup("label-menu")
@@ -176,43 +292,36 @@ Item {
       app.labelNamed("create", "Receipts", "2026", adaId)
       tryCompare(record, "creates", [ada + ":Receipts/2026"])
       compare(mailService.activeAccountId, bobId, "Bob stayed open throughout")
-      for (var i = 0; i < record.renames.length; i++) verify(record.renames[i].indexOf(bob) < 0)
+      for (var renameIndex = 0; renameIndex < record.renames.length; renameIndex++) verify(record.renames[renameIndex].indexOf(bob) < 0)
     }
 
-    // The account the menu was about is gone: nothing is sent anywhere, and
-    // the open account says why.
     function test_a_change_for_a_removed_account_goes_nowhere() {
       seed([entry(ada), entry(bob)], bobId)
-      compare(mailService.renameLabel("Work", "Jobs", "imap:gone@example.com"), false)
-      compare(mailService.deleteLabel("Work", "imap:gone@example.com"), false)
+      compare(mailService.renameLabel("Work", "Jobs", "gone@example.com"), false)
+      compare(mailService.deleteLabel("Work", "gone@example.com"), false)
       wait(20)
       compare(record.renames.length, 0)
       compare(record.deletes.length, 0)
       verify(mailService.accountAt(1).lastError.indexOf("no longer set up") >= 0, mailService.accountAt(1).lastError)
     }
 
-    // A watch on Work/2026 follows the rename of Work to Jobs, into the
-    // account's entry and the file; a watch on a deleted folder is dropped.
     function test_watched_ids_follow_a_rename_and_leave_with_a_delete() {
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
       deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       tryCompare(record, "renames", [ada + ":Work>Jobs"])
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Jobs/2026") >= 0 }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026", "Receipts"])
-      deepEqualIds(Accounts.find(mailService.accountList, adaId).monitored, ["Jobs/2026", "Receipts"])
-      verify(mailService.accountsWritePayload.indexOf("Jobs/2026") >= 0, "and it is on its way to disk")
-      verify(mailService.accountsWritePayload.indexOf("Work/2026") < 0)
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 1000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
+      deepEqualIds(Accounts.find(mailService.accountList, adaId).monitored, ["Work/2026", "Receipts"])
 
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026")]
       verify(mailService.deleteLabel("Receipts", adaId))
       tryCompare(record, "deletes", [ada + ":Receipts"])
       tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Receipts") < 0 }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026"])
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026"])
     }
 
-    // A name the list already has is refused before it reaches the server.
     function test_a_name_already_taken_is_refused() {
       seed([entry(ada)], adaId)
       compare(mailService.renameLabel("Receipts", "Work", adaId), false)
@@ -225,33 +334,29 @@ Item {
         || mailService.accountAt(0).lastError === "", mailService.accountAt(0).lastError)
     }
 
-    // The listing after a rename fails once: the watch waits, and follows
-    // with the listing that does land. Two changes before a listing are
-    // both applied.
     function test_a_failed_listing_keeps_the_watch_waiting() {
+      failOnWarning(/invalid context|TypeError/)
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
       record.listingError = "the server hung up"
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       tryCompare(record, "renames", [ada + ":Work>Jobs"])
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Jobs/2026") >= 0 }, 2000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026", "Receipts"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 2000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
 
-      record.listing[ada] = [folder("Tasks"), folder("Tasks/2026")]
+      record.listing[ada] = [folder("Work", "Tasks"), folder("Work/2026", "Tasks/2026")]
       var account = mailService.accountAt(0)
-      account.labels = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
-      verify(mailService.renameLabel("Jobs", "Tasks", adaId))
+      account.labels = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
+      verify(mailService.renameLabel("Work", "Tasks", adaId))
       verify(mailService.deleteLabel("Receipts", adaId))
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Tasks/2026") >= 0 }, 2000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Tasks/2026"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Tasks" }, 2000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026"])
     }
 
-    // A signed-out owner changes nothing, and says so.
     function test_a_signed_out_owner_changes_nothing() {
       seed([entry(ada), entry(bob)], adaId)
       var bobs = mailService.accountAt(1)
-      bobs.auth.password = ""
-      bobs.auth.passwordChecked = true
+      bobs.auth.loggedIn = false
       bobs.clientOverride = null
       tryCompare(bobs, "ready", false)
       compare(mailService.renameLabel("Work", "Jobs", bobId), false)
@@ -260,7 +365,6 @@ Item {
       verify(bobs.lastError.indexOf("signed out") >= 0, bobs.lastError)
     }
 
-    // Five watched folders are counted three at a time, and all five are.
     function test_the_counts_a_poll_asks_for_are_bounded() {
       seed([entry(ada, ["a", "b", "c", "d", "e"])], adaId)
       var account = mailService.accountAt(0)
@@ -276,7 +380,7 @@ Item {
       function find(item) {
         if (item.fullPath === path && item.selected !== undefined) return item
         var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
+        for (var childIndex = 0; childIndex < kids.length; childIndex++) { var found = find(kids[childIndex]); if (found) return found }
         return null
       }
       return find(app)
@@ -316,11 +420,11 @@ Item {
     }
     function test_review_two_renames_keep_both_watches() {
       seed([entry(ada, ["Work", "Receipts"])], adaId)
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Bills")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts", "Bills")]
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       verify(mailService.renameLabel("Receipts", "Bills", adaId))
-      tryVerify(function() { return mailService.accountAt(0).labels[0].id === "Jobs" }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs", "Bills"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 1000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work", "Receipts"])
     }
     function deepEqualIds(actual, expected) {
       compare(JSON.stringify(actual), JSON.stringify(expected))

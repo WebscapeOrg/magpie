@@ -1,284 +1,163 @@
-import QtQuick 2.15
-import QtTest 1.3
-import qs.Commons
-import qs.Commons as Commons
-import "../../components" as Omamail
+import QtQuick
+import QtTest
+import "../../components" as Mail
 
 Item {
-  width: 600
-  height: 800
-
-  QtObject {
-    id: mailService
-
-    property bool unifiedCalendarView: false
-    property bool alwaysShowImages: false
-    property bool alwaysRenderHeavyMessages: false
-    property int undoSendSeconds: 10
-    property int settingChanges: 0
-    property var accountSummaries: []
-    property bool backendCanDiscoverCalendars: true
-    property bool backendCanGoogleCalendars: true
-    property bool calendarRemindersEnabled: true
-    property int calendarSnoozeMinutes: 5
-    property string calendarReminderError: ""
-    property var auth: null
-
-    function setUnifiedCalendarView(value) {
-      unifiedCalendarView = value === true
-      settingChanges = settingChanges + 1
+  width: 640
+  height: 640
+  Component {
+    id: backendFactory
+    QtObject {
+      property bool ready: true
+      property int apiVersion: 8
+      property var calls: []
+      function call(method, params, done) { calls = calls.concat([{method: method, params: params, done: done}]) }
     }
   }
-
-  QtObject {
-    id: calendarController
-
-    property var sourceList: ({ version: 1, sources: [] })
-    property var availableSources: sourceList
-    property bool savingSource: false
-    property bool discoveringCalendars: false
-    property string discoveringAccountId: ""
-    property int discoverCalls: 0
-    property int toggleCalls: 0
-    property string toggledId: ""
-    property int removeCalls: 0
-    property string removedId: ""
-    property int colorCalls: 0
-    property string coloredId: ""
-    property string selectedColor: ""
-    property var discoveryChoices: null
-    property string discoveryChoiceAccount: ""
-    property string defaultId: ""
-    property var reminderPolicy: null
-    signal calendarSaved(bool ok, string error)
-    signal discoveryFinished(bool ok, string error, int count)
-
-    function addCalDavCalendar(_source, _password) {}
-    function removeCalendar(sourceId) { removeCalls++; removedId = sourceId }
-    function updateCalendarPassword(_source, _password) {}
-    function discoveredCount(_accountId) { return 0 }
-    function discoverAccountCalendars(_accountId) { discoverCalls++; return true }
-    function setSourceEnabled(sourceId, _enabled) { toggleCalls++; toggledId = sourceId }
-    function setDefaultCalendar(sourceId) { defaultId = sourceId }
-    function setReminderPolicy(sourceId, enabled, minutes) {
-      reminderPolicy = { id: sourceId, enabled: enabled, minutes: minutes }
-    }
-    function setSourceColor(sourceId, colorKey) {
-      colorCalls++
-      coloredId = sourceId
-      selectedColor = colorKey
+  Component {
+    id: authFactory
+    QtObject {
+      property bool loginBusy: false
+      property bool opens: true
+      signal loginSucceeded()
+      signal sessionUnavailable(string reason)
+      function beginLogin() { if (opens) loginBusy = true }
     }
   }
-
-  Omamail.SettingsPage {
-    id: settings
-    width: parent.width
-    service: mailService
-    calendarController: calendarController
-    textColor: Commons.Color.foreground
-    dimColor: Commons.Color.foreground
-    accentColor: Commons.Color.accent
-    urgentColor: Commons.Color.accent
-    panelFontFamily: "monospace"
+  Component {
+    id: hostFactory
+    QtObject {
+      property string accountId: ""
+      property var auth: null
+      property int signIns: 0
+      function signIn() { signIns++; if (auth) auth.beginLogin() }
+    }
   }
-
-  SignalSpy { id: signInSpy; target: settings; signalName: "calendarSignInRequested" }
-
+  Component {
+    id: serviceFactory
+    QtObject {
+      property var backend: null
+      property var hosts: []
+      function findAccount(id) {
+        for (var index = 0; index < hosts.length; index++) if (hosts[index].accountId === id) return hosts[index]
+        return null
+      }
+    }
+  }
+  Component {
+    id: panelFactory
+    Mail.CalendarSettings {
+      width: 480
+      textColor: palette.windowText
+      dimColor: palette.placeholderText
+      accentColor: palette.highlight
+      panelFontFamily: "sans-serif"
+      SystemPalette { id: palette }
+    }
+  }
   TestCase {
     name: "CalendarSettings"
     when: windowShown
-
+    property var backend
+    property var service
+    property var auth
+    property var host
+    property var panel
     function init() {
-      mailService.accountSummaries = []
-      mailService.backendCanDiscoverCalendars = true
-      calendarController.sourceList = ({ version: 1, sources: [] })
-      calendarController.discoverCalls = 0
-      calendarController.toggleCalls = 0
-      calendarController.toggledId = ""
-      calendarController.removeCalls = 0
-      calendarController.removedId = ""
-      calendarController.colorCalls = 0
-      calendarController.coloredId = ""
-      calendarController.selectedColor = ""
-      calendarController.defaultId = ""
-      calendarController.reminderPolicy = null
-      calendarController.discoveryChoices = null
-      signInSpy.clear()
-      wait(1)
+      backend = createTemporaryObject(backendFactory, parent)
+      auth = createTemporaryObject(authFactory, parent)
+      host = createTemporaryObject(hostFactory, parent, {accountId: "sam@example.com", auth: auth})
+      service = createTemporaryObject(serviceFactory, parent, {backend: backend, hosts: [host]})
+      panel = createTemporaryObject(panelFactory, parent, {service: service})
+      verify(panel)
     }
-
-    function test_unified_view_switch_updates_the_persistent_setting() {
-      var toggle = findChild(settings, "unifiedCalendarSwitch")
-      verify(toggle !== null)
-      compare(toggle.checked, false)
-
-      toggle.toggled()
-      compare(mailService.unifiedCalendarView, true)
-      compare(mailService.settingChanges, 1)
-      compare(toggle.checked, true)
-
-      toggle.toggled()
-      compare(mailService.unifiedCalendarView, false)
-      compare(mailService.settingChanges, 2)
-      compare(toggle.checked, false)
+    function last() {
+      var rows = backend.calls.filter(function(row) { return row.method === "inbox.calendarAccess" })
+      return rows[rows.length - 1]
     }
-
-    function test_existing_icloud_account_is_discovered_and_selected_in_calendars() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
-        signedIn: true }]
-      calendarController.sourceList = ({ version: 1, sources: [{
-        id: "icloud:one", kind: "icloud", name: "Personal",
-        accountId: "imap:person@icloud.com", enabled: true, discovered: true,
-        colorKey: "accent"
-      }] })
-      wait(1)
-      var discover = findChild(settings, "calendar-discover-icloud")
-      verify(discover !== null)
-      // The account already lists a calendar, so the action refreshes it.
-      compare(discover.text, "Refresh calendars")
-      verify(discover.activeFocusOnTab, "discovery must be reachable with Tab")
-      discover.forceActiveFocus()
-      keyClick(Qt.Key_Return)
-      compare(calendarController.discoverCalls, 1)
-      // A switch like every other setting on the page; keyboard reach is the
-      // switch's own, covered where the real control exists.
-      var toggle = findChild(settings, "calendar-source-toggle")
-      verify(toggle !== null)
-      compare(toggle.checked, true)
-      toggle.toggled()
-      compare(calendarController.toggleCalls, 1)
-      compare(calendarController.toggledId, "icloud:one")
-
-      var colorButton = findChild(settings, "calendar-source-color")
-      verify(colorButton !== null)
-      var picker = findChild(settings, "calendar-color-picker")
-      verify(picker !== null)
-      compare(picker.visible, false)
-      verify(colorButton.activeFocusOnTab, "the color trigger must be reachable with Tab")
-      colorButton.forceActiveFocus()
-      keyClick(Qt.Key_Return)
-      compare(picker.visible, true)
-      var blue = findChild(settings, "calendar-color-blue")
-      verify(blue !== null)
-      verify(blue.activeFocusOnTab, "palette choices must be reachable with Tab")
-      blue.forceActiveFocus()
-      keyClick(Qt.Key_Space)
-      compare(calendarController.colorCalls, 1)
-      compare(calendarController.coloredId, "icloud:one")
-      compare(calendarController.selectedColor, "blue")
-      compare(picker.visible, false)
+    function row(account) { return findChild(panel, "settings-calendar-" + account) }
+    function statusOf(account) { return findChild(row(account), "settings-calendar-status").text }
+    function allowOf(account) { return findChild(row(account), "settings-calendar-allow") }
+    function test_an_engine_without_the_calendar_hides_the_section() {
+      verify(!panel.visible)
+      last().done(null, {code: -32601, message: "method_not_found"})
+      verify(!panel.visible)
     }
-    // Removing a mailbox leaves the calendars discovered through it in the
-    // settings file with nothing to sign in as. They can be removed here;
-    // a calendar whose mailbox is still present is refreshed, not removed.
-    function test_a_calendar_whose_mailbox_is_gone_can_be_removed() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
-        signedIn: true }]
-      calendarController.sourceList = ({ version: 1, sources: [{
-        id: "icloud:kept", kind: "icloud", name: "Personal",
-        accountId: "imap:person@icloud.com", enabled: true, discovered: true,
-        colorKey: "accent"
-      }, {
-        id: "icloud:orphan", kind: "icloud", name: "Old",
-        accountId: "imap:gone@icloud.com", enabled: true, discovered: true,
-        colorKey: "accent"
-      }] })
-      wait(1)
-      var removes = []
-      var details = []
-      function collect(item) {
-        if (!item) return
-        if (item.objectName === "calendar-source-remove") removes.push(item)
-        if (item.objectName === "calendar-source-detail") details.push(item)
-        for (var i = 0; i < item.children.length; i++) collect(item.children[i])
-      }
-      collect(settings)
-      compare(removes.length, 2)
-      compare(removes[0].visible, false, "a calendar with its mailbox is not removable")
-      compare(removes[1].visible, true, "a calendar without its mailbox is")
-      compare(details.length, 2)
-      // Listed under its mailbox's row, which already names provider and
-      // address; the orphan is listed on its own and says why.
-      compare(details[0].text, "")
-      compare(details[1].text, "iCloud · Mailbox removed")
-      removes[1].clicked()
-      compare(calendarController.removeCalls, 1)
-      compare(calendarController.removedId, "icloud:orphan")
+    function test_each_account_says_in_plain_words_whether_the_calendar_is_read() {
+      compare(last().params, {})
+      last().done({accounts: {"sam@example.com": "permission_required", "work@example.com": "ready", "old@example.com": "unavailable"}}, null)
+      verify(panel.visible)
+      compare(statusOf("sam@example.com"), "Not allowed yet.")
+      compare(statusOf("work@example.com"), "Read for The Point.")
+      compare(statusOf("old@example.com"), "Could not be read just now. Magpie Mail tries again in a few minutes.")
+      verify(allowOf("sam@example.com").visible)
+      verify(!allowOf("work@example.com").visible, "an allowed calendar offers nothing to do")
+      verify(!allowOf("old@example.com").visible)
+      verify(findChild(panel, "settings-calendar-caption").text.indexOf("Magpie Mail never changes it") > 0)
     }
-
-    function test_old_backend_does_not_offer_discovery() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", calendarProvider: "icloud", signedIn: true }]
-      mailService.backendCanDiscoverCalendars = false
-      wait(1)
-      compare(findChild(settings, "calendar-discover-icloud"), null)
-      compare(calendarController.discoverCalls, 0)
+    function test_allowing_signs_in_again_and_reads_the_calendar_at_once() {
+      last().done({accounts: {"sam@example.com": "permission_required"}}, null)
+      allowOf("sam@example.com").clicked()
+      compare(host.signIns, 1)
+      compare(statusOf("sam@example.com"), "Finish allowing it in your browser.")
+      verify(!allowOf("sam@example.com").visible)
+      auth.loginBusy = false
+      auth.loginSucceeded()
+      compare(last().params, {accountId: "sam@example.com"})
+      compare(statusOf("sam@example.com"), "Checking")
+      last().done({accounts: {"sam@example.com": "ready"}}, null)
+      compare(statusOf("sam@example.com"), "Read for The Point.")
+      verify(!allowOf("sam@example.com").visible)
+      wait(0)
+      compare(statusOf("sam@example.com"), "Read for The Point.", "the closed sign-in is not read as a failure")
     }
-
-    function test_google_setup_failure_keeps_calendars_and_offers_retry() {
-      mailService.accountSummaries = [{ id: "person@example.org", email: "person@example.org",
-        provider: "gmail", calendarProvider: "google", signedIn: true }]
-      calendarController.sourceList = ({ version: 1, sources: [{ id: "personal", kind: "google",
-        accountId: "person@example.org", name: "Personal", enabled: true, readOnly: false,
-        remindersEnabled: true, reminderMinutes: -1, preferred: true }] })
-      wait(1)
-      var discover = findChild(settings, "calendar-discover-google")
-      compare(discover.text, "Refresh calendars...")
-      discover.clicked()
-      compare(calendarController.discoverCalls, 1)
-      calendarController.discoveryFinished(false, "Sign in to this mailbox again", 0)
-      var recovery = findChild(settings, "calendar-setup-recovery")
-      compare(recovery.visible, true)
-      compare(calendarController.sourceList.sources.length, 1)
-      calendarController.discoveryFinished(true, "", 1)
-      compare(recovery.visible, false)
-      compare(findChild(settings, "calendar-open-after-setup").visible, true)
+    function test_a_calendar_left_unticked_asks_again_in_plain_words() {
+      last().done({accounts: {"sam@example.com": "permission_required"}}, null)
+      allowOf("sam@example.com").clicked()
+      auth.loginBusy = false
+      auth.loginSucceeded()
+      last().done({accounts: {"sam@example.com": "permission_required"}}, null)
+      compare(statusOf("sam@example.com"), "Google did not give Magpie Mail the calendar. Allow it again and leave the calendar ticked.")
+      verify(allowOf("sam@example.com").visible)
     }
-
-    function test_signed_out_google_account_starts_its_own_sign_in() {
-      mailService.accountSummaries = [{ id: "person@example.org", email: "person@example.org",
-        provider: "gmail", calendarProvider: "google", signedIn: false }]
-      wait(1)
-      var discover = findChild(settings, "calendar-discover-google")
-      compare(discover.text, "Sign in...")
-      discover.clicked()
-      compare(calendarController.discoverCalls, 0)
-      compare(signInSpy.count, 1)
-      compare(signInSpy.signalArguments[0][0], 0)
+    function test_a_sign_in_that_ends_without_an_answer_can_be_tried_again() {
+      last().done({accounts: {"sam@example.com": "permission_required"}}, null)
+      allowOf("sam@example.com").clicked()
+      auth.loginBusy = false
+      wait(0)
+      compare(statusOf("sam@example.com"), "Magpie Mail did not get the permission. Try again.")
+      verify(allowOf("sam@example.com").visible)
+      allowOf("sam@example.com").clicked()
+      compare(host.signIns, 2)
+      auth.loginBusy = false
+      auth.sessionUnavailable("Google sign-in failed. Please try again")
+      compare(statusOf("sam@example.com"), "Magpie Mail did not get the permission. Try again.")
+      auth.opens = false
+      allowOf("sam@example.com").clicked()
+      compare(statusOf("sam@example.com"), "Magpie Mail could not open Google sign-in. Try again.")
+      var rechecks = backend.calls.filter(function(row) { return row.params.accountId !== undefined })
+      compare(rechecks.length, 0, "only a sign-in that succeeded reads the calendar again")
     }
-
-    function test_reminders_are_independent_of_visibility_and_default_excludes_readonly() {
-      mailService.accountSummaries = [{ id: "person@example.org", email: "person@example.org",
-        provider: "gmail", calendarProvider: "google", signedIn: true }]
-      calendarController.sourceList = ({ version: 1, sources: [
-        { id: "personal", kind: "google", accountId: "person@example.org", name: "Personal",
-          enabled: false, readOnly: false, remindersEnabled: true, reminderMinutes: -1, preferred: true },
-        { id: "holidays", kind: "google", accountId: "person@example.org", name: "Holidays",
-          enabled: true, readOnly: true, remindersEnabled: false, reminderMinutes: -1 }
-      ] })
-      wait(1)
-      // One writable calendar is no choice: no default row is drawn for it.
-      compare(findChild(settings, "calendar-default-picker"), null)
-      calendarController.sourceList = ({ version: 1, sources: calendarController.sourceList.sources.concat([
-        { id: "work", kind: "google", accountId: "person@example.org", name: "Work",
-          enabled: true, readOnly: false, remindersEnabled: false, reminderMinutes: -1 }]) })
-      wait(1)
-      var picker = findChild(settings, "calendar-default-picker")
-      compare(picker.options.length, 2, "the read-only calendar is not offered")
-      compare(picker.value, "personal")
-      picker.changed("work")
-      compare(calendarController.defaultId, "work")
-      var mode = findChild(settings, "calendar-reminder-mode")
-      verify(mode !== null, "reminder timing is a visible setting, not a disclosure")
-      mode.changed("custom")
-      compare(calendarController.reminderPolicy.minutes, 10)
-      compare(calendarController.reminderPolicy.enabled, true)
-      compare(calendarController.toggleCalls, 0)
-      mode.changed("off")
-      compare(calendarController.reminderPolicy.enabled, false)
-      compare(calendarController.toggleCalls, 0)
+    function test_an_account_with_no_host_is_not_signed_in_from_here() {
+      last().done({accounts: {"gone@example.com": "permission_required"}}, null)
+      allowOf("gone@example.com").clicked()
+      compare(statusOf("gone@example.com"), "Sign in to this account first.")
+      compare(host.signIns, 0)
+    }
+    function test_narrow_rows_keep_clear_space() {
+      panel.width = 280
+      last().done({accounts: {"a-very-long-address-for-a-narrow-window@example.com": "permission_required", "old@example.com": "unavailable"}}, null)
+      var first = row("a-very-long-address-for-a-narrow-window@example.com")
+      var second = row("old@example.com")
+      var status = findChild(first, "settings-calendar-status")
+      var allow = allowOf("a-very-long-address-for-a-narrow-window@example.com")
+      waitForItemPolished(first)
+      waitForItemPolished(panel)
+      verify(allow.y >= status.y + status.height + 2, "the button sits below the status with space between")
+      verify(allow.x + allow.width <= first.width)
+      verify(second.y >= first.y + first.height + 4, "the rows do not touch")
+      var longStatus = findChild(second, "settings-calendar-status")
+      verify(longStatus.lineCount > 1 && longStatus.width <= second.width, "a long status wraps inside the row")
     }
   }
 }

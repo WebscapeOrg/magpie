@@ -1,14 +1,11 @@
 import QtQuick
+import "../controls" as Widgets
 import "../settings"
 import qs.Commons
-import qs.Ui
 import "../agent/Agent.js" as Agent
 
-// What the agent found in the message: one row per event — what, when,
-// where — with Add and Dismiss. Add opens the calendar's composer with the
-// fields filled in; nothing is written from here. Every string on the card
-// came out of the agent's answer, which came out of the message, so it is
-// drawn as text and only text.
+// Invariant: suggestions only prefill a human-submitted event; all model-supplied strings remain
+// plain text.
 Rectangle {
   id: root
 
@@ -24,9 +21,6 @@ Rectangle {
   signal dismissRequested(string key)
 
   readonly property var rows: Array.isArray(suggestions) ? suggestions : []
-  // Folded until asked: a guess about somebody else's mail is a line above
-  // the message, not a panel over it. The heading says how many were found
-  // and opens on a click; a new look's findings fold again.
   property bool expanded: false
   readonly property string lookId: rows.length > 0 ? String(rows[0].jobId || "") : ""
   onLookIdChanged: expanded = false
@@ -45,15 +39,26 @@ Rectangle {
     width: parent.width - MailStyle.space(28)
     spacing: MailStyle.space(8)
 
-    Item {
+    Widgets.Button {
       objectName: "suggestionHeader"
+      focusable: true
+      foreground: root.textColor
+      accent: root.accentColor
+      Accessible.name: heading.text
+      Accessible.description: root.expanded ? "Expanded" : "Collapsed"
+      onClicked: root.expanded = !root.expanded
       width: parent.width
       implicitHeight: Math.max(heading.implicitHeight, Style.font.icon)
 
       Row {
+        id: headerContent
+        anchors.left: parent.left
+        anchors.right: fold.left
+        anchors.rightMargin: MailStyle.space(6)
         spacing: MailStyle.space(6)
         anchors.verticalCenter: parent.verticalCenter
         ActionIcon {
+          id: calendarIcon
           name: "calendar"
           iconSize: Style.font.icon
           color: root.accentColor
@@ -62,16 +67,19 @@ Rectangle {
         Text {
           id: heading
           objectName: "suggestionHeading"
+          width: Math.max(0, headerContent.width - calendarIcon.width - headerContent.spacing)
           text: root.rows.length === 1 ? "The agent found an event in this message"
             : "The agent found " + root.rows.length + " events in this message"
           color: root.textColor
           font.family: root.panelFontFamily
           font.pixelSize: MailStyle.bodySmall
           textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
           anchors.verticalCenter: parent.verticalCenter
         }
       }
       ActionIcon {
+        id: fold
         objectName: "suggestionFold"
         name: root.expanded ? "chevronDown" : "chevronRight"
         iconSize: Style.font.icon
@@ -79,8 +87,6 @@ Rectangle {
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
       }
-      TapHandler { onTapped: root.expanded = !root.expanded }
-      HoverHandler { cursorShape: Qt.PointingHandCursor }
     }
 
     Repeater {
@@ -137,14 +143,14 @@ Rectangle {
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
-        Row {
+        Flow {
+          width: parent.width
           spacing: MailStyle.space(8)
           topPadding: MailStyle.space(2)
           IconTextButton {
             objectName: "suggestionAdd"
             iconName: "plus"
-            // The composer opens, so the label says so before it is pressed.
-            text: "Add to calendar..."
+            text: "Review in Magpie Calendar..."
             foreground: root.textColor
             accent: root.accentColor
             fontFamily: root.panelFontFamily

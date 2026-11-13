@@ -65,22 +65,47 @@ def blocks(source):
         yield opening.group(1), source[start:index - 1]
 
 
+def direct_bindings(body):
+    masked = MASKED.sub(lambda match: re.sub(r"[^\n]", " ", match.group(0)), body)
+    depth = 0
+    direct = []
+    children = []
+    for position, character in enumerate(masked):
+        if character == "{":
+            if depth == 0:
+                child = re.search(r"(?:^|[;\n])\s*[A-Z]\w*(?:\.[A-Z]\w*)*\s*$", masked[:position])
+                if child:
+                    children.append(child.start())
+            depth += 1
+        direct.append(character if depth == 0 or character == "\n" else " ")
+        if character == "}":
+            depth -= 1
+    source = "".join(direct)
+    properties = list(re.finditer(r"(?:^|[;\n])\s*(\w+(?:\.\w+)*)\s*:", source))
+    bindings = {}
+    for index, match in enumerate(properties):
+        end = properties[index + 1].start() if index + 1 < len(properties) else len(masked)
+        value = masked[match.end():end].strip().rstrip(";").strip()
+        if match.group(1) == "textFormat":
+            end = min([end] + [child for child in children if child >= match.end()])
+            value = source[match.end():end].strip().split(";")[0].strip()
+        bindings[match.group(1)] = value
+    return bindings
+
+
 def main():
     failures = []
-    files = [
-        p
-        for d in ("", "account", "cache", "message", "providers", "components")
-        for p in sorted((ROOT / d).glob("*.qml"))
-    ]
+    files = [path for path in sorted(ROOT.rglob("*.qml"))
+             if "tests" not in path.relative_to(ROOT).parts]
     for path in files:
         source = path.read_text(encoding="utf-8")
         for name, body in blocks(source):
-            binding = re.search(r"^\s*text\s*:(.*?)(?=^\s*[\w.]+\s*:|\Z)",
-                                body, re.S | re.M)
-            if not binding or not UNTRUSTED.search(binding.group(1)):
+            bindings = direct_bindings(body)
+            text = bindings.get("text", "")
+            if not UNTRUSTED.search(text):
                 continue
-            if "textFormat" not in body:
-                excerpt = " ".join(binding.group(1).split())[:60]
+            if bindings.get("textFormat") != "Text.PlainText":
+                excerpt = " ".join(text.split())[:60]
                 failures.append("%s: %s { text: %s } needs textFormat: Text.PlainText"
                                 % (path.relative_to(ROOT), name, excerpt))
     if failures:

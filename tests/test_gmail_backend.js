@@ -10,13 +10,12 @@ function method(name) {
 }
 const context = { Api: load("providers/GmailApi.js"), inFlight: 0,
   auth: { accountId: "a@example.org", loggedIn: true },
-  backendEpoch: 0, backendAccount: "", Qt: { callLater: fn => fn() } }
+  backendEpoch: 0, backendAccount: "", deferred: { call: fn => fn() } }
 context.root = context
 vm.createContext(context)
 for (const name of ["newHandle", "abortRequest", "listMessages", "getMessage", "getAttachment"])
   vm.runInContext(method(name), context)
-// Load additional real helpers when present; the pre-migration implementation
-// fails at the forbidden network path, not because a helper is missing.
+// Invariant: historical implementations fail on forbidden HTTP, not a missing helper.
 for (const name of ["usesBackend", "invalidateBackend", "backendError", "backendRequest"])
   if (source.includes("  function " + name + "(")) vm.runInContext(method(name), context)
 let pending, request, calls = 0
@@ -122,7 +121,7 @@ const beforeBootstrap = calls
 context.getProfile((profile,error) => { assert.strictEqual(error, ""); assert.strictEqual(profile.email, "new@example.org") })
 assert.strictEqual(calls, beforeBootstrap, "initial identity comes from the native completed grant before registry creation")
 
-// A later UI selection cannot retarget an already captured destructive action.
+// Invariant: later UI selection cannot retarget an already captured destructive action.
 for (const name of ['trashMessage','untrashMessage','trashEach'])
   vm.runInContext(method(name),context)
 const trashRequests=[]
@@ -157,3 +156,44 @@ assert.strictEqual(withdrawn, 1, 'cancellation withdraws the queued physical fra
 assert.strictEqual(context.inFlight, beforeCancel, 'withdrawal releases the in-flight count')
 context.abortRequest(unsent)
 assert.strictEqual(withdrawn, 1, 'withdrawal settles only once')
+
+vm.runInContext(method('localEdit'),context)
+const compatibility=load('backend/Compatibility.js')
+const contractHash='a'.repeat(64)
+for (const [info,expected] of [
+  [{apiVersion:8},'gmail.trash'],
+  [{apiVersion:8,contractHash:'b'.repeat(64)},'gmail.trash'],
+  [{apiVersion:8,contractHash},'local.edit'],
+  [{apiVersion:7},'gmail.trash']
+]) {
+  const requests=[]
+  context.backend={ready:true,executable:'/test/omamail',
+    apiVersion:compatibility.usableApiVersion(info,7,8,contractHash),
+    call(method,params,callback){requests.push({method,params,callback})}}
+  let failure
+  context.trashMessage('frozen-message',(value,error)=>failure=error)
+  assert.strictEqual(requests.length,1)
+  assert.strictEqual(requests[0].method,expected)
+  assert.strictEqual(requests[0].params.accountId,'synthetic@example.org')
+  if (expected==='local.edit') {
+    assert.deepStrictEqual(Array.from(requests[0].params.ids),['frozen-message'])
+    requests[0].callback(null,{message:'local_disk_full'})
+    assert(failure.includes('disk space'))
+  } else {
+    assert.strictEqual(requests[0].params.id,'frozen-message')
+    requests[0].callback({},null)
+    assert.strictEqual(failure,'')
+  }
+}
+console.log('Gmail deletion uses only the confirmed API contract and preserves error reasons')
+
+const gmailErrors = JSON.parse(fs.readFileSync(require("path").join(__dirname,"../backend-api.json"),"utf8")).contractCases.filter(fixture => fixture.name.startsWith("Gmail request status: "))
+context.backend.apiVersion = 8
+for (const fixture of gmailErrors) {
+  const text = context.backendError({message:fixture.equals.error}, "gmail.get")
+  assert(text.includes(fixture.equals.error === "gmail_request_deferred" ? "Magpie Mail is spacing out" : "Gmail is limiting"))
+}
+assert(!context.backendError({message:"gmail_rate_limited"},"gmail.get").includes("Gmail"), "ambiguous legacy errors do not blame Gmail")
+context.backend.apiVersion = 7
+for (const fixture of gmailErrors)
+  assert.strictEqual(context.backendError({message:fixture.equals.error}, "gmail.get"), "Gmail backend could not complete this request", "new classification requires API 8")

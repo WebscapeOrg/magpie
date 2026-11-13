@@ -11,6 +11,7 @@ Item {
   QtObject {
     id: recoveryBackend
     property bool ready: false
+    property bool reconnecting: false
     property int apiVersion: 3
     property var requests: []
     function call(method, params, callback) { requests = requests.concat([{method:method,params:params,done:callback}]) }
@@ -26,6 +27,7 @@ Item {
 
   QtObject {
     id: mailService
+    property var inboxTools: null
     property var backend: recoveryBackend
     property var backendRuntime: null
 
@@ -58,6 +60,13 @@ Item {
     function refreshAgentJobs() {}
     property var displayPreferences: Display.normalize({})
     function setDisplayPreference(key, value) { displayPreferences = Display.changed(displayPreferences, key, value) }
+    property bool listLoading: false
+    property bool listLoaded: true
+    property bool hasMore: false
+    property bool hasSavedAccounts: true
+    property bool signInProgress: false
+    property string accountAddress: accountEmail
+    function attachmentIsSaving(_id, _attachment) { return false }
     property bool ready: true
     property bool anyAccountReady: true
     property bool sendPending: true
@@ -150,11 +159,11 @@ Item {
       if (deferAttachments) { attachmentCallback = callback; return }
       var listed = Array.isArray(attachments) ? attachments : []
       var loaded = []
-      for (var i = 0; i < listed.length; i++) {
+      for (var itemIndex = 0; itemIndex < listed.length; itemIndex++) {
         loaded.push({
-          filename: String(listed[i].filename || "attachment"),
-          mimeType: String(listed[i].mimeType || "application/octet-stream"),
-          size: Number(listed[i].size || 0),
+          filename: String(listed[itemIndex].filename || "attachment"),
+          mimeType: String(listed[itemIndex].mimeType || "application/octet-stream"),
+          size: Number(listed[itemIndex].size || 0),
           data: "ZHJhZnQgZmlsZQ"
         })
       }
@@ -188,7 +197,8 @@ Item {
       draftSaveCallbacks = queued
       callback(error ? null : "draft-1", String(error || ""))
     }
-    function refresh() {}
+    property int refreshCalls: 0
+    function refresh() { refreshCalls++ }
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
     signal replySent()
@@ -204,12 +214,90 @@ Item {
     name: "AppComposePending"
     when: windowShown
 
+    function interviewRequest() {
+      var requests = recoveryBackend.requests.filter(function(r) { return r.method === "inbox.aboutYou" && r.params.interviewOffered === undefined })
+      return requests.length ? requests[requests.length - 1] : null
+    }
+    function allowInterview() {
+      recoveryBackend.apiVersion = 8
+      recoveryBackend.ready = true
+      mailService.inboxTools = ({descriptionsEnabled: true, snoozed: [], waking: false, overviewProblem: "", overviewPending: 0})
+    }
+    function test_a_routine_engine_restart_shows_no_unavailable_page() {
+      var previous=mailService.backendRuntime,wasReady=recoveryBackend.ready
+      try {
+        mailService.backendRuntime=recoveryRuntime
+        recoveryBackend.ready=false;recoveryBackend.reconnecting=false
+        compare(app.backendUnavailable,true,"an engine that stays away is shown")
+        recoveryBackend.reconnecting=true
+        compare(app.backendUnavailable,false,"a restart in progress is not")
+      } finally {
+        recoveryBackend.reconnecting=false;recoveryBackend.ready=wasReady
+        mailService.backendRuntime=previous
+      }
+    }
+    function test_interview_waits_for_compose_to_close() {
+      app.open("{}"); app.backToList(); app.startCompose("new")
+      tryCompare(app,"composing",true)
+      allowInterview(); wait(30)
+      verify(!app.interviewOfferChecking)
+      verify(!findChild(app,"interview-offer").opened)
+      recoveryBackend.requests = []
+      composeView().finish(); wait(30)
+      verify(interviewRequest())
+      interviewRequest().done({text:"",interviewOffered:false},null)
+      tryCompare(findChild(app,"interview-offer"),"opened",true)
+    }
+    function test_interview_reply_does_not_interrupt_an_open_menu() {
+      app.open("{}"); app.backToList(); allowInterview(); wait(30)
+      var request = interviewRequest(); verify(request)
+      var menu = named(app,"app-menu"); menu.openAt(40,40); wait(30)
+      request.done({text:"",interviewOffered:false},null)
+      verify(!findChild(app,"interview-offer").opened)
+      verify(!app.interviewOfferChecked)
+      menu.close(); wait(30)
+      verify(interviewRequest() !== request)
+      interviewRequest().done({text:"",interviewOffered:false},null)
+      tryCompare(findChild(app,"interview-offer"),"opened",true)
+    }
+
+    function test_restart_blocks_application_shortcuts_and_escape_cancels_only_saving() {
+      app.open("{}")
+      app.startCompose("new")
+      var compose = composeView()
+      named(compose, "compose-subject-field").text = "Keep during restart"
+      app.openSettings()
+      wait(20)
+      mailService.refreshCalls = 0
+      keyClick(Qt.Key_R, Qt.ControlModifier)
+      compare(mailService.refreshCalls, 1, "positive control: refresh shortcut reaches the service")
+      var controller = findChild(app, "app-restart")
+      verify(controller)
+      app.composeWriteQueued = true
+      controller.persistenceRevision = 0
+      controller.resumeWrites = false
+      controller.expires = Date.now() + 10000
+      controller.phase = "saving"
+      keyClick(Qt.Key_R, Qt.ControlModifier)
+      compare(mailService.refreshCalls, 1)
+      compare(app.showSettings, true)
+      controller.phase = "stopping"
+      keyClick(Qt.Key_Escape)
+      compare(controller.phase, "stopping")
+      compare(app.showSettings, true)
+      controller.phase = "saving"
+      keyClick(Qt.Key_Escape)
+      compare(controller.phase, "idle")
+      compare(app.showSettings, true)
+      compare(named(compose, "compose-subject-field").text, "Keep during restart")
+    }
+
     function named(item, objectName) {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
@@ -224,8 +312,8 @@ Item {
     function typed(item, prefix) {
       if (String(item).indexOf(prefix) === 0) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = typed(children[i], prefix)
+      for (var itemIndex = 0; itemIndex < children.length; itemIndex++) {
+        var found = typed(children[itemIndex], prefix)
         if (found) return found
       }
       return null
@@ -262,7 +350,7 @@ Item {
       toggle.activated()
       compare(mailService.displayPreferences.layout, "Split view")
       compare(app.singlePane, false)
-      // A sufficiently wide window shows the list and reader together.
+
       app.openMessage("message-1")
       verify(!app.compact)
       compare(list.visible, true)
@@ -336,7 +424,6 @@ Item {
       compare(app.composing, true)
       compare(named(app, "key-router").context, "compose")
 
-      // A normal queued send must remove the restored overlay as well.
       named(compose, "compose-to-field").text = "synthetic@example.com"
       compose.submit()
       compare(compose.opened, false)
@@ -347,28 +434,10 @@ Item {
       compare(app.navKinds.join(","), "list")
     }
 
-    function test_readiness_changes_keep_the_event_composer_in_navigation() {
-      app.open("{}")
-      var composer = typed(app, "CalendarEventComposer_")
-      verify(composer)
-      composer.begin()
-      mailService.anyAccountReady = false
-      wait(20)
-      compare(composer.opened, true)
-      compare(app.composing, true)
-      compare(named(app, "key-router").context, "page")
-      mailService.anyAccountReady = true
-      wait(20)
-      compare(composer.visible, true)
-      compare(app.navKinds.join(","), "list,eventComposer")
-      compare(named(app, "key-router").context, "eventCompose")
-      app.back()
-      compare(composer.opened, false)
-      compare(app.composing, false)
-      compare(app.navKinds.join(","), "list")
-    }
 
     function init() {
+      var restarting = findChild(app, "app-restart")
+      if (restarting) restarting.finish("", false)
       mailService.agentAvailable = true
       mailService.anyAccountReady = true
       mailService.backendRuntime = null
@@ -377,6 +446,10 @@ Item {
       app.composeRecoveryUpdateNoticePending = false
       var exitDialog = named(app, "compose-exit-dialog")
       if (exitDialog) exitDialog.close()
+      mailService.inboxTools = null
+      findChild(app, "interview-offer").close()
+      app.interviewOfferChecked = false
+      app.interviewOfferChecking = false
       recoveryBackend.ready = false
       recoveryBackend.apiVersion = 3
       recoveryRuntime.requiredApiVersion = 2
@@ -484,7 +557,7 @@ Item {
       verify(lastNativeRequest("compose.recoverySave") !== saved, "later APIs must not disable API 3 recovery")
     }
     function lastNativeRequest(method) {
-      for (var i = recoveryBackend.requests.length - 1; i >= 0; i--) if (recoveryBackend.requests[i].method === method) return recoveryBackend.requests[i]
+      for (var itemIndex = recoveryBackend.requests.length - 1; itemIndex >= 0; itemIndex--) if (recoveryBackend.requests[itemIndex].method === method) return recoveryBackend.requests[itemIndex]
       return null
     }
     function test_offline_recovery_warns_on_old_backend_connection_data() {
@@ -570,7 +643,7 @@ Item {
       verify(app.composeRecovery.active !== true);verify(!composeView().opened)
       compare(lastNativeRequest("outbox.forget"),null)
       var saved = lastNativeRequest("compose.recoverySave")
-      // Rust refuses a record without version 1, which left the stale receipt on disk.
+      // Invariant: Rust refuses a record without version 1, which left the stale receipt on disk.
       compare(saved.params.record.version, 1)
       compare(saved.params.record.active, false)
       saved.done({record:saved.params.record,revision:"r2"},null)
@@ -593,7 +666,7 @@ Item {
       verify(!saved.params.record.draft.pendingSendId)
       compare(app.composeReceiptAcks.length, 1)
       compare(lastNativeRequest("outbox.forget"), null)
-      // Even another ack drain cannot release the only durable payload early.
+
       app.acknowledgeComposeReceipts()
       compare(lastNativeRequest("outbox.forget"), null)
       saved.done({record:saved.params.record,revision:"r2"},null)
@@ -729,7 +802,7 @@ Item {
       lastNativeRequest("outbox.snapshot").done({accountId:"me@example.com",entries:[{id:"receipt-one",state:"unknown"}]},null)
       tryVerify(function(){return lastNativeRequest("compose.recoverySave") !== null})
       var refused = lastNativeRequest("compose.recoverySave")
-      // The window is shut, so the failure covers nothing at all.
+
       compare(app.draftSavedNotice,"")
       refused.done(null,{message:"recovery_unavailable"})
       verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
@@ -789,7 +862,7 @@ Item {
       beginNativeRecovery()
       app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
       compare(recoveryBackend.requests.length,2)
-      // The host, not the backend: this write may have landed and lost only its
+      // Invariant: The host, not the backend: this write may have landed and lost only its
       // answer, so sending it again on the same revision would collide with it.
       recoveryBackend.requests[1].done(null,{code:-32010,message:"Backend unavailable"})
       verify(app.composeWriteQueued)
@@ -1087,6 +1160,8 @@ Item {
     }
 
     function test_reply_starts_while_another_send_is_pending() {
+      mailService.sendPending = true
+      compare(mailService.sendPending, true, "the prior send must still be pending")
       compare(app.composing, false)
       app.startCompose("reply")
       compare(app.composing, true,
@@ -1230,7 +1305,7 @@ Item {
       verify(dialog)
       tryCompare(dialog,"opened",true)
       wait(0)
-      for (var i = 0; i < data.tabs; i++) keyClick(data.key, data.key === Qt.Key_Backtab ? Qt.ShiftModifier : Qt.NoModifier)
+      for (var itemIndex = 0; itemIndex < data.tabs; itemIndex++) keyClick(data.key, data.key === Qt.Key_Backtab ? Qt.ShiftModifier : Qt.NoModifier)
       keyClick(Qt.Key_Return)
       tryCompare(dialog,"opened",false)
       compare(compose.opened, data.tag === "cancel")
@@ -1405,13 +1480,40 @@ Item {
       compare(mailService.lastSavedDraft,null)
     }
 
+    function test_save_waits_for_pending_attachment_without_detaching_draft() {
+      app.open("{}")
+      app.startCompose("new")
+      var compose = composeView()
+      named(compose, "compose-subject-field").text = "Keep the attachment"
+      recoveryBackend.ready = true
+      compose.queueSelectedAttachments(compose, ["/synthetic-pending.txt"], compose.draftKey, compose.accountId)
+      var request = lastNativeRequest("attachment.read")
+      verify(request !== null)
+      compare(compose.attachmentsReady, false)
+      var owner = compose.draftKey
+      app.goBack()
+      compare(named(app, "compose-exit-dialog").opened, true)
+      keyClick(Qt.Key_Return)
+      compare(mailService.lastSavedDraft, null, "No incomplete draft may reach provider storage")
+      compare(compose.opened, true)
+      compare(compose.draftKey, owner)
+      verify(mailService.lastError.indexOf("attachments") >= 0)
+      request.done({ok:true,filename:"synthetic-pending.txt",data:"eA",size:1},null)
+      compare(compose.attachmentsReady, true)
+      compare(compose.draftAttachments.length, 1)
+      app.saveAndLeaveCompose(true)
+      verify(mailService.lastSavedDraft !== null)
+      compare(mailService.lastSavedDraft.attachments.length, 1)
+      compare(compose.opened, false)
+    }
+
     function test_late_attachment_cannot_modify_the_next_compose() {
       app.open("{}")
       app.startCompose("new")
       var compose = composeView()
       mailService.pluginDir = "/synthetic-plugin"
       recoveryBackend.ready = true
-      compose.enqueueAttach("read","/synthetic-attachment")
+      compose.queueSelectedAttachments(compose, ["/synthetic-attachment"], compose.draftKey, compose.accountId)
       var request = lastNativeRequest("attachment.read")
       verify(request !== null)
       compose.finish()
@@ -1551,8 +1653,6 @@ Item {
         "once the newer draft is durable, recovery follows the older failed draft")
     }
 
-    // A click on a draft previews it, as a click does in every mailbox; the
-    // keys are what edit it.
     function test_a_click_previews_a_draft() {
       mailService.mailboxKey = "drafts"
       app.openMessage("draft-7")
@@ -1583,10 +1683,8 @@ Item {
       mailService.mailboxKey = "inbox"
     }
 
-    // In Drafts, opening a draft is editing it: `o` selects the draft and,
-    // once its body has loaded, the composer opens on it with what was
-    // written — no second key. `c` still does the same.
     function test_open_edits_a_draft_once_its_body_has_loaded() {
+      failOnWarning(/attachmentIsSaving/)
       var compose = composeView()
       mailService.mailboxKey = "drafts"
       app.cursorId = "draft-7"
@@ -1649,9 +1747,6 @@ Item {
       compare(mailService.lastSavedDraft.subject, "Updated subject")
     }
 
-    // A send that failed leaves the message in the parked draft and nowhere
-    // else — not in Drafts, not in Sent, not in an outbox. The composer coming
-    // back holding it is the only thing between a timeout and a lost message.
     function test_a_failed_send_puts_the_message_back_in_the_composer() {
       var compose = composeView()
       verify(compose)
@@ -1675,9 +1770,6 @@ Item {
       compare(app.composeRecovery.draft.body, "Keep every word")
     }
 
-    // The collision undo already has: a draft started during the undo window
-    // is in the composer when the parked one comes back, and saving it is what
-    // keeps the parked one from overwriting it.
     function test_a_failed_send_saves_a_draft_started_over_it() {
       var compose = composeView()
       app.startCompose("new")

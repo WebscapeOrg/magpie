@@ -1,10 +1,14 @@
 #include "application_host.h"
 #include "file_store.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -20,9 +24,15 @@ class SettingsTest : public QObject {
 private slots:
     void initTestCase();
     void atomicSettingsRoundTrip();
+    void sharedPreferencesSurviveHostReload();
+    void legacyPluginSettingsMigrateWithoutOverwritingNative();
     void invalidJsonIsPreserved();
     void rejectsCredentialAndUnknownFields();
     void fileStoreReadsWritesAndWatches();
+    void credentialsRejectUnsupportedWritesWithoutCreatingFiles();
+    void credentialsPreserveUnsupportedDiskSourceAfterStaleRead();
+    void credentialsKeepLegacyGoogleClientFormats();
+    void sharedWatchSurvivesOneSubscriberLeaving();
     void fileStoreWriteOutlastsABriefShareLock();
     void watchReportsExternalCreation();
     void watchReportsDirectoryMutation();
@@ -35,6 +45,82 @@ private slots:
 void SettingsTest::initTestCase()
 {
     QStandardPaths::setTestModeEnabled(true);
+}
+
+void SettingsTest::credentialsRejectUnsupportedWritesWithoutCreatingFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("missing/credentials.json"));
+    FileStore store;
+    QSignalSpy changed(&store, &FileStore::changed);
+    for (const QJsonValue &provider : QJsonArray{QStringLiteral("imap"), QStringLiteral("outlook"),
+             QStringLiteral("jmap"), QStringLiteral("hey"), QStringLiteral("unknown"), 7, false,
+             QJsonArray{}, QJsonObject{}}) {
+        for (bool nested : {false, true}) {
+            const QJsonObject record{{QStringLiteral("provider"), provider},
+                                     {QStringLiteral("clientId"), QStringLiteral("123-client.apps.googleusercontent.com")}};
+            const QJsonObject payload = nested
+                ? QJsonObject{{QStringLiteral("accounts"), QJsonArray{QJsonObject{}, record}}}
+                : record;
+            const auto reply = store.write(path, QString::fromUtf8(QJsonDocument(payload).toJson()));
+            QVERIFY(!reply.value(QStringLiteral("ok")).toBool());
+            QVERIFY(reply.value(QStringLiteral("error")).toString().contains(QStringLiteral("Only Gmail")));
+            QVERIFY(!QFileInfo::exists(QFileInfo(path).absolutePath()));
+        }
+    }
+    QVERIFY(changed.isEmpty());
+}
+
+void SettingsTest::credentialsPreserveUnsupportedDiskSourceAfterStaleRead()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("credentials.json"));
+    const QByteArray compatible = R"({"installed":{"client_id":"123-client.apps.googleusercontent.com"}})";
+    FileStore store;
+    QVERIFY(store.write(path, QString::fromUtf8(compatible)).value(QStringLiteral("ok")).toBool());
+    const QString stale = store.read(path).value(QStringLiteral("text")).toString();
+    QSignalSpy changed(&store, &FileStore::changed);
+    const QList<QByteArray> unsupported{
+        R"({"provider":"outlook","clientSecret":"synthetic-private"})",
+        R"({"accounts":[{"provider":"gmail"},{"provider":"jmap","clientSecret":"synthetic-private"}]})",
+        R"({"accounts":[{"provider":false}]})",
+        R"({"installed":{"provider":"imap"}})",
+        R"({"accounts":[{"web":{"provider":"outlook"}}]})", "damaged-json", ""};
+    for (const QByteArray &original : unsupported) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(file.write(original), original.size());
+        file.close();
+        const auto permissions = QFileInfo(path).permissions();
+        const QStringList files = QDir(directory.path()).entryList(QDir::Files | QDir::Hidden);
+        for (bool atomic : {false, true}) {
+            QVERIFY(!store.write(path, stale, atomic).value(QStringLiteral("ok")).toBool());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(), original);
+            file.close();
+            QCOMPARE(QFileInfo(path).permissions(), permissions);
+            QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden), files);
+        }
+    }
+    QVERIFY(changed.isEmpty());
+}
+
+void SettingsTest::credentialsKeepLegacyGoogleClientFormats()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("credentials.json"));
+    FileStore store;
+    const QStringList compatible{
+        QStringLiteral(R"({"installed":{"client_id":"123-client.apps.googleusercontent.com"}})"),
+        QStringLiteral(R"({"clientId":"123-client.apps.googleusercontent.com"})"),
+        QStringLiteral(R"({"provider":null,"accounts":[{"provider":" GMAIL ","id":"owner@workspace.example"},{"provider":"","id":"other@example.org"}]})")};
+    for (const QString &payload : compatible) {
+        QVERIFY(store.write(path, payload).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(store.read(path).value(QStringLiteral("text")).toString(), payload);
+    }
 }
 
 void SettingsTest::atomicSettingsRoundTrip()
@@ -56,11 +142,113 @@ void SettingsTest::atomicSettingsRoundTrip()
     QVERIFY(permissions.testFlag(QFileDevice::ReadOwner));
     QVERIFY(permissions.testFlag(QFileDevice::WriteOwner));
 #ifndef Q_OS_WIN
-    // NTFS has no group and other bits; Qt reports the file readable by both
+    // Invariant: NTFS has no group and other bits; Qt reports the file readable by both
     // whatever the ACL says, so the private mode is a POSIX assertion.
     QVERIFY(!permissions.testFlag(QFileDevice::ReadGroup));
     QVERIFY(!permissions.testFlag(QFileDevice::ReadOther));
 #endif
+}
+
+void SettingsTest::sharedPreferencesSurviveHostReload()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("settings.json"));
+    const QString manifest = directory.filePath(QStringLiteral("manifest.json"));
+    QFile manifestFile(manifest);
+    QVERIFY(manifestFile.open(QIODevice::WriteOnly));
+    const QByteArray manifestBytes(
+        "{\"id\":\"omamail\",\"name\":\"Magpie Mail\","
+        "\"barWidget\":{\"defaults\":{\"refreshIntervalSec\":300}}}");
+    QCOMPARE(manifestFile.write(manifestBytes), manifestBytes.size());
+    manifestFile.close();
+    ApplicationHost host(manifest, {}, path);
+    QVariantMap preferences = host.settings();
+    QVERIFY(preferences.contains(QStringLiteral("refreshIntervalSec")));
+    preferences.insert(QStringLiteral("appearance"), QStringLiteral("Dark"));
+    preferences.insert(QStringLiteral("calendarRemindersEnabled"), false);
+    preferences.insert(QStringLiteral("calendarSnoozeMinutes"), 15);
+    preferences.insert(QStringLiteral("previewOnCursor"), true);
+    preferences.insert(QStringLiteral("markReadDelaySec"), 30);
+    preferences.insert(QStringLiteral("aiAgent"), QStringLiteral("Codex"));
+    preferences.insert(QStringLiteral("aiModel"), QStringLiteral("synthetic-model"));
+    preferences.insert(QStringLiteral("aiChatResetAt"), qint64(1792616400000));
+    QSignalSpy changed(&host, &ApplicationHost::settingsChanged);
+    QVERIFY(host.updateSettings(preferences));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(host.settings(), preferences);
+    ApplicationHost reloaded(manifest, {}, path);
+    QCOMPARE(reloaded.settings(), preferences);
+
+    QVariantMap forbidden = preferences;
+    forbidden.insert(QStringLiteral("refreshToken"), QStringLiteral("synthetic-secret"));
+    QVERIFY(!host.updateSettings(forbidden));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(host.settings(), preferences);
+    SettingsStore store(path);
+    QCOMPARE(store.load(), preferences);
+}
+
+void SettingsTest::legacyPluginSettingsMigrateWithoutOverwritingNative()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray oldHome = qgetenv("HOME");
+    const QByteArray oldConfig = qgetenv("XDG_CONFIG_HOME");
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    const QString oldOrganization = QCoreApplication::organizationName();
+    const QString oldApplication = QCoreApplication::applicationName();
+    qputenv("HOME", directory.path().toLocal8Bit());
+    qputenv("XDG_CONFIG_HOME", directory.filePath("config").toLocal8Bit());
+    qputenv("XDG_DATA_HOME", directory.filePath("data").toLocal8Bit());
+    QCoreApplication::setOrganizationName(QStringLiteral("Omamail"));
+    QCoreApplication::setApplicationName(QStringLiteral("Omamail"));
+
+    const QString shared = directory.filePath(QStringLiteral("config/omamail"));
+    const QByteArray settings = QByteArrayLiteral(
+        "{\"notifyNewMail\":\"Off\",\"appearance\":\"Dark\","
+        "\"previewOnCursor\":true,\"markReadDelaySec\":30}");
+    const QByteArray routes = QByteArrayLiteral("{\"routes\":[]}");
+    auto write = [](const QString &path, const QByteArray &bytes) {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    QVERIFY(write(QDir(shared).filePath(QStringLiteral("settings.json")), settings));
+    QVERIFY(write(QDir(shared).filePath(QStringLiteral("notification-routes.json")), routes));
+
+    SettingsStore migrated;
+    const QString nativeSettings = migrated.path();
+    QVERIFY(nativeSettings.startsWith(directory.path()));
+    const QVariantMap values = migrated.load();
+    QCOMPARE(values.value(QStringLiteral("notifyNewMail")).toString(), QStringLiteral("Off"));
+    QCOMPARE(values.value(QStringLiteral("appearance")).toString(), QStringLiteral("Dark"));
+    QCOMPARE(values.value(QStringLiteral("previewOnCursor")).toBool(), true);
+    QCOMPARE(values.value(QStringLiteral("markReadDelaySec")).toInt(), 30);
+    const QString nativeRoutes = QFileInfo(nativeSettings).dir().filePath(
+        QStringLiteral("notification-routes.json"));
+    QFile routesFile(nativeRoutes);
+    QVERIFY(routesFile.open(QIODevice::ReadOnly));
+    QCOMPARE(routesFile.readAll(), routes);
+    routesFile.close();
+    QVERIFY(!(QFileInfo(nativeSettings).permissions()
+              & (QFileDevice::ReadGroup | QFileDevice::ReadOther)));
+
+    QVERIFY(write(QDir(shared).filePath(QStringLiteral("settings.json")),
+                  QByteArrayLiteral("{\"showBarIcon\":false}")));
+    QVERIFY(write(QDir(shared).filePath(QStringLiteral("notification-routes.json")),
+                  QByteArrayLiteral("{\"routes\":[\"changed\"]}")));
+    SettingsStore existing;
+    QCOMPARE(existing.path(), nativeSettings);
+    QCOMPARE(existing.load(), values);
+    QVERIFY(routesFile.open(QIODevice::ReadOnly));
+    QCOMPARE(routesFile.readAll(), routes);
+
+    QCoreApplication::setOrganizationName(oldOrganization);
+    QCoreApplication::setApplicationName(oldApplication);
+    qputenv("HOME", oldHome);
+    qputenv("XDG_CONFIG_HOME", oldConfig);
+    qputenv("XDG_DATA_HOME", oldData);
 }
 
 void SettingsTest::invalidJsonIsPreserved()
@@ -115,7 +303,32 @@ void SettingsTest::fileStoreReadsWritesAndWatches()
     QCOMPARE(changed.last().at(0).toString(), path);
 }
 
-// A file just written is briefly held by the virus scanner or the indexer on
+void SettingsTest::sharedWatchSurvivesOneSubscriberLeaving()
+{
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("shared.txt"));
+    FileStore store;
+    QVERIFY(store.write(path, QStringLiteral("initial"), true).value(QStringLiteral("ok")).toBool());
+    store.watch(path, true);
+    store.watch(path, true);
+    store.watch(path, false);
+    QSignalSpy changed(&store, &FileStore::changed);
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("external"), qint64(8));
+    file.close();
+    QTRY_VERIFY_WITH_TIMEOUT(!changed.isEmpty(), 2000);
+    store.watch(path, false);
+    QTest::qWait(50);
+    changed.clear();
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("no subscribers"), qint64(14));
+    file.close();
+    QTest::qWait(100);
+    QVERIFY(changed.isEmpty());
+}
+
+// Invariant: A file just written is briefly held by the virus scanner or the indexer on
 // Windows, and replacing it in that moment failed with a sharing violation:
 // a settings save that "sometimes" did nothing. The write waits it out.
 void SettingsTest::fileStoreWriteOutlastsABriefShareLock()
@@ -146,10 +359,30 @@ void SettingsTest::fileStoreWriteOutlastsABriefShareLock()
 void SettingsTest::environmentUsesFixedAllowlist()
 {
     qputenv("OMAMAIL_BIN", "/synthetic/backend");
+    qputenv("XDG_DATA_HOME", "/synthetic/data");
     qputenv("OMAMAIL_TEST_SECRET", "must-not-cross-qml-boundary");
     ApplicationHost host;
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+    QCOMPARE(host.capabilities().value(QStringLiteral("mailto")).toBool(), true);
+#else
+    QCOMPARE(host.capabilities().value(QStringLiteral("mailto")).toBool(), false);
+#endif
+#ifdef Q_OS_LINUX
+    QCOMPARE(host.capabilities().value(QStringLiteral("defaultMailClient")).toBool(), true);
+#else
+    QCOMPARE(host.capabilities().value(QStringLiteral("defaultMailClient")).toBool(), false);
+#endif
     QCOMPARE(host.environment(QStringLiteral("OMAMAIL_BIN")), QStringLiteral("/synthetic/backend"));
+    QCOMPARE(host.environment(QStringLiteral("XDG_DATA_HOME")), QStringLiteral("/synthetic/data"));
     QCOMPARE(host.environment(QStringLiteral("OMAMAIL_TEST_SECRET")), QString());
+
+    qputenv("OMAMAIL_DISABLE_NOTIFICATIONS", "1");
+    ApplicationHost quiet;
+    QCOMPARE(quiet.capabilities().value(QStringLiteral("notifications")).toBool(), false);
+    QVERIFY(!quiet.showNotification(QStringLiteral("synthetic"), QStringLiteral("Title"),
+                                    QStringLiteral("Body"), QStringLiteral("account"),
+                                    QStringLiteral("message")));
+    qunsetenv("OMAMAIL_DISABLE_NOTIFICATIONS");
 }
 
 void SettingsTest::applicationPathsMatchBackendRoots()
@@ -223,7 +456,7 @@ void SettingsTest::watchReportsDirectoryMutation()
     QCOMPARE(changed.last().at(0).toString(), watchedDirectory);
 }
 
-// A directory event used to re-arm every watch, and re-arming the directory
+// Invariant: A directory event used to re-arm every watch, and re-arming the directory
 // raised another directory event: one metadata tick on a sibling file kept
 // the store emitting for the rest of the process's life.
 void SettingsTest::watchSettlesAfterDirectoryMutation()
@@ -235,7 +468,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QVERIFY(seed.open(QIODevice::WriteOnly));
     QCOMPARE(seed.write("{}"), qint64(2));
     seed.close();
-    // The backend keeps lock files beside its registry. Qt's FSEvents engine
+    // Invariant: The backend keeps lock files beside its registry. Qt's FSEvents engine
     // lists a directory without hidden entries when a watch is added and with
     // them when it checks the directory, so a hidden sibling makes every
     // re-armed watch report the directory as changed once more.
@@ -249,7 +482,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QTest::qWait(300);
     changed.clear();
 
-    // A sibling written is a directory event everywhere. The backend's own
+    // Invariant: A sibling written is a directory event everywhere. The backend's own
     // touch, re-asserting a private mode that already holds, moves only a
     // ctime, which is nothing Windows reports.
     QFile sibling(directory.filePath(QStringLiteral("accounts.json")));
@@ -261,7 +494,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QVERIFY(QFile::setPermissions(present, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
 #endif
     QTRY_VERIFY_WITH_TIMEOUT(!changed.isEmpty(), 2000);
-    // FSEvents delivers these three mutations in as many batches as it
+    // Invariant: FSEvents delivers these three mutations in as many batches as it
     // likes, and a busy runner can space them well apart. Wait for a quiet
     // second rather than assuming when the last one lands; the loop never
     // went quiet.
@@ -273,7 +506,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
         QTest::qWait(1000);
     }
     QCOMPARE(changed.count(), settled);
-    // A handful for two coalesced events over two watched paths; the loop
+    // Invariant: A handful for two coalesced events over two watched paths; the loop
     // produced hundreds and was still going.
     QVERIFY2(settled <= 16, qPrintable(QString::number(settled)));
 }

@@ -381,15 +381,44 @@ def payload():
     return value
 
 
-def default_provider():
-    with subprocess.Popen(['omarchy-default-agent'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as probe:
+def system_preference():
+    probe = subprocess.Popen(['omarchy-default-agent'], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + 5
+    selected = bytearray()
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(probe.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise ValueError('Could not read the system AI preference.')
+                chunk = os.read(probe.stdout.fileno(), 1025 - len(selected))
+                if not chunk:
+                    selector.unregister(probe.stdout)
+                    continue
+                selected.extend(chunk)
+                if len(selected) > 1024:
+                    raise ValueError('Could not read the system AI preference.')
+        while os.waitid(os.P_PID, probe.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            if time.monotonic() >= deadline:
+                raise ValueError('Could not read the system AI preference.')
+            time.sleep(.01)
+    finally:
+        # Invariant: the leader stays unreaped until its process group is stopped.
         try:
-            selected, _ = probe.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            probe.kill()
-            probe.wait()
-            raise ValueError('Could not read the system AI preference.')
-    if probe.returncode or selected.strip() != b'claude':
+            os.killpg(probe.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        probe.wait()
+        probe.stdout.close()
+    if probe.returncode:
+        raise ValueError('Could not read the system AI preference.')
+    return selected.strip()
+
+
+def default_provider():
+    if system_preference() != b'claude':
         raise ValueError('Background AI currently supports Claude. Choose Claude in the system AI settings, then retry.')
     if not shutil.which('claude'):
         raise ValueError('Claude is not installed. Install and sign in to the system AI, then retry.')
@@ -520,8 +549,8 @@ def run(base, path, ident):
                         if len(pending) > EVENT_LIMIT:
                             raise ValueError('The AI stream event exceeded its size limit.')
                     if time.monotonic() - last_write >= .1:
-                        write(fd, 'display.json', parser.value)
                         with locked(base):
+                            write(fd, 'display.json', parser.value)
                             job.update(progress=parser.progress, updated=int(time.time()))
                             write(fd, 'job.json', job)
                         last_write = time.monotonic()
@@ -552,13 +581,13 @@ def run(base, path, ident):
                     failure = 'The AI request failed. Check its login or permissions and retry.'
             # Persist only already validated snapshots; oversized/invalid events
             # must never poison a previously readable conversation.
-            try:
-                transcript_check(parser.value['transcript'])
-                if len(parser.value['output'].encode('utf-8')) <= RESULT_LIMIT:
-                    write(fd, 'display.json', parser.value)
-            except (ValueError, UnicodeError):
-                pass
             with locked(base):
+                try:
+                    transcript_check(parser.value['transcript'])
+                    if len(parser.value['output'].encode('utf-8')) <= RESULT_LIMIT:
+                        write(fd, 'display.json', parser.value)
+                except (ValueError, UnicodeError):
+                    pass
                 job.update(state='cancelled' if cancelled else 'failed' if failure else 'done', updated=int(time.time()), progress='Stopped' if cancelled else 'Failed' if failure else 'Finished', resultReady=not cancelled and not failure, sessionId=parser.value['sessionId'])
                 job.pop('pid', None)
                 if failure:

@@ -4,10 +4,22 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 fn list_attachment_flags_follow_explicit_mime_metadata_not_snippet_words() {
     use serde_json::json;
     for (message, expected) in [
-        (json!({"snippet":"The attachment is mentioned but absent"}), false),
-        (json!({"payload":{"mimeType":"application/pdf","filename":"report.pdf"}}), true),
-        (json!({"payload":{"parts":[{"mimeType":"image/png","filename":"logo.png","headers":[{"name":"Content-ID","value":"<logo>"}]}]}}), false),
-        (json!({"payload":{"parts":[{"mimeType":"image/png","filename":"photo.png","headers":[{"name":"Content-Disposition","value":"attachment"}]}]}}), true),
+        (
+            json!({"snippet":"The attachment is mentioned but absent"}),
+            false,
+        ),
+        (
+            json!({"payload":{"mimeType":"application/pdf","filename":"report.pdf"}}),
+            true,
+        ),
+        (
+            json!({"payload":{"parts":[{"mimeType":"image/png","filename":"logo.png","headers":[{"name":"Content-ID","value":"<logo>"}]}]}}),
+            false,
+        ),
+        (
+            json!({"payload":{"parts":[{"mimeType":"image/png","filename":"photo.png","headers":[{"name":"Content-Disposition","value":"attachment"}]}]}}),
+            true,
+        ),
         (json!({"hasAttachments":true}), true),
     ] {
         let summary = super::content::summarize(&message, 0).unwrap();
@@ -102,7 +114,7 @@ fn inline_images_are_embedded_instead_of_listed_as_attachments() {
     assert_eq!(listed, ["photo.jpg", "document.pdf"]);
 }
 
-// Some senders put the markup itself in the text/plain alternative. Shown as
+// Invariant: Some senders put the markup itself in the text/plain alternative. Shown as
 // text that is a page of tags, so the HTML part is read instead; text that
 // merely opens with an angle bracket stays the sender's text.
 #[test]
@@ -146,7 +158,6 @@ fn markup_in_the_plain_alternative_is_read_from_the_html_part() {
         assert_eq!(body["source"], "plain", "{text}");
         assert_eq!(body["text"], text, "{text}");
     }
-    // With no HTML part there is nothing better to read.
     let only = "<div><p>Send money easily</p></div>";
     let body = &super::content::prepare(&message(only, None), 0).unwrap()["body"];
     assert_eq!(body["source"], "plain");

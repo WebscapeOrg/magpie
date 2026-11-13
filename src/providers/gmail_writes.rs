@@ -14,6 +14,7 @@ pub(super) fn supports(method: &str) -> bool {
             | "gmail.trash"
             | "gmail.untrash"
             | "gmail.send"
+            | "gmail.sendDraft"
             | "gmail.saveDraft"
             | "gmail.updateDraft"
             | "gmail.deleteDraft"
@@ -71,13 +72,13 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
     let allowed: &[&str] = match method {
         "gmail.modify" => &["accountId", "id", "addLabelIds", "removeLabelIds"],
         "gmail.batchModify" => &["accountId", "ids", "addLabelIds", "removeLabelIds"],
-        "gmail.createLabel" => &["accountId", "name"],
+        "gmail.createLabel" => &["accountId", "name", "hidden"],
         "gmail.renameLabel" => &["accountId", "id", "name"],
         "gmail.deleteLabel" | "gmail.trash" | "gmail.untrash" | "gmail.deleteDraft" => {
             &["accountId", "id"]
         }
         "gmail.send" | "gmail.saveDraft" => &["accountId", "raw", "threadId"],
-        "gmail.updateDraft" => &["accountId", "id", "raw", "threadId"],
+        "gmail.updateDraft" | "gmail.sendDraft" => &["accountId", "id", "raw", "threadId"],
         _ => return Err("unknown_method"),
     };
     if params
@@ -113,10 +114,18 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
             result.body = Some(body);
         }
         "gmail.createLabel" => {
+            // A hidden label is kept out of Gmail's label list and message chips; Magpie uses it for snooze.
+            let hidden = match params.get("hidden") {
+                None => false,
+                Some(Value::Bool(value)) => *value,
+                Some(_) => return Err("invalid_params"),
+            };
             result.path = vec!["labels".into()];
-            result.body = Some(
-                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelShow","messageListVisibility":"show"}),
-            );
+            result.body = Some(if hidden {
+                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelHide","messageListVisibility":"hide"})
+            } else {
+                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelShow","messageListVisibility":"show"})
+            });
         }
         "gmail.renameLabel" | "gmail.deleteLabel" => {
             result.path = vec!["labels".into(), field(params, "id", true)?.into()];
@@ -144,20 +153,22 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
             result.path = vec!["drafts".into()];
             result.body = Some(json!({"message":message(params)?}));
         }
-        "gmail.updateDraft" | "gmail.deleteDraft" => {
+        "gmail.updateDraft" | "gmail.deleteDraft" | "gmail.sendDraft" => {
             result.draft_message = Some(field(params, "id", true)?.into());
             result.method = if method == "gmail.updateDraft" {
                 Method::PUT
+            } else if method == "gmail.sendDraft" {
+                Method::POST
             } else {
                 Method::DELETE
             };
-            if method == "gmail.updateDraft" {
+            if matches!(method, "gmail.updateDraft" | "gmail.sendDraft") {
                 result.body = Some(json!({"message":message(params)?}));
             }
         }
         _ => unreachable!(),
     }
-    // Validate path spelling before reading credentials, including dot segments.
+    // Invariant: Validate path spelling before reading credentials, including dot segments.
     for part in &result.path {
         super::super::gmail_http::validate_path_part(part).map_err(|_| "invalid_params")?;
     }
@@ -214,6 +225,7 @@ impl Session {
         &self,
         method: &str,
         params: &Value,
+        withdrawable: bool,
     ) -> Result<(u64, tokio::sync::oneshot::Receiver<queue::Outcome>), &'static str> {
         let plan = plan(method, params)?;
         let account = field(params, "accountId", true)?.to_lowercase();
@@ -236,6 +248,7 @@ impl Session {
                 http: plan.method,
                 path: plan.path,
                 body: plan.body,
+                withdrawable,
             },
         )
     }
@@ -282,7 +295,12 @@ impl Session {
                     Err("gmail_draft_missing")
                 };
             };
-            plan.path = vec!["drafts".into(), id];
+            if method == "gmail.sendDraft" {
+                plan.path = vec!["drafts".into(), "send".into()];
+                plan.body.as_mut().ok_or("invalid_params")?["id"] = json!(id);
+            } else {
+                plan.path = vec!["drafts".into(), id];
+            }
         }
         session.check()?;
         let path: Vec<&str> = plan.path.iter().map(String::as_str).collect();
@@ -298,7 +316,7 @@ impl Session {
         if answer == Err("gmail_unauthorized") {
             session.reject(&token).await?;
         }
-        // Delivery suppression after logout does not pretend a dispatched mutation was undone.
+        // Invariant: Delivery suppression after logout does not pretend a dispatched mutation was undone.
         session.check()?;
         answer
     }
@@ -333,6 +351,25 @@ mod tests {
         );
         assert!(plan("gmail.send", &json!({"raw":"bad\r\n"})).is_err());
         assert!(plan("gmail.trash", &json!({"id":".."})).is_err());
+        assert!(plan("gmail.createLabel", &json!({"name":"x","hidden":"yes"})).is_err());
+    }
+    #[test]
+    fn creates_hidden_labels_only_when_asked() {
+        let shown = plan("gmail.createLabel", &json!({"name":"Receipts"})).unwrap();
+        assert_eq!(
+            shown.body,
+            Some(json!({"name":"Receipts","labelListVisibility":"labelShow","messageListVisibility":"show"}))
+        );
+        let hidden = plan(
+            "gmail.createLabel",
+            &json!({"name":"Magpie-snooze-2026-11-02-0500-UTC","hidden":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            hidden.body,
+            Some(json!({"name":"Magpie-snooze-2026-11-02-0500-UTC","labelListVisibility":"labelHide","messageListVisibility":"hide"}))
+        );
+        assert_eq!(hidden.path, vec!["labels"]);
     }
     #[test]
     fn preserves_message_bytes_and_mutation_semantics() {

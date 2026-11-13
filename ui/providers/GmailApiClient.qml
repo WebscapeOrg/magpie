@@ -2,11 +2,13 @@ import QtQuick
 
 import "GmailApi.js" as Api
 
-// Authenticated transport. It holds no state about the mailbox — only about
+// Invariant: Authenticated transport. It holds no state about the mailbox — only about
 // requests in flight — so the service can cancel a page load without having to
 // know anything about how it was issued.
 Item {
   id: root
+
+  Deferred { id: deferred }
 
   visible: false
   width: 0
@@ -28,7 +30,7 @@ Item {
   }
   Component.onDestruction: invalidateBackend()
 
-  // Gmail returns IDs separately from message resources. A bounded group of
+  // Performance: Gmail returns IDs separately from message resources. A bounded group of
   // reads keeps queued work inside each request's deadline while rows arrive.
   property int inFlight: 0
   readonly property bool busy: inFlight > 0
@@ -45,7 +47,7 @@ Item {
     backendEpoch++
     var old = backendAccount
     backendAccount = ""
-    // Cache eviction only: queued requests and external keyring credentials
+    // Invariant: Cache eviction only: queued requests and external keyring credentials
     // are not revoked by this message. Epochs suppress stale UI delivery.
     if (old !== "" && usesBackend())
       backend.call("gmail.invalidate", { accountId: old }, function() {})
@@ -53,6 +55,7 @@ Item {
 
   function backendError(error, method) {
     var code = String(error && error.message || "")
+    if (code === "backend_needs_update") return Api.localEditError(error)
     if (code === "gmail_timeout" || code === "request_timed_out")
       return /^(gmail\.(modify|batchModify|createLabel|renameLabel|deleteLabel|trash|untrash|send|saveDraft|updateDraft|deleteDraft))$/.test(method)
         ? "Gmail did not answer in time. The submitted change may have completed."
@@ -61,27 +64,32 @@ Item {
       return "Gmail authorization expired. Sign in again."
     if (code === "gmail_forbidden") return "Gmail refused this request (HTTP 403). Check account permissions."
     if (code === "gmail_length_required") return "Gmail rejected the request format (HTTP 411)."
-    if (code === "gmail_rate_limited") return "Gmail requests are temporarily limited. Try again later."
+    if (code === "gmail_request_deferred" && backend && Number(backend.apiVersion) >= 8)
+      return "Magpie Mail is spacing out mail requests. Try again shortly."
+    if (code === "gmail_server_rate_limited" && backend && Number(backend.apiVersion) >= 8)
+      return "Gmail is limiting requests. Try again later."
+    if (code === "gmail_rate_limited") return "Mail requests are temporarily limited. Try again later."
     if (code === "gmail_queue_full") return "Too many changes are still waiting for Gmail. Wait a moment, then try again."
     if (code === "gmail_queue_lost") return "The change was not sent before the mail backend stopped"
     if (code === "gmail_draft_missing") return "That draft is no longer in the mailbox"
     return "Gmail backend could not complete this request"
   }
 
-  function backendRequest(method, params, callback) {
+  function backendRequest(method, parameters, callback) {
     var handle = newHandle()
     var account = auth ? String(auth.accountId || "") : ""
     if (!usesBackend() || !auth || !auth.loggedIn || account === "") {
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!handle.aborted && typeof callback === "function")
-          callback(null, !usesBackend() ? "Mail backend is unavailable" : "Sign in to the configured Gmail account first")
+          callback(null, !usesBackend() ? "Mail backend is unavailable" : "Sign in to the configured Gmail account first",
+            {code:!usesBackend() ? "backend_unavailable" : "gmail_unauthorized",method:method})
       })
       return handle
     }
     backendAccount = account
     var epoch = backendEpoch
     var session = auth
-    params.accountId = account
+    parameters.accountId = account
     root.inFlight++
     var settled = false
     function deliver(result, error) {
@@ -91,9 +99,10 @@ Item {
       if (handle.aborted || epoch !== root.backendEpoch || auth !== session
           || !auth.loggedIn || String(auth.accountId || "") !== account) return
       if (typeof callback === "function")
-        callback(error ? null : result, error ? backendError(error, method) : "")
+        callback(error ? null : result, error ? backendError(error, method) : "",
+          error ? {code:String(error.message || ""),method:method} : null)
     }
-    var pending = backend.call(method, params, function(result, error) {
+    var pending = backend.call(method, parameters, function(result, error) {
       if (!error && result && result.queued === true && String(result.ticket || "") !== "") {
         root.park(String(result.ticket), method, deliver)
         return
@@ -107,7 +116,7 @@ Item {
     return handle
   }
 
-  // A message mutation answers with a ticket: the backend sends it from a
+  // Invariant: A message mutation answers with a ticket: the backend sends it from a
   // per-account queue, paced and retried, and announces the outcome as a
   // `gmail.settled` notification. The request stays in flight until then.
   property var parked: ({})
@@ -121,8 +130,8 @@ Item {
     parked = next
   }
 
-  function settle(params) {
-    var ticket = String(params && params.ticket || "")
+  function settle(parameters) {
+    var ticket = String(parameters && parameters.ticket || "")
     var entry = parked[ticket]
     if (!entry) return
     var next = Object.assign({}, parked)
@@ -130,19 +139,18 @@ Item {
     parked = next
     entry.watchdog.stop()
     entry.watchdog.destroy()
-    if (params.ok === true) entry.deliver({}, null)
-    else entry.deliver(null, { message: String(params.error || "gmail_queue_lost") })
+    if (parameters.ok === true) entry.deliver({}, null)
+    else entry.deliver(null, { message: String(parameters.error || "gmail_queue_lost") })
   }
 
-  // The backend that held the queue is gone with it.
   function settleAll(error) {
     var tickets = Object.keys(parked)
-    for (var i = 0; i < tickets.length; i++) settle({ ticket: tickets[i], ok: false, error: error })
+    for (var itemIndex = 0; itemIndex < tickets.length; itemIndex++) settle({ ticket: tickets[itemIndex], ok: false, error: error })
   }
 
   Connections {
     target: root.backend
-    function onNotification(method, params) { if (method === "gmail.settled") root.settle(params) }
+    function onNotification(method, parameters) { if (method === "gmail.settled") root.settle(parameters) }
     function onReadyChanged() { if (!root.backend.ready) root.settleAll("gmail_queue_lost") }
   }
 
@@ -151,11 +159,9 @@ Item {
     handle.aborted = true
     if (typeof handle.withdraw === "function") handle.withdraw()
     var children = handle.children || []
-    for (var i = 0; i < children.length; i++) abortRequest(children[i])
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) abortRequest(children[itemIndex])
     handle.children = []
   }
-
-  // ---------------------------------------------------------------- reads
 
   function listMessages(query, maxResults, pageToken, callback, progress) {
     return backendRequest("gmail.list", {
@@ -172,10 +178,11 @@ Item {
 
   }
 
-  // The octets of a part Gmail described but did not send. Every part the
-  // sender named comes back that way — an id, a type and a size — and the
-  // reader asks for one of them: the invitation, whose file has to be read
-  // before a meeting can be drawn or answered.
+  /** The octets of a part Gmail described but did not send. Every part the
+   * sender named comes back that way — an id, a type and a size — and the
+   * reader asks for one of them: the invitation, whose file has to be read
+   * before a meeting can be drawn or answered.
+   */
   function getAttachment(messageId, attachmentId, callback) {
     return backendRequest("gmail.attachment", {
       messageId: String(messageId || ""), attachmentId: String(attachmentId || "")
@@ -186,38 +193,41 @@ Item {
 
   }
 
-  // The counted members of a conversation, for the reader's conversation rail.
-  //
-  // Always empty, and Gmail is never asked: it declares `threads` — a
-  // server-side thread id exists — but not `conversations`, so its listing is
-  // one row per message and no row here carries member ids for a rail to draw.
-  //
-  // Deferred rather than answered on the spot even though the answer is in
-  // hand: every caller in this interface is written against a callback that
-  // arrives later, and running one partway through the function that started it
-  // is a re-entry no other read produces.
+  /** The counted members of a conversation, for the reader's conversation rail.
+   *
+   * Always empty, and Gmail is never asked: it declares `threads` — a
+   * server-side thread id exists — but not `conversations`, so its listing is
+   * one row per message and no row here carries member ids for a rail to draw.
+   *
+   * Deferred rather than answered on the spot even though the answer is in
+   * hand: every caller in this interface is written against a callback that
+   * arrives later, and running one partway through the function that started it
+   * is a re-entry no other read produces.
+   */
   function getSummaries(ids, callback) {
     var handle = newHandle()
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted || typeof callback !== "function") return
       callback([], "")
     })
     return handle
   }
 
-  // Fetches up to four IDs at a time and calls back once, with results in the
-  // order the ids were given rather than the order Google answered in. A list
-  // search may also take `progress`, which receives the payloads as Google
-  // answers so cached rows can be filled in without waiting for the slowest
-  // request on the page. Answers close enough to share a frame are batched:
-  // repainting and sorting the whole list once per reply
-  // costs far more than the few milliseconds of extra latency reveal.
+  /** Fetches up to four IDs at a time and calls back once, with results in the
+   * order the ids were given rather than the order Google answered in. A list
+   * search may also take `progress`, which receives the payloads as Google
+   * answers so cached rows can be filled in without waiting for the slowest
+   * request on the page. Answers close enough to share a frame are batched:
+   * repainting and sorting the whole list once per reply
+   * costs far more than the few milliseconds of extra latency reveal.
+   */
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
     var list = Array.isArray(ids) ? ids : []
     var results = new Array(list.length)
     var remaining = list.length
     var firstError = ""
+    var firstDetail = null
     var pendingProgress = []
     var progressTimer = null
 
@@ -256,23 +266,23 @@ Item {
       if (typeof callback !== "function") return
       flushProgress()
       var ordered = []
-      for (var i = 0; i < results.length; i++) {
-        if (results[i]) ordered.push(results[i])
+      for (var itemIndex = 0; itemIndex < results.length; itemIndex++) {
+        if (results[itemIndex]) ordered.push(results[itemIndex])
       }
-      // A partial page is still a failed page: hiding one failed request just
+      // Invariant: A partial page is still a failed page: hiding one failed request just
       // because another answered would let the caller keep a continuation
       // token beyond the missing row.
-      callback(ordered, firstError)
+      callback(ordered, firstError, firstDetail)
     }
 
     var nextIndex = 0
     var active = 0
     function start(index) {
       active++
-      var child = root.getMessage(list[index], full, function(payload, error) {
+      var child = root.getMessage(list[index], full, function(payload, error, detail) {
         active--
         if (handle.aborted) return
-        if (error && !firstError) firstError = error
+        if (error && !firstError) { firstError = error; firstDetail = detail }
         results[index] = payload
         queueProgress(payload)
         remaining--
@@ -289,6 +299,16 @@ Item {
     return handle
   }
 
+  function localRequest(method,parameters,callback) {
+    var identity=backendIdentity
+    var handle=newHandle()
+    parameters.accountId=identity
+    backend.call(method,parameters,function(result,error) {
+      if (handle.aborted || identity!==root.backendIdentity) return
+      callback(result,error ? "Could not read saved mailbox information" : "")
+    })
+    return handle
+  }
   function getLabels(callback) {
     return backendRequest("gmail.labels", {}, function(result, error) {
       if (typeof callback === "function") callback(error ? [] : result, error)
@@ -297,23 +317,27 @@ Item {
   }
 
   function getLabelCounts(labelId, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion)>=8 && backendIdentity)
+      return localRequest("local.labelCounts",{id:String(labelId || "")},callback)
     return backendRequest("gmail.labelCounts", { id: String(labelId || "") }, callback)
 
   }
 
   function getProfile(callback) {
-    // The native sign-in already verified this identity before storing its
+    // Invariant: The native sign-in already verified this identity before storing its
     // grant. A new account has no registry ID until this callback identifies it.
     if (auth && auth.loggedIn && auth.signedInProfile) {
       var handle = newHandle()
       var session = auth
       var profile = Api.parseProfile(auth.signedInProfile)
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!handle.aborted && root.auth === session && session.loggedIn)
           callback(profile, "")
       })
       return handle
     }
+    if (backend && backend.ready && Number(backend.apiVersion)>=8 && backendIdentity)
+      return localRequest("local.overview",{},function(result,error){callback(error ? null : result.profile || {email:root.backendIdentity},error)})
     return backendRequest("gmail.profile", {}, callback)
 
   }
@@ -325,11 +349,14 @@ Item {
 
   }
 
-  // Mail operations and draft resolution are owned by the persistent backend.
   function modifyMessage(id, addLabelIds, removeLabelIds, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit([String(id || "")],addLabelIds || [],removeLabelIds || [],callback)
     return backendRequest("gmail.modify", { id: String(id || ""), addLabelIds: addLabelIds || [], removeLabelIds: removeLabelIds || [] }, callback)
   }
   function batchModify(ids, addLabelIds, removeLabelIds, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit(ids || [],addLabelIds || [],removeLabelIds || [],callback)
     return backendRequest("gmail.batchModify", { ids: ids || [], addLabelIds: addLabelIds || [], removeLabelIds: removeLabelIds || [] }, callback)
   }
   function createLabel(name, callback) {
@@ -345,21 +372,35 @@ Item {
   function untrashMessage(id, callback) { return trashEach("gmail.untrash", id, callback) }
   function trashEach(method, id, callback) {
     var list = Array.isArray(id) ? id : [id]
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit(list,method === "gmail.trash" ? ["TRASH"] : ["INBOX"],
+        method === "gmail.trash" ? ["INBOX"] : ["TRASH"],callback)
     var handle = newHandle()
     var remaining = list.length
     var firstError = ""
     if (!remaining) {
-      Qt.callLater(function() { if (!handle.aborted && typeof callback === "function") callback(null, "") })
+      deferred.call(function() { if (!handle.aborted && typeof callback === "function") callback(null, "") })
       return handle
     }
-    for (var i = 0; i < list.length; i++) {
-      handle.children.push(backendRequest(method, { id: String(list[i] || "") }, function(payload, error) {
+    for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+      handle.children.push(backendRequest(method, { id: String(list[itemIndex] || "") }, function(payload, error) {
         if (handle.aborted) return
         if (error && !firstError) firstError = error
         remaining--
         if (!remaining && typeof callback === "function") callback(payload, firstError)
       }))
     }
+    return handle
+  }
+  function localEdit(ids, additions, removals, callback) {
+    var handle = newHandle()
+    var identity = String(auth ? auth.accountId || "" : "")
+    var ticket = "edit-" + Date.now() + "-" + Math.random().toString(36).slice(2)
+    backend.call("local.edit", {accountId:identity,ticket:ticket,ids:ids,
+      addLabelIds:additions,removeLabelIds:removals}, function(result,error) {
+      if (handle.aborted || identity !== String(root.auth ? root.auth.accountId || "" : "")) return
+      if (typeof callback === "function") callback(error ? null : result,Api.localEditError(error))
+    })
     return handle
   }
   Component {
@@ -375,9 +416,9 @@ Item {
     return backendRequest("gmail.saveDraft", Api.sendBody(payload), callback)
   }
   function updateDraft(messageId, payload, callback) {
-    var params = Api.sendBody(payload)
-    params.id = String(messageId || "")
-    return backendRequest("gmail.updateDraft", params, callback)
+    var parameters = Api.sendBody(payload)
+    parameters.id = String(messageId || "")
+    return backendRequest("gmail.updateDraft", parameters, callback)
   }
   function deleteDraft(messageId, callback) {
     return backendRequest("gmail.deleteDraft", { id: String(messageId || "") }, callback)

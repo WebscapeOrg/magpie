@@ -11,19 +11,19 @@ function text(value) {
 }
 
 function person(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   return { email: text(row.email), display: text(row.display) }
 }
 
 function people(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) out.push(person(rows[i]))
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) output.push(person(rows[itemIndex]))
+  return output
 }
 
 function attachment(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   var path = text(row.path)
   return {
     filename: text(row.filename),
@@ -39,13 +39,13 @@ function attachment(value) {
 
 function attachments(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) out.push(attachment(rows[i]))
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) output.push(attachment(rows[itemIndex]))
+  return output
 }
 
 function draft(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   return {
     to: text(row.to),
     cc: text(row.cc),
@@ -53,10 +53,7 @@ function draft(value) {
     replyTo: text(row.replyTo),
     subject: text(row.subject),
     body: text(row.body),
-    // What the compose window placed in the body rather than what was typed
-    // into it. A row written before this existed has none, which reads as an
-    // empty string — so any body at all differs from it, and a recovered draft
-    // from the previous build is still offered back.
+    // Invariant: Older recovery records lack placedBody; their existing body must still count as an edit.
     placedBody: text(row.placedBody),
     bodyWasEdited: row.bodyWasEdited === true,
     accountId: text(row.accountId),
@@ -77,13 +74,12 @@ function draft(value) {
 }
 
 function hasMeaningfulDraft(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   if (text(row.to).trim() !== "") return true
   if (text(row.cc).trim() !== "") return true
   if (text(row.bcc).trim() !== "") return true
   if (text(row.subject).trim() !== "") return true
-  // Equality alone cannot say whether somebody typed and then deleted back to
-  // the placed text, so preserve that edit history beside the original body.
+  // Invariant: Editing back to the placed text still preserves the user's edit history.
   if ((row.bodyWasEdited === true || text(row.body) !== text(row.placedBody))
       && text(row.body).trim() !== "") return true
   if (Array.isArray(row.forwardedAttachments) && row.forwardedAttachments.length > 0)
@@ -109,16 +105,14 @@ function parse(raw) {
   }
 }
 
-// The other drafts parked for their send when the file was written: one
-// composer, several undo windows. Each that still says something is kept.
 function meaningful(values) {
-  var out = []
+  var output = []
   var list = Array.isArray(values) ? values : []
-  for (var i = 0; i < list.length; i++) {
-    var saved = draft(list[i])
-    if (hasMeaningfulDraft(saved)) out.push(saved)
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var saved = draft(list[itemIndex])
+    if (hasMeaningfulDraft(saved)) output.push(saved)
   }
-  return out
+  return output
 }
 
 function serialize(view, value, parked) {

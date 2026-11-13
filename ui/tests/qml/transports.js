@@ -1,14 +1,12 @@
 .pragma library
 
-// Record the actual backend RPC boundary. The production client is unchanged;
-// tests control only the backend response and can inspect exact request params.
 function install(client) {
   if (!client.backend || !client.backend.testCalls) {
     var backend = {
       ready: true,
       testCalls: [],
-      call: function(method, params, callback) {
-        var request = { method: method, params: params, callback: callback, answered: false }
+      call: function(method, parameters, callback) {
+        var request = { method: method, params: parameters, callback: callback, answered: false }
         this.testCalls.push(request)
         return this.testCalls.length
       }
@@ -20,8 +18,7 @@ function install(client) {
 
 function transports(client) {
   if (!client) return []
-  // These tests count mail requests; cancellation and stream supervision are
-  // separate RPCs, covered by the native cancellation/lifetime tests.
+  // Invariant: Mail request counts exclude cancellation and stream supervision, which have separate lifetime tests.
   return install(client).testCalls.filter(function(request) {
     return (request.method.indexOf("jmap.") === 0
       && request.method !== "jmap.cancel" && request.method !== "jmap.invalidate"
@@ -33,22 +30,22 @@ function transports(client) {
 
 function newSince(client, before) {
   var now = transports(client)
-  var out = []
-  for (var i = 0; i < now.length; i++) {
-    if (before.indexOf(now[i]) < 0) out.push(now[i])
+  var result = []
+  for (var requestIndex = 0; requestIndex < now.length; requestIndex++) {
+    if (before.indexOf(now[requestIndex]) < 0) result.push(now[requestIndex])
   }
-  return out
+  return result
 }
 
 function requested(request) {
-  var params = request.params
-  var credential = params.credential || {}
+  var parameters = request.params
+  var credential = parameters.credential || {}
   return {
-    verb: params.verb,
-    url: params.url || "",
+    verb: parameters.verb,
+    url: parameters.url || "",
     scheme: credential.scheme || "",
-    fields: [params.url || "", credential.scheme || "", credential.username || "",
-      credential.secret || "", params.body || ""]
+    fields: [parameters.url || "", credential.scheme || "", credential.username || "",
+      credential.secret || "", parameters.body || ""]
   }
 }
 

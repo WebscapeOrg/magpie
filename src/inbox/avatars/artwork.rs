@@ -12,15 +12,7 @@ pub(super) fn prepare(data: &str, organization: bool) -> Result<String, &'static
     let bytes = STANDARD
         .decode(encoded)
         .map_err(|_| "public_image_refused")?;
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|_| "public_image_refused")?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
-    limits.max_alloc = Some(64 * 1024 * 1024);
-    reader.limits(limits);
-    let original = reader.decode().map_err(|_| "public_image_refused")?;
+    let original = decode(bytes)?;
     let mut canvas = if organization {
         let edge = (SIZE as f64 * std::f64::consts::FRAC_1_SQRT_2 * 0.70).floor() as u32;
         let logo = original
@@ -55,6 +47,68 @@ pub(super) fn prepare(data: &str, organization: bool) -> Result<String, &'static
         "data:image/png;base64,{}",
         STANDARD.encode(output.into_inner())
     ))
+}
+
+fn decode(bytes: Vec<u8>) -> Result<image::DynamicImage, &'static str> {
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| "public_image_refused")?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    reader.decode().map_err(|_| "public_image_refused")
+}
+
+/// A fetched picture re-encoded as PNG for the image model: decoded under the same limits as an
+/// avatar, at least 256 and at most 1024 pixels on its longer edge, so only pixels leave Magpie.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(in crate::inbox) fn reference(data: &str) -> Result<Vec<u8>, &'static str> {
+    let encoded = data.split_once(";base64,").ok_or("public_image_refused")?.1;
+    if encoded.len() > 7 * 1024 * 1024 {
+        return Err("public_response_too_large");
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "public_image_refused")?;
+    let original = decode(bytes)?;
+    let edge = original.width().max(original.height());
+    if edge == 0 {
+        return Err("public_image_refused");
+    }
+    let target = edge.clamp(256, 1024);
+    let picture = if target == edge {
+        original.to_rgba8()
+    } else {
+        let scale = f64::from(target) / f64::from(edge);
+        let width = ((f64::from(original.width()) * scale).round() as u32).max(1);
+        let height = ((f64::from(original.height()) * scale).round() as u32).max(1);
+        original
+            .resize_exact(width, height, imageops::FilterType::Lanczos3)
+            .to_rgba8()
+    };
+    let mut output = Cursor::new(Vec::new());
+    picture
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|_| "public_image_refused")?;
+    Ok(output.into_inner())
+}
+
+/// A painted picture kept for Magpie: the model's square image as a 512-pixel JPEG. It is opaque,
+/// so the circle is cut when it is shown, through the photo branch of `prepare`.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(in crate::inbox) fn master(bytes: Vec<u8>) -> Result<Vec<u8>, &'static str> {
+    const EDGE: u32 = 512;
+    let painted = decode(bytes)?;
+    let square = painted
+        .resize_to_fill(EDGE, EDGE, imageops::FilterType::Lanczos3)
+        .to_rgb8();
+    let mut output = Cursor::new(Vec::new());
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 90)
+        .encode_image(&square)
+        .map_err(|_| "public_image_refused")?;
+    Ok(output.into_inner())
 }
 
 #[cfg(test)]
@@ -111,6 +165,36 @@ mod tests {
         assert!(min_x >= 64 && max_x < 192);
         assert_eq!(max_x - min_x + 1, 2 * (max_y - min_y + 1));
         assert_eq!(result.get_pixel(0, 128)[3], 0);
+    }
+
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[test]
+    fn references_are_bounded_png_and_masters_fill_the_circle() {
+        let small = encoded(RgbaImage::from_pixel(32, 16, image::Rgba([10, 20, 30, 255])));
+        let png = reference(&small).unwrap();
+        assert_eq!(image::guess_format(&png).unwrap(), image::ImageFormat::Png);
+        assert_eq!(image::load_from_memory(&png).unwrap().width(), 256);
+        let large = encoded(RgbaImage::from_pixel(2048, 1024, image::Rgba([10, 20, 30, 255])));
+        let png = reference(&large).unwrap();
+        let picture = image::load_from_memory(&png).unwrap();
+        assert_eq!((picture.width(), picture.height()), (1024, 512));
+        assert!(reference("data:image/png;base64,bm90IGFuIGltYWdl").is_err());
+        let painted = {
+            let mut output = Cursor::new(Vec::new());
+            RgbaImage::from_pixel(1024, 1024, image::Rgba([240, 230, 210, 255]))
+                .write_to(&mut output, image::ImageFormat::Png)
+                .unwrap();
+            output.into_inner()
+        };
+        let jpeg = master(painted).unwrap();
+        assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+        assert_eq!(image::load_from_memory(&jpeg).unwrap().width(), 512);
+        let shown = decoded(&prepare(&format!("data:image/jpeg;base64,{}", STANDARD.encode(jpeg)), false).unwrap());
+        assert_eq!(shown.get_pixel(0, 0)[3], 0);
+        assert!(shown.get_pixel(128, 1)[3] > 200);
+        assert!(shown.get_pixel(1, 128)[3] > 200);
+        assert_eq!(shown.get_pixel(128, 128)[3], 255);
+        assert!(master(b"not an image".to_vec()).is_err());
     }
 
     #[test]

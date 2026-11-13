@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Omamail
-Comment=Mail and calendar
-Exec=omamail
+Name=Magpie Mail
+Comment=Mail
+Exec=omamail %u
 Icon=omamail
 Terminal=false
 Categories=Network;Email;Office;
+MimeType=x-scheme-handler/mailto;
 StartupNotify=true

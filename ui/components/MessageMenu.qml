@@ -6,9 +6,7 @@ import qs.Ui
 import "Menu.js" as Menu
 import "../account/Model.js" as Model
 
-// The list's right-click menu. It is a Popup rather than a child of the row
-// because the list scrolls inside a clipping Flickable, which would cut the
-// menu off at the column edge.
+// Invariant: the list’s clipping Flickable would cut off a child menu; use a popup.
 Item {
   id: root
 
@@ -21,38 +19,33 @@ Item {
   required property string panelFontFamily
 
   property string messageId: ""
-  // Opened from a stop on the conversation rail rather than from a row. A stop
-  // is one message: its summary is among the account's member summaries, and
-  // what it asks for reaches that message alone, where a row's menu reaches
-  // every counted member of the conversation the row stands for.
+  property bool armed: false
+  property string targetIdentity: ""
+  readonly property string currentIdentity: JSON.stringify([service ? service.activeAccountId || "" : "", summary ? summary.accountId || "" : "", messageId])
+  readonly property bool validTarget: armed && menu.visible && !!summary && currentIdentity === targetIdentity
+  onCurrentIdentityChanged: { if (armed && currentIdentity !== targetIdentity) close() }
+  onSummaryChanged: { if (armed && !summary) close() }
+  Connections {
+    target: root.service
+    ignoreUnknownSignals: true
+    function onAccountSummariesChanged() { root.close() }
+  }
+  // Invariant: a rail stop targets one member, while a conversation row targets its counted
+  // members.
   property bool memberOnly: false
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [continueRow, replyRow, replyAllRow, forwardRow, archiveRow,
+  readonly property var menuRows: [continueRow, pointRow, notSamePointRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
-    trashRow, spamRow, readRow, starRow, browserRow, aiRow]
-  // Whether this message is archived — out of the inbox and not somewhere
-  // that has its own verb. Read off the summary the menu was opened on rather
-  // than asked of the service, because the menu is about one message. IMAP
-  // synthesises all four of these from the folder, so one rule serves both
-  // kinds of provider. Spam counts as "its own verb" only where a spam verb
-  // exists: an IMAP Junk folder has no report-spam inverse to offer instead,
-  // so a Junk message there is the one spam case "Move to Inbox" still means.
-  readonly property var messageHost: !root.service ? null
-    : typeof root.service.hostForId === "function"
-      ? root.service.hostForId(root.messageId) : root.service
+    trashRow, spamRow, readRow, starRow, aiRow, browserRow]
   readonly property bool archived: !!root.summary
     && root.summary.inInbox === false
     && root.summary.inTrash !== true
-    && (root.summary.inSpam !== true || (root.messageHost && root.messageHost.canReportSpam === false))
+    && root.summary.inSpam !== true
     && root.summary.isSent !== true
     && root.summary.isDraft !== true
 
-  // Whether the list it was opened from is a label's, and whether that label
-  // is one a message can be taken out of — which is the same question
-  // `labelChangesFor` asks, so the wording cannot promise a removal that does
-  // not happen.
   readonly property bool inLabelView: !!root.service
     && !!root.service.hasLabels
     && String(root.service.rawLabelId || "") !== ""
@@ -62,20 +55,18 @@ Item {
   readonly property var summary: {
     if (!service || messageId === "") return null
     var list = service.messages
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === messageId) return list[i]
+    for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+      if (list[entryIndex].id === messageId) return list[entryIndex]
     }
-    // A member the list drew no row for: the rail's own summaries.
     var members = service.memberSummaries
     if (members && typeof members === "object" && members[messageId]) return members[messageId]
     return null
   }
 
+  signal pointDetailsRequested(string id)
   signal agentRequested(string id, real sceneX, real sceneY)
   signal composeRequested(string mode, string id)
   signal actionRequested(string action, string id)
-  // The same two, from a menu opened on a rail stop, so the owner can keep the
-  // list cursor where it is and scope the action to the one message.
   signal memberComposeRequested(string mode, string id)
   signal memberActionRequested(string action, string id)
 
@@ -93,11 +84,14 @@ Item {
   }
 
   function openMenu(id, sceneX, sceneY) {
+    root.armed = false
     root.messageId = String(id || "")
     if (!root.summary) return
     var local = root.mapFromGlobal(sceneX, sceneY)
     anchorX = local.x
     anchorY = local.y
+    root.targetIdentity = root.currentIdentity
+    root.armed = true
     menu.open()
   }
 
@@ -109,36 +103,32 @@ Item {
     menu.y = placed.y
   }
 
-  function selectableRows() {
-    var values = []
-    for (var i = 0; i < menuRows.length; i++) values.push({
-      selectable: true, visible: menuRows[i].visible, enabled: menuRows[i].enabled
-    })
-    return values
-  }
-  function moveCursor(step) { cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step) }
+  function moveCursor(step) { cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step) }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
 
-  function close() { menu.close() }
+  function close() { armed = false; menu.close() }
 
   function run(action) {
+    if (!validTarget) return
     var id = root.messageId
     var member = root.memberOnly
-    menu.close()
+    root.close()
     if (member) root.memberActionRequested(action, id)
     else root.actionRequested(action, id)
   }
 
   function compose(mode) {
+    if (!validTarget) return
     var id = root.messageId
     var member = root.memberOnly
-    menu.close()
+    root.close()
     if (member) root.memberComposeRequested(mode, id)
     else root.composeRequested(mode, id)
   }
 
   QQC.Popup {
     id: menu
+    onClosed: root.armed = false
     width: MailStyle.space(200)
     implicitHeight: rows.implicitHeight + MailStyle.space(8)
     padding: MailStyle.space(4)
@@ -147,7 +137,7 @@ Item {
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
     onHeightChanged: root.place()
     onOpened: {
-      root.cursorIndex = Menu.firstSelectable(root.selectableRows())
+      root.cursorIndex = Menu.firstSelectable(root.menuRows)
       root.place()
     }
     background: Rectangle {
@@ -180,6 +170,26 @@ Item {
         text: "Continue editing"
         onActivated: root.compose("draft")
       }
+      MenuRow {
+        id: pointRow
+        objectName: "message-menu-point-details"
+        text: "Point details..."
+        visible: !!root.service && !!root.service.backend && root.service.backend.apiVersion >= 8
+        onActivated: { if (!root.validTarget) return; var id = root.messageId; root.close(); root.pointDetailsRequested(id) }
+      }
+      // Q-019: a wrong bundle's way out. The covered mail comes back as rows and stays apart.
+      MenuRow {
+        id: notSamePointRow
+        objectName: "message-menu-not-same-point"
+        visible: !!root.summary && Number(root.summary.bundleCount || 0) > 1 && !root.memberOnly
+        text: "Not the same Point"
+        onActivated: {
+          if (!root.validTarget) return
+          var id = root.messageId
+          root.close()
+          if (root.service && root.service.inboxTools && root.service.inboxTools.bundles) root.service.inboxTools.bundles.notTheSamePoint(id)
+        }
+      }
       MenuRow { id: replyRow; visible: !root.summary || !root.summary.isDraft; text: "Reply"; onActivated: root.compose("reply") }
       MenuRow { id: replyAllRow; visible: !root.summary || !root.summary.isDraft; text: "Reply all"; onActivated: root.compose("replyAll") }
       MenuRow { id: forwardRow; visible: !root.summary || !root.summary.isDraft; text: "Forward"; onActivated: root.compose("forward") }
@@ -189,35 +199,23 @@ Item {
         lineColor: root.textColor
       }
 
-      // Hidden rather than disabled where the provider has no such verb. IMAP
-      // archives by moving to a folder that may not exist, and has no junk
-      // verb the server learns anything from — a "Report spam" that quietly
-      // meant "move to a folder" would be a promise this cannot keep.
       MenuRow {
         id: archiveRow
+        objectName: "message-menu-archive"
         visible: (!root.service || root.service.canArchive) && !root.archived
         text: "Archive"
         onActivated: root.run("archive")
       }
-      // The other direction, and only where it would be the truth.
-      //
-      // `inInbox === false` alone put this row in Spam, Trash, Drafts and
-      // Sent, where adding INBOX is not what "move to the inbox" means:
-      // `labelChangesFor` removes neither SPAM nor TRASH, so a spam message
-      // would carry INBOX *and* SPAM and stay in Spam while the row claimed
-      // otherwise, and on IMAP the same press physically relocates a draft
-      // out of the Drafts folder. Spam has its own verb and trash has its own
-      // endpoint, for exactly this reason; archived mail is what is left.
+      // Invariant: Adding INBOX does not remove SPAM or TRASH; this action applies only to archived mail.
       MenuRow {
         id: unarchiveRow
+        objectName: "message-menu-unarchive"
         visible: (!root.service || root.service.canArchive) && root.archived
         text: root.inLabelView ? "Move to Inbox and remove label" : "Move to Inbox"
         onActivated: root.run("unarchive")
       }
       MenuRow {
         id: moveRow
-        // A member of a conversation is not a row the picker can move on
-        // its own; the row above it is.
         visible: !!root.service && root.service.canMoveToLabel && !root.memberOnly
         text: "Move to..."
         onActivated: root.run("moveToLabel")
@@ -260,23 +258,23 @@ Item {
         visible: !!root.service && root.service.hasAgent !== false
         text: "Ask AI..."
         onActivated: {
+          if (!root.validTarget) return
           var id = root.messageId
           var scene = root.mapToGlobal(root.anchorX, root.anchorY)
-          menu.close()
+          root.close()
           root.agentRequested(id, scene.x, scene.y)
         }
       }
 
-      // Only where there is a web mailbox to open. An IMAP account has no
-      // address this plugin could know.
       MenuRow {
         id: browserRow
         visible: !root.service || root.service.canOpenOnWeb
         text: "Open in browser..."
         tone: root.dimColor
         onActivated: {
+          if (!root.validTarget) return
           var id = root.messageId
-          menu.close()
+          root.close()
           if (root.service) root.service.openInBrowser(id)
         }
       }

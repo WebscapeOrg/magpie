@@ -1,4 +1,5 @@
 #include "resource_check.h"
+#include "backend_contract.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -179,7 +180,7 @@ bool waitForCleanExit(QProcess &process, QByteArray &stdoutBuffer,
         process.waitForFinished(qMin(10, remaining));
         QCoreApplication::processEvents();
     }
-    // A still-running flood must not be drained after the deadline: reading
+    // Invariant: A still-running flood must not be drained after the deadline: reading
     // while the child keeps writing can spin until the pipe finally stalls.
     if (process.state() != QProcess::NotRunning) {
         if (error) *error = QStringLiteral("Backend shutdown timed out");
@@ -205,6 +206,20 @@ void stopProcess(QProcess &process)
 bool developmentResourcesEnabled()
 {
     return qgetenv("OMAMAIL_DEVELOPMENT_RESOURCES") == QByteArrayLiteral("1");
+}
+
+QString applicationResourceRoot(const QString &executablePath)
+{
+    const QString directory = executablePath.isEmpty()
+        ? QCoreApplication::applicationDirPath() : QFileInfo(executablePath).absolutePath();
+#ifdef Q_OS_MACOS
+    if (directory.endsWith(QStringLiteral(".app/Contents/MacOS")))
+        return QDir::cleanPath(directory + QStringLiteral("/../Resources"));
+#endif
+    const QDir executableDirectory(directory);
+    if (executableDirectory.dirName() == QStringLiteral("bin"))
+        return QDir::cleanPath(executableDirectory.filePath(QStringLiteral("..")));
+    return directory;
 }
 
 ResourcePaths defaultResourcePaths(const QString &executablePath, bool developmentMode)
@@ -259,7 +274,7 @@ ResourcePaths defaultResourcePaths(const QString &executablePath, bool developme
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../manifest.json"))),
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../Resources/manifest.json")))};
     if (developmentMode)
-        manifestCandidates.prepend(sourceRoot.filePath(QStringLiteral("manifest.json")));
+        manifestCandidates.prepend(QStringLiteral(OMAMAIL_MANIFEST_PATH));
     paths.manifest = firstExisting(manifestCandidates);
     return paths;
 }
@@ -285,7 +300,7 @@ ResourceCheck checkResources(const ResourcePaths &paths)
         const QJsonObject value = document.object();
         if (bytes.size() > 1024 * 1024 || parseError.error != QJsonParseError::NoError
             || !document.isObject() || value.value(QStringLiteral("id")).toString() != QStringLiteral("omamail")
-            || value.value(QStringLiteral("name")).toString() != QStringLiteral("Omamail")
+            || value.value(QStringLiteral("name")).toString() != QStringLiteral("Magpie Mail")
             || value.value(QStringLiteral("version")).toString() != QStringLiteral(OMAMAIL_APP_VERSION)) {
             result.errors.append(QStringLiteral("Invalid standalone manifest: %1")
                                      .arg(paths.manifest));
@@ -365,7 +380,10 @@ bool runSmokeTest(const ResourcePaths &paths, const QString &readyFile, QString 
         || !protocol.isDouble() || protocol.toInt() != 1
         || !apiVersion.isDouble()
         || apiVersion.toDouble() != static_cast<double>(apiVersion.toInt())
-        || apiVersion.toInt() != 7) {
+        || apiVersion.toInt() != OMAMAIL_BACKEND_API_VERSION
+        || (OMAMAIL_BACKEND_API_VERSION > OMAMAIL_RELEASED_API_VERSION
+            && info.value(QStringLiteral("contractHash")).toString()
+                != QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH))) {
         if (error) *error = QStringLiteral("Bundled backend system.info does not match this app");
         stopProcess(backend);
         return false;

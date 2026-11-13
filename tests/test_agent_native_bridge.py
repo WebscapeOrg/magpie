@@ -2,8 +2,8 @@
 """Run the existing synthetic bridge contract against the real Rust executable.
 
 Only the backend changes. The fake Claude streams and policy/ownership assertions
-are shared with test_agent_bridge.py. Fake CLI observations are outside the private
-job directory, whose production allowlist permits only its three JSON records.
+are shared with test_agent_bridge.py. Fake CLI observations stay outside the private
+job directory so its production record allowlist remains enforced.
 """
 import json
 import os
@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import test_agent_bridge as legacy
 import agent_broker_fixture
@@ -69,14 +70,18 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
 ''' + body
         super().tool(name, body)
 
-    def agent(self, body, session=True):
+    def observation_prelude(self, session=True):
         prelude = legacy.PRELUDE.replace(
             "Path(ident,'cwd.txt').write_text(str(Path.cwd()))\nos.chdir(ident)",
             "observed=Path(os.environ['OMAMAIL_TEST_ARTIFACTS'])/ident\nobserved.mkdir(exist_ok=True)\nobserved.joinpath('cwd.txt').write_text(str(Path.cwd()))\nos.chdir(observed)"
         )
         if not session:
             prelude = prelude.replace("emit({'type':'system','subtype':'init','session_id':'11111111-2222-3333-4444-555555555555'})", '')
-        self.tool('claude', prelude + body)
+        return prelude
+
+
+    def agent(self, body, session=True):
+        self.tool('claude', self.observation_prelude(session) + body)
 
     def call(self, *args, value=None, ok=True, options=None):
         if args[0] == 'run':
@@ -102,18 +107,24 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
         return answer['result'] if answer.get('ok') else answer.get('error', {}).get('code', '')
 
     def cleanup(self):
+        try:
+            self.cancel_workers()
+            self.assertFalse((self.root/'TERMINAL').exists())
+        finally:
+            agent_broker_fixture.shutdown(self.root)
+
+    def cancel_workers(self):
         active = []
         for ident in self.ids:
             result = subprocess.run([str(BINARY),'--json','call','agent.jobCancel'],
                                     input=json.dumps({'id':ident}), text=True, env=self.env,
                                     capture_output=True, timeout=8)
-            # Some tests intentionally remove jobs or invalidate their storage.
+            # Invariant: Some tests intentionally remove jobs or invalidate their storage.
             if result.returncode == 0:
                 job = json.loads(result.stdout)['result']
                 if job['state'] in ('queued', 'running'):
                     active.append(ident)
-        # Cancellation only signals the detached worker. It must finish its
-        # final display/job writes before TemporaryDirectory removes storage.
+        # Invariant: Cancellation only signals the detached worker. It must finish its final display/job writes before TemporaryDirectory removes storage.
         deadline = time.monotonic() + 8
         while active:
             active = [ident for ident in active
@@ -123,8 +134,64 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
             if time.monotonic() >= deadline:
                 self.fail('Cancelled workers did not settle before cleanup: ' + ', '.join(active))
             time.sleep(.04)
-        self.assertFalse((self.root/'TERMINAL').exists())
-        agent_broker_fixture.shutdown(self.root)
+
+    def test_saved_context_mismatch_starts_no_provider(self):
+        ident = self.new()
+        self.assertEqual(self.wait(ident)['job']['state'], 'done')
+        context_path = self.store/ident/'context.json'
+        job_path = self.store/ident/'job.json'
+        context = json.loads(context_path.read_text())
+        original_job = job_path.read_text()
+        marker = self.artifacts/'forbidden-provider'
+        self.tool('claude', f"from pathlib import Path\nimport sys\nPath({str(marker)!r}).write_text(sys.stdin.read())")
+        for key, value in [('accountId', 'foreign'), ('messageId', 'foreign'),
+                           ('draftKey', 'foreign'),
+                           ('messages', [{'messageId':'foreign', 'message':'FORBIDDEN'}])]:
+            with self.subTest(field=key):
+                marker.unlink(missing_ok=True)
+                changed = dict(context, **{key:value})
+                context_path.write_text(json.dumps(changed))
+                queued = dict(json.loads(original_job), state='queued')
+                queued.pop('pid', None)
+                job_path.write_text(json.dumps(queued))
+                try:
+                    result = subprocess.run([str(BINARY), 'agent-worker', ident],
+                                            env=self.env, capture_output=True, text=True, timeout=8)
+                finally:
+                    context_path.write_text(json.dumps(context))
+                    job_path.write_text(original_job)
+                self.assertFalse(marker.exists(), 'Mismatched saved content reached the provider')
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_saved_context_mismatch_creates_no_successor(self):
+        ident = self.new()
+        self.assertEqual(self.wait(ident)['job']['state'], 'done')
+        context_path = self.store/ident/'context.json'
+        context = json.loads(context_path.read_text())
+        before = set(self.store.iterdir())
+        marker = self.artifacts/'forbidden-successor'
+        self.tool('claude', f"from pathlib import Path\nimport sys\nPath({str(marker)!r}).write_text(sys.stdin.read())")
+        for key, value in [('accountId', 'foreign')]:
+            with self.subTest(field=key):
+                context_path.write_text(json.dumps(dict(context, **{key:value})))
+                try:
+                    result = subprocess.run([str(BINARY), '--json', 'call', 'agent.jobStart'],
+                        input=json.dumps({'payload':{'parent':ident, 'prompt':'Continue'}}),
+                        env=self.env, capture_output=True, text=True, timeout=8)
+                finally:
+                    context_path.write_text(json.dumps(context))
+                    for path in set(self.store.iterdir()) - before:
+                        if path.is_dir():
+                            self.ids.append(path.name)
+                            deadline = time.monotonic() + 8
+                            while json.loads((path/'job.json').read_text())['state'] in ('queued', 'running'):
+                                if time.monotonic() >= deadline:
+                                    self.fail('Synthetic successor did not stop')
+                                time.sleep(.02)
+                self.assertFalse(marker.exists(), 'A successor received mismatched context')
+                self.assertEqual(set(self.store.iterdir()), before)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout)['error']['code'], 'agent_context_owner_mismatch')
 
     def test_background_stdin_result_and_resume(self):
         ident = self.new(draft={'body':'Original'}, draftKey='ada-draft', draftFingerprint='abc')
@@ -182,8 +249,7 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
             display = json.loads((self.store/ident/'display.json').read_text())
             self.assertEqual(display['transcript'], [{'role':'user', 'text':prompt}])
 
-        # Establish a native session, then verify that its next turn replays none
-        # of the bootstrap or earlier requests.
+
         self.agent(legacy.SUCCESS)
         child = self.call('new', value={'parent':ident, 'prompt':'Establish session'})['id']
         self.ids.append(child)
@@ -203,8 +269,7 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
         ident = self.new(prompt='Retained request')
         self.wait(ident)
         path = self.store/ident/'bootstrap.json'
-        # Each stored prefix is valid alone, but its combination with the
-        # parent's own turn must also fit both existing transcript bounds.
+        # Invariant: Each stored prefix is valid alone, but its combination with the parent's own turn must also fit both existing transcript bounds.
         for prefix in ([{'role':'user', 'text':'x'}] * 200,
                        [{'role':'user', 'text':'x' * (256 * 1024 - 60)}]):
             with self.subTest(kind='count' if len(prefix) > 1 else 'bytes'):
@@ -326,8 +391,7 @@ emit({'type':'result','subtype':'success','result':'','session_id':'11111111-222
         self.assertNotIn('SECRET-ATTACHMENT',prompt)
         self.assertNotIn('APP-OWNED-QUOTE',prompt)
         self.assertIn('historyIncluded',prompt)
-        # A tiny tool response must not amplify a saved attachment into an
-        # unbounded GUI projection when a turn contains many proposals.
+        # Invariant: A tiny tool response must not amplify a saved attachment into an unbounded GUI projection when a turn contains many proposals.
         context_path=self.store/ident/'context.json'
         original_context=context_path.read_text()
         context=json.loads(original_context)
@@ -382,7 +446,6 @@ emit({'type':'result','subtype':'success','result':'','session_id':'11111111-222
         self.assertEqual(len([p for p in self.store.iterdir() if p.is_dir()]),33)
 
     def test_long_native_conversation_has_paged_ui_history_not_a_turn_limit(self):
-        import shutil
         first=self.new();self.wait(first)
         original=json.loads((self.store/first/'job.json').read_text())
         context=json.loads((self.store/first/'context.json').read_text())
@@ -432,6 +495,11 @@ emit({'type':'result','subtype':'success','result':'','session_id':'11111111-222
         first=self.new();self.wait(first)
         second=self.call('new',value={'parent':first,'prompt':'second'})['id'];self.ids.append(second)
         shown=self.wait(second)
+        for ident in (first, second):
+            path = self.store/ident/'job.json'
+            job = json.loads(path.read_text())
+            job['created'] = 100
+            path.write_text(json.dumps(job))
         self.assertEqual([j['id'] for j in self.call('list')],[second])
         self.assertEqual(shown['transcript'][-2]['text'],'second')
 
@@ -532,10 +600,7 @@ else:
                 self.assertNotIn('HIDDEN',json.dumps(shown))
 
     def provider_agent(self, provider, suffix=''):
-        prelude = legacy.PRELUDE.replace(
-            "Path(ident,'cwd.txt').write_text(str(Path.cwd()))\nos.chdir(ident)",
-            "observed=Path(os.environ['OMAMAIL_TEST_ARTIFACTS'])/ident\nobserved.mkdir(exist_ok=True)\nobserved.joinpath('cwd.txt').write_text(str(Path.cwd()))\nos.chdir(observed)"
-        ).replace("emit({'type':'system','subtype':'init','session_id':'11111111-2222-3333-4444-555555555555'})", '')
+        prelude = self.observation_prelude(session=False)
         answer = 'Hello مرحبا'
         if provider == 'opencode':
             events = [
@@ -595,7 +660,7 @@ else:
                 self.assertNotIn('SECRET-', (self.artifacts/selected/'argv.json').read_text())
                 for options in ({'provider':'claude'},{'model':'different'}):
                     self.assertEqual(self.call('new', value={'parent':selected,'prompt':'p'}, options=options, ok=False), 'agent_continuation_override')
-                # Provider-specific session checks protect persisted identities too.
+
                 saved = self.store/selected/'job.json'
                 original = json.loads(saved.read_text())
                 damaged = dict(original,sessionId=legacy.SESSION if provider=='opencode' else 'ses_test123')
@@ -701,8 +766,7 @@ else:
         ident = self.new()
         job = self.wait(ident, ('running',))['job']
         pid = job['pid']
-        # Freeze the worker so cancellation cannot finish within the former
-        # 300ms cleanup sleep. Resume it independently of the cleanup call.
+        # Algorithm: Freeze the worker so cancellation cannot finish within the former 300ms cleanup sleep. Resume it independently of the cleanup call.
         os.kill(pid, signal.SIGSTOP)
         resume = threading.Timer(1, lambda: os.kill(pid, signal.SIGCONT))
         resume.start()
@@ -717,8 +781,7 @@ else:
             self.wait(ident)
 
     def test_deadline_and_stale_worker(self):
-        # Actual short-deadline/native pipe cleanup is exercised by worker.rs's
-        # injected-duration tests; production exposes no timeout-bypass setting.
+        # Invariant: Actual short-deadline/native pipe cleanup is exercised by worker.rs's injected-duration tests; production exposes no timeout-bypass setting.
         ident=self.new();self.wait(ident)
         file=self.store/ident/'job.json'
         original=json.loads(file.read_text())
@@ -750,7 +813,7 @@ else:
         argv = json.loads((observed/'argv.json').read_text())
         self.assertNotIn('--model', argv, 'a blank model uses the selected CLI default')
         self.assertIn('dontAsk', argv)
-        # The listing carries the events, and a look with no array found none.
+
         listed = [job for job in self.call('list') if job['id'] == ident][0]
         self.assertEqual(listed['events'][0]['title'], 'Dinner')
         self.agent("emit({'type':'result','subtype':'success','result':'No events in this message.','session_id':'11111111-2222-3333-4444-555555555555'})")
@@ -759,7 +822,7 @@ else:
         self.assertEqual(finished['job']['state'], 'done')
         self.assertEqual(finished['job']['events'], [])
         self.assertEqual(finished['job']['summary'], 'No events found')
-        # The flag is one message and one ask: no selection, no draft.
+        # Invariant: The flag is one message and one ask: no selection, no draft.
         self.assertEqual(self.call('new', value={'messageId':'', 'messages':[{'messageId':'1','message':'m'}], 'prompt':'p', 'events':True}, ok=False), 'agent_invalid_events')
 
     @unittest.skipUnless(sys.platform == 'linux', 'historical Python worker was Linux-only')
@@ -774,7 +837,7 @@ else:
         self.assertEqual(started.returncode, 0, started.stderr)
         ident = json.loads(started.stdout)['id']
         self.ids.append(ident)
-        # Also clean up through the original bridge if native adoption regresses.
+        # Invariant: Also clean up through the original bridge if native adoption regresses.
         self.addCleanup(lambda: subprocess.run(
             ['python3', str(legacy.SCRIPT), 'cancel', ident],
             env=self.env, capture_output=True, timeout=8))
@@ -829,8 +892,7 @@ else:
     def test_ongoing_worker_survives_start_command_exit_and_another_backend_reads_it(self):
         self.agent("time.sleep(.5)\n" + legacy.SUCCESS)
         ident=self.new()
-        # Every call starts and exits a separate backend process. The detached
-        # worker must remain alive and its result readable across these exits.
+        # Invariant: Every call starts and exits a separate backend process. The detached worker must remain alive and its result readable across these exits.
         shown=self.wait(ident)
         self.assertEqual(shown['job']['state'],'done')
         self.assertTrue(shown['job']['resultReady'])
@@ -913,6 +975,19 @@ emit({'type':'result','subtype':'success','result':'Visible answer'})
         before=sorted(os.listdir(self.store))
         self.call('new',value={'parent':ident,'prompt':'Continue'},ok=False)
         self.assertEqual(sorted(os.listdir(self.store)),before)
+
+
+class NativeBridgeCleanup(unittest.TestCase):
+    def test_cancellation_timeout_still_shuts_down_fixture_broker(self):
+        bridge = NativeBridge('test_background_stdin_result_and_resume')
+        bridge.root = Path('synthetic-fixture')
+        bridge.ids = ['synthetic-job']
+        bridge.env = {}
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('cancel', 8)), \
+                patch.object(agent_broker_fixture, 'shutdown') as shutdown:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                bridge.cleanup()
+            shutdown.assert_called_once_with(bridge.root)
 
 
 if __name__ == '__main__':

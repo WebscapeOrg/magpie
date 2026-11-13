@@ -20,40 +20,11 @@ TestCase {
 
   Item { id: focusParking }
 
-  QtObject {
-    id: calendarFixture
-    property var accountSummaries: []
-    property bool backendCanDiscoverCalendars: true
-    property bool unifiedCalendarView: false
-    property string calendarPalettePath: ""
-    property string colorKey: "accent"
-    property bool savingSource: false
-    property bool discoveringCalendars: false
-    property string discoveringAccountId: ""
-    property int toggleCalls: 0
-    property bool enabledValue: true
-    property var availableSources: ({version:1, sources:[{
-      id:"icloud:one", kind:"icloud", name:"Personal", accountId:"imap:fixture@icloud.com",
-      enabled:enabledValue, discovered:true, colorKey:colorKey
-    }]})
-    signal calendarSaved(bool ok, string error)
-    signal discoveryFinished(bool ok, string error, int count)
-    function setUnifiedCalendarView(value) { unifiedCalendarView = value }
-    function setSourceEnabled(id, value) { toggleCalls++; enabledValue = value }
-    function discoveredCount(id) { return 1 }
-  }
-
-  Component {
-    id: calendarComponent
-    Components.CalendarSettings {
-      service: calendarFixture
-      controller: calendarFixture
-      textColor: Commons.Color.foreground
-      dimColor: Style.mutedColorFor(Commons.Color.foreground, Commons.Color.background)
-      accentColor: Commons.Color.accent
-      urgentColor: Commons.Color.accent
-      panelFontFamily: Style.font.family
-    }
+  Window {
+    id: foregroundWindow
+    visible: false
+    width: 320
+    height: 240
   }
 
   Switch {
@@ -122,82 +93,7 @@ TestCase {
 
   function init() {
     host.reset()
-    calendarFixture.calendarPalettePath = ""
-    calendarFixture.colorKey = "accent"
-  }
-
-  function test_calendar_settings_palette_data() {
-    return [{tag: "theme palette", path: "/fixture/theme/colors.toml"},
-      {tag: "no theme palette", path: ""}]
-  }
-
-  function test_calendar_settings_palette(data) {
-    // Read through the host FileView adapter: injecting Palette.values would
-    // miss a caller that never supplies the theme path in the first place.
-    var colors = {accent: "#e68e0d", red: "#d35f5f", green: "#52b788",
-      yellow: "#f4d35e", blue: "#4d96ff", magenta: "#c77dff", cyan: "#56cfe1"}
-    var lines = []
-    for (var key in colors) lines.push(key + ' = "' + colors[key] + '"')
-    host.write("/fixture/theme/colors.toml", lines.join("\n"), false)
-    Quickshell.fileStore = host
-    calendarFixture.calendarPalettePath = data.path
-    calendarFixture.colorKey = "blue"
-    var settings = createTemporaryObject(calendarComponent, testCase)
-    verify(settings)
-    settings.colorEditingId = "icloud:one"
-    var sourceSwatch = findChild(settings, "calendar-source-color-swatch")
-    verify(sourceSwatch)
-    for (var slot in colors) {
-      var swatch = findChild(settings, "calendar-color-swatch-" + slot)
-      verify(swatch, slot)
-      var expected = data.path !== "" ? colors[slot]
-        : String(slot === "accent" ? settings.accentColor
-          : slot === "red" ? settings.urgentColor : settings.dimColor)
-      tryCompare(swatch, "color", expected)
-    }
-    tryCompare(sourceSwatch, "color", data.path !== "" ? colors.blue : settings.dimColor)
-    if (data.path !== "") {
-      // A live theme change must reach both the picker and the saved source dot.
-      host.write(data.path, lines.join("\n").replace(colors.blue, "#80bfff"), false)
-      host.changed(data.path)
-      tryCompare(findChild(settings, "calendar-color-swatch-blue"), "color", "#80bfff")
-      tryCompare(sourceSwatch, "color", "#80bfff")
-    }
-  }
-
-  function test_calendar_visibility_has_one_mouse_and_keyboard_owner() {
-    calendarFixture.enabledValue = true
-    calendarFixture.toggleCalls = 0
-    var settings = createTemporaryObject(calendarComponent, testCase)
-    verify(settings)
-    wait(0)
-    // A switch like every other setting on the page, and its input is the
-    // only thing that answers the pointer and the keyboard.
-    var trigger = findChild(settings, "calendar-source-toggle")
-    verify(trigger)
-    var input = findChild(trigger, "toggle-switch-input")
-    verify(input)
-    compare(trigger.checked, true)
-    var position = input.mapToItem(testCase, input.width / 2, input.height / 2)
-    verify(position.x >= 0 && position.x < testCase.width
-      && position.y >= 0 && position.y < testCase.height, "toggle location: " + position)
-    verify(input.visible && input.enabled, "input visible/enabled: " + input.visible + "/" + input.enabled)
-    mouseClick(input, input.width / 2, input.height / 2)
-    compare(calendarFixture.toggleCalls, 1)
-    compare(calendarFixture.enabledValue, false)
-    wait(0)
-    trigger = findChild(settings, "calendar-source-toggle")
-    input = findChild(trigger, "toggle-switch-input")
-    compare(trigger.checked, false)
-    focusParking.forceActiveFocus()
-    for (var tab = 0; tab < 20 && !input.activeFocus; tab++) keyClick(Qt.Key_Tab)
-    verify(input.activeFocus, "the visibility switch receives Tab")
-    keyClick(Qt.Key_Space)
-    compare(calendarFixture.toggleCalls, 2)
-    compare(calendarFixture.enabledValue, true)
-    wait(0)
-    trigger = findChild(settings, "calendar-source-toggle")
-    compare(trigger.checked, true)
+    foregroundWindow.visible = false
   }
 
   function test_standalone_controls_use_semantic_omamail_style() {
@@ -267,12 +163,12 @@ TestCase {
       "top-left": Qt.SizeFDiagCursor, "top-right": Qt.SizeBDiagCursor,
       "bottom-left": Qt.SizeBDiagCursor, "bottom-right": Qt.SizeFDiagCursor
     }
-    // Repeater delegates have a visual parent but no object parent, so
+    // Invariant: Repeater delegates have a visual parent but no object parent, so
     // findChild cannot see them; the window's content lists them directly.
     function resizeCorner(name) {
       var items = composition.contentItem.children
-      for (var i = 0; i < items.length; i++)
-        if (items[i].objectName === "standalone-resize-corner-" + name) return items[i]
+      for (var itemIndex = 0; itemIndex < items.length; itemIndex++)
+        if (items[itemIndex].objectName === "standalone-resize-corner-" + name) return items[itemIndex]
       return null
     }
     for (var name in corners) {
@@ -300,7 +196,7 @@ TestCase {
     compare(composition.service.settings.maxMessages, 17)
     compare(composition.service.notifyNewMail, false)
     compare(composition.service.backendRuntime.bundled, true)
-    compare(composition.service.backendRuntime.requiredApiVersion, 6,
+    compare(composition.service.backendRuntime.requiredApiVersion, 7,
       "the bundled handshake must require this checkout's API")
     compare(composition.service.backendRuntime.canInstall, false)
     compare(composition.service.backendRuntime.executable, host.backendPath)
@@ -360,12 +256,19 @@ TestCase {
     compare(restarted.height, 710)
   }
 
-  function test_bad_window_size_uses_bounded_default() {
+  function test_bad_window_size_uses_bounded_default_data() {
+    return [{tag: "broken", contents: "{broken JSON"},
+      {tag: "null", contents: "null"}, {tag: "array", contents: "[]"},
+      {tag: "number", contents: "17"}, {tag: "string", contents: '"size"'}]
+  }
+
+  function test_bad_window_size_uses_bounded_default(data) {
     var path = "/fixture/config/omamail/window-size.json"
     host.files = ({})
-    host.files[path] = "{broken JSON"
+    host.files[path] = data.contents
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
+    compare(composition.windowSizeLoaded, true)
     compare(composition.width, Math.min(1024, Math.max(760, composition.availableWindowWidth)))
     compare(composition.height, Math.min(768, Math.max(520, composition.availableWindowHeight)))
     compare(composition.boundedWindowDimension(759, 1024, 760, 1920), 1024)
@@ -387,9 +290,9 @@ TestCase {
       if (!item) return null
       if (item.keyContext !== undefined && typeof item.applyContextFocus === "function")
         return item
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) {
-        var found = walk(kids[i])
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = walk(children[childIndex])
         if (found) return found
       }
       return null
@@ -423,7 +326,7 @@ TestCase {
     verify(composition.app.opened)
     sendCloseChord(composition)
     assertHiddenNotQuit(composition)
-    // The Dock brings it back through the same door the launcher uses.
+    // Invariant: The Dock brings it back through the same door the launcher uses.
     host.reopenRequested()
     compare(composition.app.opened, true)
     verify(composition.visible)
@@ -482,7 +385,7 @@ TestCase {
     assertHiddenNotQuit(composition)
   }
 
-  // macOS delivers Cmd+W to Qt only after the input method has had it, so
+  // Invariant: macOS delivers Cmd+W to Qt only after the input method has had it, so
   // the native host catches the chord itself and asks the window to leave.
   function test_native_close_chord_from_the_host_shuts_the_window() {
     var composition = createTemporaryObject(compositionComponent, testCase)
@@ -492,24 +395,6 @@ TestCase {
     assertHiddenNotQuit(composition)
     host.reopenRequested()
     compare(composition.app.opened, true)
-  }
-
-  function test_close_chord_stays_live_in_calendar_context() {
-    var composition = createTemporaryObject(compositionComponent, testCase)
-    verify(composition)
-    verify(composition.app.opened)
-    var scope = focusScopeOf(composition)
-    verify(scope)
-    scope.enabled = true
-    composition.app.showCalendar()
-    var router = keyRouter(composition)
-    verify(router)
-    router.context = "calendar"
-    wait(30)
-    compare(router.context, "calendar")
-    compare(scope.keyContext, "calendar")
-    sendCloseChord(composition)
-    assertHiddenNotQuit(composition)
   }
 
   function test_non_windowed_size_does_not_replace_saved_normal_size() {
@@ -531,13 +416,12 @@ TestCase {
     verify(composition.shell.updateEntryInline("omamail", {id:"omamail",maxMessages:42}))
     compare(host.settings, {maxMessages:42})
 
-    var opened = ""
     var fakeApp = Qt.createQmlObject('import QtQuick; QtObject {'
       + ' property bool opened: false; property string payload: "";'
       + ' function open(value) { opened = true; payload = value }'
       + ' function close() { opened = false } }', testCase)
     composition.shell.app = fakeApp
-    var payload = JSON.stringify({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    var payload = JSON.stringify({accountId:"a@example.org",messageId:"message-7"})
     verify(composition.shell.summon("omamail", payload))
     compare(fakeApp.payload, payload)
     verify(fakeApp.opened)
@@ -563,8 +447,8 @@ TestCase {
     compare(findChild(composition, "notification-settings").visible, false)
     compare(findChild(composition, "bar-settings").visible, false)
     verify(composition.shell.hide("omamail"))
-    compare(host.quitCalled, true)
-    compare(host.hidden, false)
+    compare(host.quitCalled, false)
+    compare(host.hidden, true)
   }
 
   function test_close_hides_rather_than_quits_where_the_dock_can_reopen() {
@@ -589,26 +473,24 @@ TestCase {
   }
 
   function test_cold_start_activation_is_consumed_once() {
-    host.pendingNotificationActivation = ({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"a@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"7:INBOX"},
+      {accountId:"a@example.org",messageId:"message-7"},
       "the native route remains durable until the registry can validate it")
     compare(composition.app.cursorId, "", "native values are not routed before registry validation")
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
-    tryCompare(composition.app, "cursorId", "7:INBOX")
+    tryCompare(composition.app, "cursorId", "message-7")
     compare(host.pendingNotificationActivation, {})
   }
 
   function test_cold_start_activation_opens_an_ordinary_window_if_registry_stalls() {
-    host.pendingNotificationActivation = ({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"a@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
@@ -618,36 +500,38 @@ TestCase {
     fallback.restart()
     tryCompare(composition.app, "opened", true)
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"7:INBOX"})
+      {accountId:"a@example.org",messageId:"message-7"})
   }
 
   function test_live_activation_waits_for_registry_and_acknowledges_after_routing() {
+    host.startInBackground = true
+    host.files["/fixture/config/omamail/window.json"] = JSON.stringify({ windowOpen: true })
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
-    host.activateNotification("imap:a@example.org", "8:INBOX")
+    host.activateNotification("a@example.org", "message-8")
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"8:INBOX"})
+      {accountId:"a@example.org",messageId:"message-8"})
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
-    tryCompare(composition.app, "cursorId", "8:INBOX")
+    tryCompare(composition.app, "cursorId", "message-8")
     compare(host.pendingNotificationActivation, {})
+    composition.app.requestClose()
+    host.reopenRequested()
+    compare(composition.app.opened, true,
+      "notification activation counts as explicit activation for later reopen")
   }
 
   function test_cold_start_rejects_an_account_missing_from_the_registry() {
-    host.pendingNotificationActivation = ({accountId:"imap:gone@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"gone@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
     tryCompare(composition.app, "opened", true)
     compare(composition.app.cursorId, "")
@@ -679,6 +563,128 @@ TestCase {
     compare(saved.installed.client_secret, "GOCSPX-synthetic-secret")
   }
 
+
+  function test_bar_status_forwards_only_sanitized_fields() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    host.barStatuses = []
+    verify(composition.shell.updateBarStatus({
+      ready: true, windowOpen: true, showBarIcon: false, unreadTotal: 7.9,
+      accountId: "private@example.test", subject: "private subject",
+      credentials: {token: "private-token"}
+    }))
+    compare(host.barStatuses.length, 1)
+    compare(host.barStatuses[0], {
+      ready: true, windowOpen: true, showBarIcon: false, unreadTotal: 7
+    })
+    compare(Object.keys(host.barStatuses[0]).sort(),
+      ["ready", "showBarIcon", "unreadTotal", "windowOpen"])
+    verify(composition.shell.updateBarStatus({unreadTotal: -4, accountId: "hidden"}))
+    compare(host.barStatuses[1], {
+      ready: false, windowOpen: false, showBarIcon: true, unreadTotal: 0
+    })
+  }
+
+  function test_native_window_lifecycle_publishes_status() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    verify(host.barStatuses.length > 0)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, true)
+    composition.app.requestClose()
+    compare(composition.app.opened, false)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, false)
+    host.activationRequested("{}")
+    compare(composition.app.opened, true)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, true)
+  }
+
+  function test_background_starts_hidden_and_later_open_raises() {
+    host.startInBackground = true
+    host.files["/fixture/config/omamail/window.json"] = JSON.stringify({ windowOpen: true })
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    compare(composition.app.opened, false)
+    compare(composition.visible, false)
+    compare(host.hidden, false)
+    compare(host.quitCalled, false)
+    host.reopenRequested()
+    compare(composition.app.opened, false, "application activation must not defeat --background")
+    host.activationRequested("{}")
+    compare(composition.app.opened, true)
+    verify(composition.visible)
+    composition.app.requestClose()
+    host.reopenRequested()
+    compare(composition.app.opened, true, "an explicitly opened app can reopen after close")
+  }
+
+  function test_cold_compose_activation_uses_existing_app_open() {
+    host.initialActivation = '{"compose":true}'
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    tryCompare(composition.app, "composing", true)
+    verify(composition.visible)
+  }
+
+  function test_warm_mailto_activation_preserves_fields_and_focuses_window() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    foregroundWindow.visible = true
+    foregroundWindow.requestActivate()
+    tryVerify(function() { return foregroundWindow.active })
+    var url = "mailto:one+tag@example.test?subject=A+B%20C%2BD&body=100%25+%2B%0Aline%20two"
+    host.activationRequested(JSON.stringify({mailto: url}))
+    tryCompare(composition.app, "composing", true)
+    tryVerify(function() { return composition.active })
+    compare(findChild(composition, "compose-to-field").text, "one+tag@example.test")
+    compare(findChild(composition, "compose-subject-field").text, "A+B C+D")
+    foregroundWindow.visible = false
+  }
+
+  function test_open_activation_recovers_window_behind_another_window() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    foregroundWindow.visible = true
+    foregroundWindow.requestActivate()
+    tryVerify(function() { return foregroundWindow.active })
+    host.activationRequested("{}")
+    tryVerify(function() { return composition.active })
+    verify(composition.visible)
+    compare(composition.app.opened, true)
+    foregroundWindow.visible = false
+  }
+
+  function test_packaged_helpers_use_native_resources_and_installed_calendar() {
+    host.resourceRoot = "/fixture/native"
+    host.environmentValues.XDG_DATA_HOME = "/fixture/calendar-data"
+    var installed = "/fixture/calendar-data/magpie-calendar/open-magpie-calendar.py"
+    host.files[installed] = "synthetic opener"
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    compare(composition.service.helperRoot(), "/fixture/native")
+    compare(composition.service.helperPath("diagnostics.py"),
+      "/fixture/native/scripts/diagnostics.py")
+    compare(composition.service.calendarOpener(), installed)
+    verify(findChild(composition, "standalone-clipboard-attachment") !== null)
+    verify(composition.service.openMessageLink("https://public.example.test", ""))
+    compare(JSON.stringify(host.messageLinks), '[["https://public.example.test",""]]')
+    host.capabilities = ({agent:false,tray:false,mailto:true,notifications:true})
+    compare(composition.service.hasMailto, true)
+  }
+
+  function test_macos_keeps_mailto_without_linux_default_client_controls() {
+    host.capabilities = ({agent:false,tray:false,mailto:true,defaultMailClient:false,notifications:true})
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    wait(20)
+    compare(composition.service.hasMailto, true)
+    compare(composition.service.hasDefaultMailClient, false)
+    var helper = findChild(composition, "default-mail-client-process")
+    verify(helper !== null)
+    compare(helper.running, false)
+    composition.service.setDefaultMailClient(true)
+    compare(helper.running, false)
+    compare(composition.service.defaultMailClientBusy, false)
+  }
 
   function test_all_shared_clipboard_writes_cross_the_host_seam() {
     var composition = createTemporaryObject(compositionComponent, testCase)

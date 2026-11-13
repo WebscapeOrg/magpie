@@ -1,8 +1,7 @@
 import QtQuick
 import "Options.js" as Options
 
-// Presentation state for native background jobs. Rust owns process lifetime,
-// deadlines, persisted output and job validation; the UI owns the open result.
+// Invariant: Rust owns durable job and process lifetime; QML observes projections and acknowledges results.
 Item {
   id: root
   required property string pluginDir
@@ -21,8 +20,7 @@ Item {
       return
     }
     if (Number(backend.apiVersion) < 6) {
-      // The published backend still supports Claude through Omarchy's default.
-      // It validates that default at jobStart; providerStatus is API-6 only.
+      // Invariant: historical backends support Omarchy's default Claude before provider-status discovery.
       resolvedProvider = ""
       providerAvailable = selectedAgent === "System default" && selectedModel === ""
       availabilityError = providerAvailable ? ""
@@ -68,9 +66,7 @@ Item {
   property var seenIds: []
   property bool attention: false
   property var attentionByMessage: ({})
-  // Looks for events by account and message — running or finished — and how
-  // many are running: a look draws no row, so it is read from here and not
-  // from byMessage.
+  // Invariant: background event checks do not use the user-requested job indicator.
   property var eventLooks: ({})
   property int activeEventLooks: 0
   property int projectionSerial: 0
@@ -81,9 +77,7 @@ Item {
   }
   signal jobFinished(var job)
   signal failed(string text)
-  // A start that Rust refused, by its code, for a caller that asked quietly:
-  // a background look has nobody to tell and must not put an error on the
-  // status line every time a message opens.
+  // Invariant: quiet background start refusals must not overwrite the status line.
   signal startRefused(string code)
 
   property string lastError: ""
@@ -168,7 +162,7 @@ Item {
       root.pendingJobs = null
       root.jobs = next
       var news = result.newlyFinished || []
-      for (var i = 0; i < news.length; i++) root.jobFinished(news[i])
+      for (var finishedIndex = 0; finishedIndex < news.length; finishedIndex++) root.jobFinished(news[finishedIndex])
     })
   }
   onAccountIdChanged: {
@@ -211,8 +205,8 @@ Item {
       return false
     }
     var parsed = payload
-    if (typeof parsed === "string") { try { parsed = JSON.parse(parsed) } catch (e) {} }
-    if (parsed && parsed.parent && !canContinueSelection(jobFor2(parsed.parent))) {
+    if (typeof parsed === "string") { try { parsed = JSON.parse(parsed) } catch (parseError) {} }
+    if (parsed && parsed.parent && !canContinueSelection(jobById(parsed.parent))) {
       lastError = "This chat belongs to a previous AI selection. Start a new chat."
       return false
     }
@@ -255,7 +249,7 @@ Item {
   }
 
   function cancelById(jobId) {
-    var job = jobFor2(jobId)
+    var job = jobById(jobId)
     if (!available() || !job || activeIds.indexOf(String(job.id)) < 0 || cancelling) return false
     cancelling = true
     request("agent.jobCancel", {id: String(job.id)}, function(result, error) {
@@ -378,8 +372,8 @@ Item {
     function onReadyChanged() { root.refreshAvailability(); if (root.available()) {root.refresh();root.drainForgets()} }
     function onApiVersionChanged() { root.refreshAvailability() }
   }
-  function jobFor2(jobId) {
-    for (var i = 0; i < jobs.length; i++) if (String(jobs[i].id) === String(jobId)) return jobs[i]
+  function jobById(jobId) {
+    for (var jobIndex = 0; jobIndex < jobs.length; jobIndex++) if (String(jobs[jobIndex].id) === String(jobId)) return jobs[jobIndex]
     return null
   }
   Component.onCompleted: Qt.callLater(root.refresh)

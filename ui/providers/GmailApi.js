@@ -1,14 +1,31 @@
 .pragma library
 
-// URL construction and response shaping for the Gmail REST API. No transport
-// lives here — GmailApi.qml owns XMLHttpRequest, this file owns every string
-// and every decision about what a response means, which is what the tests can
-// reach without a compositor.
+function localEditError(error) {
+  if (!error) return ""
+  var code = String(error.message || "")
+  if (code === "backend_needs_update" || code === "Invalid params" || code === "Method not found")
+    return "Magpie Mail’s parts do not match. Update the app and its backend together, then try again."
+  if (code === "local_disk_full" || code === "local_disk_low")
+    return "There is not enough free disk space to save this change. Free some space, then try again."
+  if (code === "local_account_unknown" || code === "auth_signed_out")
+    return "This account is no longer available. Reconnect the account, then try again."
+  if (code === "local_schema_newer" || code === "local_sqlite_update_required")
+    return "Your saved mail needs a newer backend. Update the app and its backend together."
+  if (code === "local_storage_corrupt")
+    return "Magpie Mail could not read its saved mail. Report this storage error for help."
+  if (code === "local_storage_unavailable" || code === "cache_unsafe_path"
+      || code === "local_owner_unavailable" || code === "private_fs_busy")
+    return "Magpie Mail could not access its saved mail. Report this storage error for help."
+  return "Magpie Mail could not confirm this change. Check the message’s current state before trying again."
+}
+
+// Invariant: Live Gmail transport belongs to Rust. The UI uses presentation helpers;
+// legacy protocol builders remain available to the reference tests.
 
 var API_BASE = "https://gmail.googleapis.com/gmail/v1"
 var WEB_BASE = "https://mail.google.com/mail/u"
 
-// System labels the panel treats as mailboxes. Gmail returns these ids for
+// Invariant: System labels the panel treats as mailboxes. Gmail returns these ids for
 // every account regardless of language, unlike user labels whose names are
 // whatever the user typed.
 var SYSTEM_LABELS = {
@@ -31,8 +48,9 @@ function encode(value) {
   return encodeURIComponent(String(value === undefined || value === null ? "" : value))
 }
 
-// Query values may repeat (metadataHeaders, labelIds), so an array value
-// becomes one key=value pair per entry rather than a joined string.
+/** Query values may repeat (metadataHeaders, labelIds), so an array value
+ * becomes one key=value pair per entry rather than a joined string.
+ */
 function appendQuery(url, values) {
   if (!values) return url
   var parts = []
@@ -40,9 +58,9 @@ function appendQuery(url, values) {
     var value = values[key]
     if (value === undefined || value === null || value === "") continue
     if (Array.isArray(value)) {
-      for (var i = 0; i < value.length; i++) {
-        if (value[i] === undefined || value[i] === null || value[i] === "") continue
-        parts.push(encode(key) + "=" + encode(value[i]))
+      for (var itemIndex = 0; itemIndex < value.length; itemIndex++) {
+        if (value[itemIndex] === undefined || value[itemIndex] === null || value[itemIndex] === "") continue
+        parts.push(encode(key) + "=" + encode(value[itemIndex]))
       }
     } else {
       parts.push(encode(key) + "=" + encode(value))
@@ -52,8 +70,9 @@ function appendQuery(url, values) {
   return url + (url.indexOf("?") < 0 ? "?" : "&") + parts.join("&")
 }
 
-// Every request goes through here, so a path that somehow arrived from a
-// response body cannot point the authenticated client at another host.
+/** Every request goes through here, so a path that somehow arrived from a
+ * response body cannot point the authenticated client at another host.
+ */
 function safeApiUrl(path) {
   var value = String(path || "")
   if (value.charAt(0) !== "/") return ""
@@ -66,7 +85,7 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
@@ -77,8 +96,9 @@ function redact(text) {
     .replace(/\bya29\.[A-Za-z0-9._-]+/g, "[redacted]")
 }
 
-// Gmail's failures are worth translating: the raw messages are written for
-// somebody reading a server log, not for somebody who just clicked Archive.
+/** Gmail's failures are worth translating: the raw messages are written for
+ * somebody reading a server log, not for somebody who just clicked Archive.
+ */
 function responseError(status, payload, fallback) {
   var detail = ""
   if (payload && payload.error) {
@@ -109,8 +129,6 @@ function rateLimitSuffix(retryAfter) {
   return " (retry in " + Math.ceil(seconds / 60) + " min)"
 }
 
-// ------------------------------------------------------------------ paths
-
 function messagesPath() { return "/users/me/messages" }
 function messagePath(id) { return "/users/me/messages/" + encode(id) }
 function modifyPath(id) { return "/users/me/messages/" + encode(id) + "/modify" }
@@ -128,8 +146,8 @@ function draftListQuery(pageToken) {
 function draftIdForMessage(payload, messageId) {
   var wanted = String(messageId || "")
   var rows = arrayValues(payload && payload.drafts)
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i] || {}
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var row = rows[itemIndex] || {}
     if (row.message && String(row.message.id || "") === wanted)
       return String(row.id || "")
   }
@@ -163,7 +181,7 @@ function listQuery(query, maxResults, pageToken) {
   }
 }
 
-// `metadata` is a quarter of the payload of `full` and is all a list row needs.
+// Performance: `metadata` is a quarter of the payload of `full` and is all a list row needs.
 var LIST_HEADERS = ["From", "To", "Subject", "Date", "List-Unsubscribe"]
 
 function metadataQuery() {
@@ -174,8 +192,6 @@ function fullQuery() {
   return { format: "full" }
 }
 
-// ---------------------------------------------------------------- parsing
-
 function arrayValues(value) {
   return Array.isArray(value) ? value : []
 }
@@ -185,17 +201,16 @@ function parseMessageList(payload) {
   var messages = arrayValues(body.messages)
   var ids = []
   var threadIds = []
-  for (var i = 0; i < messages.length; i++) {
-    var id = String(messages[i] && messages[i].id ? messages[i].id : "")
+  for (var itemIndex = 0; itemIndex < messages.length; itemIndex++) {
+    var id = String(messages[itemIndex] && messages[itemIndex].id ? messages[itemIndex].id : "")
     if (!id) continue
     ids.push(id)
-    threadIds.push(String(messages[i].threadId || ""))
+    threadIds.push(String(messages[itemIndex].threadId || ""))
   }
   return {
     ids: ids,
     threadIds: threadIds,
     nextPageToken: String(body.nextPageToken || ""),
-    // Gmail is explicit that this is an estimate; the panel labels it as one.
     estimate: Math.max(0, Math.floor(Number(body.resultSizeEstimate) || 0))
   }
 }
@@ -209,8 +224,8 @@ function labelDisplayName(label) {
 function parseLabels(payload) {
   var labels = arrayValues(payload && payload.labels)
   var result = []
-  for (var i = 0; i < labels.length; i++) {
-    var label = labels[i]
+  for (var itemIndex = 0; itemIndex < labels.length; itemIndex++) {
+    var label = labels[itemIndex]
     var id = String(label && label.id ? label.id : "")
     if (!id) continue
     result.push({
@@ -246,20 +261,21 @@ function parseProfile(payload) {
   }
 }
 
-// Gmail's send-as collection includes the primary address and every custom
-// address configured under "Send mail as". Pending custom addresses cannot be
-// used yet, so they must not appear as choices in a compose window.
-//
-// Only `pending` is excluded, never "everything that is not `accepted`":
-// verification applies to custom addresses alone, so an alias that never
-// needed it — a Workspace alternate address, an alias domain — comes back with
-// the field absent, and requiring `accepted` dropped exactly the addresses
-// that were always usable.
+/** Gmail's send-as collection includes the primary address and every custom
+ * address configured under "Send mail as". Pending custom addresses cannot be
+ * used yet, so they must not appear as choices in a compose window.
+ *
+ * Only `pending` is excluded, never "everything that is not `accepted`":
+ * verification applies to custom addresses alone, so an alias that never
+ * needed it — a Workspace alternate address, an alias domain — comes back with
+ * the field absent, and requiring `accepted` dropped exactly the addresses
+ * that were always usable.
+ */
 function parseSendAs(payload) {
   var entries = arrayValues(payload && payload.sendAs)
   var aliases = []
-  for (var i = 0; i < entries.length; i++) {
-    var entry = entries[i] || {}
+  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) {
+    var entry = entries[itemIndex] || {}
     var email = String(entry.sendAsEmail || "").trim()
     var primary = entry.isPrimary === true
     var status = String(entry.verificationStatus || "").toLowerCase()
@@ -283,18 +299,18 @@ function aliasEmail(alias) {
 function preferredSendAs(aliases, recipients) {
   var choices = Array.isArray(aliases) ? aliases : []
   var addressed = Array.isArray(recipients) ? recipients : []
-  for (var i = 0; i < addressed.length; i++) {
-    var recipient = aliasEmail(addressed[i])
+  for (var itemIndex = 0; itemIndex < addressed.length; itemIndex++) {
+    var recipient = aliasEmail(addressed[itemIndex])
     if (!recipient) continue
-    for (var j = 0; j < choices.length; j++) {
-      if (aliasEmail(choices[j]) === recipient) return choices[j]
+    for (var nestedIndex = 0; nestedIndex < choices.length; nestedIndex++) {
+      if (aliasEmail(choices[nestedIndex]) === recipient) return choices[nestedIndex]
     }
   }
-  for (var k = 0; k < choices.length; k++) {
-    if (choices[k] && choices[k].isDefault === true) return choices[k]
+  for (var choiceIndex = 0; choiceIndex < choices.length; choiceIndex++) {
+    if (choices[choiceIndex] && choices[choiceIndex].isDefault === true) return choices[choiceIndex]
   }
-  for (var p = 0; p < choices.length; p++) {
-    if (choices[p] && choices[p].isPrimary === true) return choices[p]
+  for (var primaryIndex = 0; primaryIndex < choices.length; primaryIndex++) {
+    if (choices[primaryIndex] && choices[primaryIndex].isPrimary === true) return choices[primaryIndex]
   }
   return choices.length > 0 ? choices[0] : null
 }
@@ -303,8 +319,8 @@ function sendAsFor(aliases, email) {
   var wanted = aliasEmail(email)
   if (!wanted) return null
   var choices = Array.isArray(aliases) ? aliases : []
-  for (var i = 0; i < choices.length; i++) {
-    if (aliasEmail(choices[i]) === wanted) return choices[i]
+  for (var itemIndex = 0; itemIndex < choices.length; itemIndex++) {
+    if (aliasEmail(choices[itemIndex]) === wanted) return choices[itemIndex]
   }
   return null
 }
@@ -313,14 +329,13 @@ function isSendAsAllowed(aliases, email) {
   return sendAsFor(aliases, email) !== null
 }
 
-// --------------------------------------------------------------- browsing
-
-// Gmail's web UI addresses accounts by index, not address, and there is no way
-// to map one to the other from the API. Index 0 is right for the common
-// single-account case and wrong in a way the user can see and fix, which beats
-// a link that silently opens somebody else's mailbox.
-// The mailbox itself, rather than a message or a search in it. Gmail's web UI
-// opens on whatever the user last had; there is nothing to point it at.
+/** Gmail's web UI addresses accounts by index, not address, and there is no way
+ * to map one to the other from the API. Index 0 is right for the common
+ * single-account case and wrong in a way the user can see and fix, which beats
+ * a link that silently opens somebody else's mailbox.
+ * The mailbox itself, rather than a message or a search in it. Gmail's web UI
+ * opens on whatever the user last had; there is nothing to point it at.
+ */
 function webHomeUrl(accountIndex) {
   var index = Math.max(0, Math.floor(Number(accountIndex) || 0))
   return WEB_BASE + "/" + index + "/"

@@ -17,8 +17,8 @@ function family(value) {
 function normalize(raw) {
   var source = raw && typeof raw === "object" ? raw : {}
   var result = {layout: source.layout === SPLIT ? SPLIT : SINGLE}
-  for (var i = 0; i < REGIONS.length; i++) {
-    var region = REGIONS[i]
+  for (var regionIndex = 0; regionIndex < REGIONS.length; regionIndex++) {
+    var region = REGIONS[regionIndex]
     result[region + "Family"] = source[region + "Family"] === undefined
       ? "Chillax Light" : family(source[region + "Family"])
     result[region + "Size"] = size(source[region + "Size"])

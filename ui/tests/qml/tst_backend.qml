@@ -63,7 +63,7 @@ Item {
       reply(process,append,{offset:65536})
       all=requests(process)
       compare(all[all.length - 1].method,"upload.discard")
-      for (var i=0;i<all.length;i++) verify(all[i].method!=="request.upload")
+      for (var requestIndex=0;requestIndex<all.length;requestIndex++) verify(all[requestIndex].method!=="request.upload")
       compare(callbacks,0)
     }
 
@@ -72,18 +72,18 @@ Item {
       var process = makeReady(backend)
       var completed = 0
       var failed = 0
-      for (var i = 0; i < 225; i++) {
-        backend.call("gmail.read", { accountId: "account-" + Math.floor(i / 25), id: i }, function(result, error) {
+      for (var requestIndex = 0; requestIndex < 225; requestIndex++) {
+        backend.call("gmail.read", { accountId: "account-" + Math.floor(requestIndex / 25), id: requestIndex }, function(result, error) {
           if (error) failed++
           else completed++
         })
       }
       compare(failed, 0)
       compare(requests(process).length, 65, "64 physical requests after the handshake")
-      for (var j = 0; j < 225; j++) {
+      for (var replyIndex = 0; replyIndex < 225; replyIndex++) {
         verify(Object.keys(backend.pending).length <= 64)
-        var request = requests(process)[j + 1]
-        compare(request.params.id, j, "queued reads remain FIFO")
+        var request = requests(process)[replyIndex + 1]
+        compare(request.params.id, replyIndex, "queued reads remain FIFO")
         reply(process, request, { ok: true })
       }
       compare(completed, 225)
@@ -94,11 +94,11 @@ Item {
       var backend = makeBackend()
       var process = makeReady(backend)
       var completed = 0
-      for (var i = 0; i < 80; i++)
-        backend.call("gmail.read", { id: i }, function(result, error) { if (!error) completed++ })
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++)
+        backend.call("gmail.read", { id: requestIndex }, function(result, error) { if (!error) completed++ })
       backend.shutdown(function() {})
-      for (var j = 0; j < 80; j++) {
-        var request = requests(process)[j + 1]
+      for (var replyIndex = 0; replyIndex < 80; replyIndex++) {
+        var request = requests(process)[replyIndex + 1]
         compare(request.method, "gmail.read")
         reply(process, request, { ok: true })
       }
@@ -109,6 +109,220 @@ Item {
       compare(backend.shutdownError, null)
     }
 
+    function completeRestartShutdown(backend, process) {
+      var quit = requests(process).slice(-1)[0]
+      compare(quit.method, "system.quit")
+      reply(process, quit, { quitReady: true })
+      verify(backend.restarting)
+      verify(!backend.ready)
+      process.exited(0)
+      wait(0)
+      verify(process.running)
+      verify(backend.restarting)
+      verify(!backend.ready)
+      process.started()
+      var handshake = requests(process).slice(-1)[0]
+      compare(handshake.method, "system.info")
+      return handshake
+    }
+
+    function restartedInfo() {
+      return { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
+        methods: ["system.info", "system.quit", "gmail.read", "upload.begin"] }
+    }
+
+    function test_restart_drains_queue_and_waits_for_handshake_each_time() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var completed = 0
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++)
+        backend.call("gmail.read", { id: requestIndex }, function(result, error) { if (!error) completed++ })
+      var restarts = 0
+      backend.restart(function(error) { compare(error, null); restarts++ })
+      verify(backend.restarting)
+      for (var replyIndex = 0; replyIndex < 80; replyIndex++) {
+        var request = requests(process)[replyIndex + 1]
+        compare(request.method, "gmail.read")
+        reply(process, request, { ok: true })
+      }
+      compare(completed, 80)
+      compare(restarts, 0)
+      var handshake = completeRestartShutdown(backend, process)
+      compare(restarts, 0, "a launched process is not ready until its handshake succeeds")
+      var before = process.written
+      var refused = null
+      backend.call("gmail.read", {}, function(result, error) { refused = error })
+      verify(refused !== null)
+      compare(process.written, before)
+      reply(process, handshake, restartedInfo())
+      compare(restarts, 1)
+      verify(backend.ready)
+      verify(!backend.restarting)
+      verify(!backend.stopping)
+      backend.restart(function(error) { compare(error, null); restarts++ })
+      handshake = completeRestartShutdown(backend, process)
+      reply(process, handshake, restartedInfo())
+      compare(restarts, 2)
+      verify(backend.ready)
+      compare(process.command[0], backend.executable)
+    }
+
+    function test_restart_duplicate_is_refused_without_extra_quit() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var completed = 0
+      backend.restart(function(error) { compare(error, null); completed++ })
+      var before = process.written
+      var refused = null
+      backend.restart(function(error) { refused = error })
+      compare(refused.message, "Backend restart is already in progress")
+      compare(process.written, before)
+      var handshake = completeRestartShutdown(backend, process)
+      reply(process, handshake, restartedInfo())
+      compare(completed, 1)
+    }
+
+    function test_restart_after_separate_shutdown_and_runtime_validation() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var stopped = false
+      backend.shutdown(function(error) { compare(error, null); stopped = true })
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      verify(stopped)
+      backend.launchEnabled = false
+      wait(0)
+      backend.launchEnabled = true
+      wait(0)
+      verify(!process.running, "runtime validation alone must not restart a shut-down backend")
+      var before = requests(process).length
+      var completed = false
+      backend.restart(function(error) { compare(error, null); completed = true })
+      verify(process.running)
+      process.started()
+      compare(requests(process).length, before + 1, "no second quit is sent")
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(completed)
+      verify(backend.ready)
+    }
+
+    function test_restart_incompatible_handshake_stops_without_dispatch() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      var handshake = completeRestartShutdown(backend, process)
+      var info = restartedInfo()
+      info.version = "0.8.1"
+      reply(process, handshake, info)
+      compare(failures.length, 1)
+      compare(failures[0].message, "Incompatible backend")
+      verify(!backend.ready)
+      verify(!process.running)
+      var before = process.written
+      backend.call("gmail.read", {}, function() {})
+      compare(process.written, before)
+      process.exited(1)
+      compare(failures.length, 1)
+    }
+
+    function test_restart_startup_deadline_data() {
+      return [{ tag: "no process start", handshake: false }, { tag: "no handshake", handshake: true }]
+    }
+
+    function test_restart_startup_deadline(data) {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      verify(process.running)
+      if (data.handshake) process.started()
+      restartDeadlineOf(backend).triggered()
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend restart timed out")
+      verify(!process.running)
+      verify(!backend.ready)
+      process.exited(1)
+      compare(failures.length, 1)
+    }
+
+    function test_restart_never_relaunches_without_confirmed_stop() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      deadlineOf(backend).triggered()
+      stopConfirmationOf(backend).triggered()
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend stop was not confirmed")
+      verify(!process.running)
+      var before = process.written
+      backend.restart(function(error) { failures.push(error) })
+      compare(failures.length, 2)
+      compare(failures[1].message, "Backend stop was not confirmed")
+      verify(!process.running)
+      compare(process.written, before)
+      process.exited(1)
+      var completed = false
+      backend.restart(function(error) { compare(error, null); completed = true })
+      verify(process.running)
+      process.started()
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(completed)
+      verify(backend.ready)
+    }
+
+    function test_restart_failed_quit_requires_explicit_retry_after_exit() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      reply(process, requests(process).slice(-1)[0], null, { code: -32000, message: "quit failed" })
+      compare(failures.length, 0)
+      process.exited(1)
+      wait(0)
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend shutdown failed")
+      verify(!process.running)
+      backend.restart(function(error) { compare(error, null) })
+      verify(process.running)
+      process.started()
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(backend.ready)
+    }
+
+    function test_shutdown_cancels_pending_restart_without_relaunch() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var restartError = null
+      backend.restart(function(error) { restartError = error })
+      var stopped = false
+      backend.shutdown(function(error) { compare(error, null); stopped = true })
+      compare(restartError.message, "Backend restart was cancelled")
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      verify(stopped)
+      verify(!process.running)
+      verify(!backend.restarting)
+    }
+
+    function test_restart_refuses_changed_executable_after_shutdown() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failure = null
+      backend.restart(function(error) { failure = error })
+      backend.executable = "/tmp/changed-synthetic-backend"
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      compare(failure.message, "Backend changed during restart")
+      verify(!process.running)
+    }
+
     function test_internal_upload_burst_shares_one_reservation_queue() {
       var backend = makeBackend()
       var process = makeReady(backend)
@@ -116,28 +330,28 @@ Item {
       var failed = 0
       var uploads = ({})
       var nextUpload = 0
-      for (var i = 0; i < 24; i++) {
+      for (var uploadIndex = 0; uploadIndex < 24; uploadIndex++) {
         var callback = function(result, error) { if (error) failed++; else completed++ }
-        if (i % 3 === 0) backend.parseMessage("Subject: Test\r\n\r\nbody", callback)
-        else if (i % 3 === 1) backend.putBodyCache("test@example.org", "id-" + i, { text: "body" }, callback)
+        if (uploadIndex % 3 === 0) backend.parseMessage("Subject: Test\r\n\r\nbody", callback)
+        else if (uploadIndex % 3 === 1) backend.putBodyCache("test@example.org", "id-" + uploadIndex, { text: "body" }, callback)
         else backend.call("message.prepare", {text: "x".repeat(210000)}, callback)
       }
       compare(requests(process).length, 9, "only eight upload reservations may start")
       var cursor = 1
       while (cursor < requests(process).length) {
         var request = requests(process)[cursor++]
-        var params = request.params
+        var parameters = request.params
         if (request.method === "upload.begin") {
           verify(Object.keys(uploads).length < 8)
           var id = "upload-" + (++nextUpload)
           uploads[id] = true
           reply(process, request, { upload: id, chunkSize: 65536 })
         } else if (request.method === "upload.append") {
-          verify(uploads[params.upload])
-          reply(process, request, { offset: params.offset + Math.floor(params.data.length * 3 / 4) })
+          verify(uploads[parameters.upload])
+          reply(process, request, { offset: parameters.offset + Math.floor(parameters.data.length * 3 / 4) })
         } else {
-          verify(uploads[params.upload])
-          delete uploads[params.upload]
+          verify(uploads[parameters.upload])
+          delete uploads[parameters.upload]
           reply(process, request, { ok: true })
         }
       }
@@ -152,11 +366,11 @@ Item {
       var callbacks = 0
       var handle = backend.call("cache.resourcePut", {text:"x".repeat(210000)}, function() { callbacks++ })
       reply(process, requests(process)[1], {upload:"cancel-commit",chunkSize:65536})
-      for (var i = 1; i <= 3; i++)
-        reply(process, requests(process)[i + 1], {offset:i * 65536})
+      for (var chunkIndex = 1; chunkIndex <= 3; chunkIndex++)
+        reply(process, requests(process)[chunkIndex + 1], {offset:chunkIndex * 65536})
       var lastAppend = requests(process)[5]
       compare(lastAppend.method, "upload.append")
-      for (var j = 0; j < 80; j++) backend.call("gmail.read", {id:j}, function() {})
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++) backend.call("gmail.read", {id:requestIndex}, function() {})
       reply(process, lastAppend, {offset:210011})
       handle.cancel()
       var discarded = false
@@ -176,8 +390,8 @@ Item {
       var process = makeReady(backend)
       var callbacks = 0
       function done(result, error) { verify(error !== null); callbacks++ }
-      for (var i = 0; i < 80; i++) backend.call("gmail.read", {id:i}, done)
-      for (var j = 0; j < 12; j++) backend.parseMessage("body", done)
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++) backend.call("gmail.read", {id:requestIndex}, done)
+      for (var uploadIndex = 0; uploadIndex < 12; uploadIndex++) backend.parseMessage("body", done)
       var before = requests(process)
       backend.stopForFailure("Backend stopped")
       compare(callbacks, 92)
@@ -193,11 +407,11 @@ Item {
     function test_queued_request_keeps_its_original_payload() {
       var backend = makeBackend()
       var process = makeReady(backend)
-      for (var i = 0; i < 64; i++) backend.call("providers.list", {}, function() {})
-      var params = {accountId:"first@example.org", resource:{subject:"original"}}
-      backend.call("cache.resourcePut", params, function() {})
-      params.accountId = "second@example.org"
-      params.resource.subject = "changed"
+      for (var requestIndex = 0; requestIndex < 64; requestIndex++) backend.call("providers.list", {}, function() {})
+      var parameters = {accountId:"first@example.org", resource:{subject:"original"}}
+      backend.call("cache.resourcePut", parameters, function() {})
+      parameters.accountId = "second@example.org"
+      parameters.resource.subject = "changed"
       reply(process, requests(process)[1], {})
       var written = requests(process)[65].params
       compare(written.accountId, "first@example.org")
@@ -209,7 +423,7 @@ Item {
       var process = makeReady(backend)
       var callbacks = 0
       function done() { callbacks++ }
-      for (var i = 0; i < 8; i++) backend.parseMessage("body", done)
+      for (var uploadIndex = 0; uploadIndex < 8; uploadIndex++) backend.parseMessage("body", done)
       backend.parseMessage("body", function() { callbacks++; throw new Error("receiver gone") })
       backend.parseMessage("body", done)
       ignoreWarning("Backend upload callback failed")
@@ -228,8 +442,8 @@ Item {
     }
 
     function processOf(backend) {
-      for (var i = 0; i < backend.children.length; i++) {
-        var child = backend.children[i]
+      for (var childIndex = 0; childIndex < backend.children.length; childIndex++) {
+        var child = backend.children[childIndex]
         if (child.command && child.command.length === 2
             && child.command[1] === "serve") return child
       }
@@ -238,8 +452,8 @@ Item {
     }
 
     function deadlineOf(backend) {
-      for (var i = 0; i < backend.data.length; i++) {
-        var child = backend.data[i]
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
         if (child.interval === 5000 && child.repeat === false) return child
       }
       fail("No backend shutdown deadline")
@@ -247,19 +461,28 @@ Item {
     }
 
     function stopConfirmationOf(backend) {
-      for (var i = 0; i < backend.data.length; i++) {
-        var child = backend.data[i]
-        if (child.interval === 1000 && child.repeat === false) return child
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
+        if (child.interval === 1000 && child.repeat === false && child.objectName !== "backend-reconnect-delay") return child
       }
       fail("No backend stop confirmation deadline")
+      return null
+    }
+
+    function restartDeadlineOf(backend) {
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
+        if (child.interval === 10000 && child.repeat === false) return child
+      }
+      fail("No backend restart deadline")
       return null
     }
 
     function requests(process) {
       var lines = process.written.split("\n")
       var result = []
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i] !== "") result.push(JSON.parse(lines[i]))
+      for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        if (lines[lineIndex] !== "") result.push(JSON.parse(lines[lineIndex]))
       }
       return result
     }
@@ -285,10 +508,34 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.2",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.ready, true)
       return process
+    }
+
+    function test_partial_unreleased_backend_refuses_local_mutation_before_dispatch() {
+      var hash = "a".repeat(64)
+      var backend = createTemporaryObject(backendFactory, parent, {
+        expectedApiVersion: 7, latestApiVersion: 8, expectedContractHash: hash,
+        unreleasedMethods: ["local.edit"] })
+      var process = start(backend)
+      reply(process, requests(process)[0], {
+        protocol:1, version:"0.8.2", apiVersion:8,
+        methods:["system.info", "system.quit", "gmail.trash"] }, null)
+      verify(backend.ready)
+      compare(backend.apiVersion, 7)
+      verify(backend.needsUpdate)
+      var failure
+      backend.call("local.edit", {accountId:"synthetic@example.test", ids:["message"]},
+        function(result,error) {failure=error})
+      compare(failure.message,"backend_needs_update")
+      compare(requests(process).length,1,"the unsupported mutation must not be written")
+      backend.call("gmail.trash", {accountId:"synthetic@example.test", id:"message"}, function(){})
+      compare(requests(process).length,2)
+      compare(requests(process)[1].method,"gmail.trash")
     }
 
     function test_business_call_is_not_written_before_handshake() {
@@ -363,7 +610,9 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.1",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.ready, false)
       compare(backend.failure, "Incompatible backend")
@@ -382,7 +631,9 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.1",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.shutdownFinished, false,
         "a disconnected failure still waits for process exit acknowledgement")
@@ -453,6 +704,211 @@ Item {
       process.exited(1)
       verify(stoppedWith !== null)
       compare(stoppedWith.message, "Backend stopped")
+    }
+
+    function test_engine_restart_reconnects_without_replaying_requests() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      var failed = null
+      backend.call("gmail.sendAs", {}, function(result, error) { failed = error })
+      process.exited(0)
+      compare(failed.message, "Backend stopped")
+      compare(backend.ready, false)
+      compare(process.running, false)
+      compare(backend.reconnectDelayMs, 1000)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.failure, "")
+      process.written = ""
+      process.started()
+      compare(requests(process).length, 1)
+      compare(requests(process)[0].method, "system.info")
+      reply(process, requests(process)[0], {
+        name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
+        methods: ["system.info", "system.quit", "gmail.sendAs"]
+      }, null)
+      compare(backend.ready, true)
+      compare(backend.reconnecting, false)
+      compare(requests(process).length, 1, "the failed send is not sent again")
+      verify(backend.reconnectAttempts > 0, "one handshake does not end the back-off")
+      namedTimer(backend, "backend-reconnect-stable").triggered()
+      compare(backend.reconnectAttempts, 0)
+    }
+
+    function namedTimer(backend, name) {
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++)
+        if (backend.data[childIndex].objectName === name) return backend.data[childIndex]
+      fail("No timer " + name)
+      return null
+    }
+
+    function answer(process, version) {
+      var all = requests(process)
+      reply(process, all[all.length - 1], {
+        name: "omamail", apiVersion: 1, protocol: 1, version: version,
+        methods: ["system.info", "system.quit"]
+      }, null)
+    }
+
+    function test_a_routine_restart_raises_no_alarm_but_a_lasting_one_does() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      compare(backend.ready, false)
+      compare(backend.reconnecting, true)
+      namedTimer(backend, "backend-reconnect-grace").triggered()
+      namedTimer(backend, "backend-reconnect-grace").stop()
+      compare(backend.reconnecting, false, "an engine still away after the grace period is a real problem")
+    }
+
+    function test_an_engine_that_dies_after_its_handshake_still_backs_off() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      process.written = ""
+      process.started()
+      answer(process, "0.8.2")
+      compare(backend.ready, true)
+      process.exited(0)
+      compare(backend.reconnectDelayMs, 2000, "the pause keeps growing")
+      compare(backend.reconnecting, false, "repeated deaths are not routine")
+    }
+
+    function test_reconnects_after_every_kind_of_failure_data() {
+      return [{tag:"crash-mid-response",bad:"{\"jsonrpc\""},{tag:"request-timed-out",message:"Backend request timed out"},
+        {tag:"handshake-failed",message:"Backend handshake failed"}]
+    }
+
+    function test_reconnects_after_every_kind_of_failure(data) {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      if (data.bad) backend.receive(data.bad)
+      else backend.stopForFailure(data.message)
+      verify(backend.failure !== "")
+      process.exited(1)
+      compare(process.running, false)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.failure, "")
+    }
+
+    function test_a_launch_that_never_started_is_tried_again() {
+      var backend = makeBackend()
+      wait(0)
+      var process = processOf(backend)
+      process.running = false
+      compare(backend.reconnecting, true)
+      tryCompare(process, "running", true, 3000)
+    }
+
+    function test_a_failed_start_after_a_good_launch_is_tried_again() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.processStarted, false, "the earlier launch no longer counts")
+      process.running = false
+      tryCompare(process, "running", true, 4000)
+    }
+
+    function test_no_retry_is_left_running_after_shutdown_or_restart() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      verify(namedTimer(backend, "backend-reconnect-delay").running)
+      backend.shutdown(function() {})
+      compare(namedTimer(backend, "backend-reconnect-delay").running, false)
+      compare(backend.reconnecting, false)
+      var restarted = makeBackend()
+      wait(0)
+      var other = makeReady(restarted)
+      other.exited(0)
+      verify(namedTimer(restarted, "backend-reconnect-delay").running)
+      restarted.restart(function() {})
+      compare(namedTimer(restarted, "backend-reconnect-delay").running, false)
+      compare(restarted.reconnecting, false)
+    }
+
+    function test_a_failed_restart_keeps_trying_to_reconnect() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      var error = null
+      backend.restart(function(failed) { error = failed })
+      reply(process, requests(process)[1], { quitReady: true }, null)
+      process.exited(0)
+      wait(0)
+      compare(process.running, true)
+      process.started()
+      process.exited(1)
+      verify(error !== null)
+      compare(process.running, false)
+      tryCompare(process, "running", true, 3000)
+    }
+
+    function test_restart_during_the_pause_leaves_a_refused_engine_refused() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      backend.restart(function() {})
+      wait(0)
+      compare(process.running, true)
+      process.written = ""
+      process.started()
+      answer(process, "0.0.1")
+      compare(process.running, false)
+      process.exited(0)
+      wait(1300)
+      compare(process.running, false, "the pending retry was cancelled")
+      compare(backend.failure, "Incompatible backend")
+      compare(backend.reconnecting, false)
+    }
+
+    function test_reconnect_keeps_trying_with_growing_pauses() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.reconnectAttempts, 1)
+      compare(backend.reconnectDelayMs, 2000)
+      process.started()
+      process.exited(1)
+      compare(process.running, false)
+      compare(backend.ready, false)
+      tryCompare(process, "running", true, 4000)
+      compare(backend.reconnectDelayMs, 4000)
+      backend.reconnectAttempts = 12
+      compare(backend.reconnectDelayMs, 30000)
+    }
+
+    function test_no_reconnect_after_a_refused_engine() {
+      var backend = makeBackend()
+      wait(0)
+      var process = start(backend)
+      reply(process, requests(process)[0], { name: "omamail", apiVersion: 1, protocol: 1, version: "0.0.1", methods: [] }, null)
+      compare(process.running, false)
+      process.exited(0)
+      wait(1300)
+      compare(process.running, false)
+      compare(backend.failure, "Incompatible backend")
+    }
+
+    function test_no_reconnect_once_shutting_down() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(1)
+      compare(process.running, false)
+      backend.shutdown(function() {})
+      wait(1300)
+      compare(process.running, false)
     }
 
     function test_shutdown_timeout_forces_stop_but_waits_for_exit_signal() {

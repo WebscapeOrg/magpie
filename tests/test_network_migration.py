@@ -3,8 +3,7 @@
 
 This source gate complements (never replaces) provider runtime/security tests.
 Run directly for the repository gate; --self-test tests the detector itself.
-Bootstrap release installation, external provisioning, browser links and official
-HEY supervision are documented separately in docs/NETWORK-MIGRATION.md.
+Bootstrap release installation, external provisioning, browser links are documented separately in docs/NETWORK-MIGRATION.md.
 """
 from pathlib import Path
 import re

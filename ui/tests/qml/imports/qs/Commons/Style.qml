@@ -8,14 +8,14 @@ QtObject {
   readonly property int focusBorderWidth: 1
   readonly property color normalBorderColor: normalBorderFor(Commons.Color.foreground, Commons.Color.accent)
   readonly property var font: ({
-    family: "monospace", iconFamily: "monospace", title: 22, heading: 18, body: 14, bodySmall: 13, caption: 11,
-    icon: 16, iconSmall: 14, iconLarge: 18
+    family: "monospace", iconFamily: "monospace", title: 22, heading: 18, body: 12, bodySmall: 11, caption: 10,
+    icon: 14, iconSmall: 11, iconLarge: 18
   })
   // Invariant: popup rows need the shell's nonzero height so pointer events
   // reach the menu instead of the controls underneath it.
   readonly property var spacing: ({
-    controlPaddingX: 8, controlPaddingY: 5, inputPaddingY: 5, tooltipPaddingX:8, tooltipPaddingY:5, huge:24, labelGap:6, dropdownWidth:240, lg:8, numberFieldWidth:96,
-    controlHeight: 30, controlGap: 6, sm: 3, md: 6, popupRowHeight: 28
+    controlPaddingX: 10, controlPaddingY: 6, inputPaddingY: 7, tooltipPaddingX:8, tooltipPaddingY:5, huge:24, labelGap:4, dropdownWidth:240, lg:8, numberFieldWidth:120,
+    controlHeight: 28, controlGap: 8, sm: 3, md: 6, popupRowHeight: 28
   })
 
   // Invariant: match the shell's rounded scaling. At scale 7/6, space(4) is 5

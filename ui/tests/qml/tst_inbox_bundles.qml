@@ -708,6 +708,7 @@ Item {
     }
 
     function test_the_offer_can_be_refused_however_narrow_the_row() {
+      narrowRow.width = 400
       narrowRow.summary = ({id:"front",from:{display:"A"},time:"09:14",bundleProposal:true,bundleQuestion:"Bundle these?"})
       waitForRendering(narrowRow)
       var buttons = findChild(narrowRow, "bundle-buttons")

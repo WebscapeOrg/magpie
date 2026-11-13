@@ -342,7 +342,7 @@ Item {
       verify(waitForRendering(popup))
       var field = findChild(popup, "agent-prompt-field")
       compare(findChild(popup, "agent-ask-button"), null)
-      verify(field.width > popup.width - 40)
+      compare(field.width, popup.width - 2 * MailStyle.space(12))
       var bottom = popup.height - field.mapToItem(popup, 0, field.height).y
       verify(bottom >= MailStyle.space(10) && bottom <= MailStyle.space(14), "bottom gap " + bottom)
       compare(findChild(popup, "agent-more-button"), null)

@@ -172,6 +172,7 @@ Rectangle {
       keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Tab)
       var ccButton = focused()
+      compare(ccButton.text, "+ Cc")
       mouseClick(ccButton, ccButton.width / 2, ccButton.height / 2)
       compare(host.selected, [host.contact, "cc"])
       compare(host.contactSelections, 1)

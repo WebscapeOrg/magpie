@@ -57,6 +57,7 @@ Item {
     property bool sidebarCollapsed: false
     property bool alwaysShowImages: false
     property bool unifiedCalendarView: false
+    property bool unified: false
     property bool selectedReaderEmpty: false
     property bool selectedReaderTooHeavy: false
     property bool selectedTooHeavy: false
@@ -288,6 +289,7 @@ Item {
       mailService.lastSavedDraft = null
       mailService.refuseMove = false
       mailService.accountCount = 1
+      mailService.unified = false
       mailService.providerId = "gmail"
       mailService.hasSavedAccounts = true
       mailService.anyAccountReady = true
@@ -707,26 +709,27 @@ Item {
       var oldHeight = host.height
       var oldMinimumWidth = host.minimumSize.width
       var oldMinimumHeight = host.minimumSize.height
-      var oldBody = Style.font.body
       try {
         var header = named(app, "app-title-bar")
         var search = named(app, "search-bar")
         var folder = named(app, "folder-button")
-        var menu = named(app, "app-menu-button")
-        Style.font.body = 12
+        var headerLeft = named(app, "header-account-button").parent
+        mailService.unified = true
         Style.spacingScale = 2
         Style.spacingScale = 1
         waitForRendering(app)
         host.width = 640
         host.height = 800
         waitForRendering(app)
-        compare(header.searchStacked, false, "search stays on the top row at 640 points")
+        compare(header.searchStacked, false, "search stays on the top row at 640 points with the unified All button")
+        verify(header.width - headerLeft.width - folder.parent.width - MailStyle.space(52)
+          - MailStyle.space(105) >= 10, "the real shell metrics leave genuine slack at 640 points")
         var searchRight = search.mapToItem(header, search.width, 0).x
         var folderLeft = folder.mapToItem(header, 0, 0).x
         verify(searchRight <= folderLeft, "the inline field does not touch the folder button")
         var searchLeft = search.mapToItem(header, 0, 0).x
-        var menuRight = menu.mapToItem(header, menu.width, 0).x
-        verify(searchLeft >= menuRight, "the inline field does not touch the menu button")
+        var leftRight = headerLeft.mapToItem(header, headerLeft.width, 0).x
+        verify(searchLeft >= leftRight, "the inline field does not touch the left controls")
         host.minimumSize = Qt.size(240, 480)
         host.width = 300
         waitForRendering(app)
@@ -743,7 +746,7 @@ Item {
         compare(host.minimumSize.height, oldMinimumHeight, "the original minimum height is restored")
         host.width = oldWidth
         host.height = oldHeight
-        Style.font.body = oldBody
+        mailService.unified = false
         waitForRendering(app)
       }
     }

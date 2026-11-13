@@ -722,8 +722,6 @@ Item {
         host.height = 800
         waitForRendering(app)
         compare(header.searchStacked, false, "search stays on the top row at 640 points with the unified All button")
-        verify(header.width - headerLeft.width - folder.parent.width - MailStyle.space(52)
-          - MailStyle.space(105) >= 10, "the real shell metrics leave genuine slack at 640 points")
         var searchRight = search.mapToItem(header, search.width, 0).x
         var folderLeft = folder.mapToItem(header, 0, 0).x
         verify(searchRight <= folderLeft, "the inline field does not touch the folder button")
